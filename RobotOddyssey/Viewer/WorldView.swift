@@ -8,29 +8,31 @@ struct WorldView: View {
 
     var body: some View {
         let room = world.room(model.selectedRoom)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                RoomHeader(model: model, room: room, code: world.codeRooms[room.id])
-                RoomCanvas(model: model, world: world)
-                    .focusable()
-                    .focused($focused)
-                    .focusEffectDisabled()
-                    .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
-                        switch press.key {
-                        case .upArrow: model.go(.up)
-                        case .downArrow: model.go(.down)
-                        case .leftArrow: model.go(.left)
-                        default: model.go(.right)
-                        }
-                        return .handled
+        VStack {
+            RoomHeader(model: model, room: room, code: world.codeRooms[room.id])
+            RoomCanvas(model: model, world: world)
+                .focusable()
+                .focused($focused)
+                .focusEffectDisabled()
+                .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
+                    switch press.key {
+                    case .upArrow: model.go(.up)
+                    case .downArrow: model.go(.down)
+                    case .leftArrow: model.go(.left)
+                    default: model.go(.right)
                     }
-                Text("Rooms").font(.headline)
-                RoomMap(model: model, world: world)
+                    return .handled
+                }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Rooms").font(.headline)
+                    RoomMap(model: model, world: world)
+                }
+                .padding()
             }
-            .padding()
+            .navigationTitle(world.name)
+            .onAppear { focused = true }
         }
-        .navigationTitle(world.name)
-        .onAppear { focused = true }
     }
 }
 
