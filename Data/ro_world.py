@@ -11,6 +11,7 @@ A world is the memory image $6000-$94FF.  Layout (see Docs/WorldFormat.md):
   $8200 robot table, $861C wire tables, $8EF0 level code/data
 """
 from cpu6502 import CPU
+from dis6502 import OPS, _modes as MODE_LENGTH
 from ro_catalog import WORLDS, WORLD_BY_ID, ENGINE_MAIN, ENGINE_LEVELS
 from ro_disk import Disk
 
@@ -49,19 +50,54 @@ def load_segments(diskset, mem, segments):
         mem[addr:addr + len(data)] = data
 
 
-def run_exit_script(mem, entry):
+def find_exit_entry(mem):
+    """Entry of the level's exit code, or None (level 5 has none).
+
+    The exit code ends with LDY #next / JMP handler, where the handler starts
+    LDA #$02 / STA $02D0.  Its entry is the lowest address before that point
+    which is the target of a JMP/JSR from elsewhere and from which straight-line
+    code (no RTS/RTI/BRK, no JMP away) runs into the LDY.  The addresses differ
+    between v1.0 and v1.1 (e.g. level 2: $0B6F vs $0B76).
+    """
+    m = bytes(mem)
+    handler = m.find(bytes.fromhex("A9028DD002"), 0x0803, 0x2000)
+    if handler < 0:
+        return None
+    jmp = bytes([0x4C, handler & 0xFF, handler >> 8])
+    regions = ((0x0803, 0x2000), (0x8EF0, 0x9500))
+    sites = [i - 2 for lo, hi in regions for i in range(lo + 2, hi - 2) if m[i:i + 3] == jmp and m[i - 2] == 0xA0]
+    if len(sites) != 1:
+        return None
+    site = sites[0]
+    targets = sorted({t for lo, hi in regions for i in range(lo, hi - 2) if m[i] in (0x4C, 0x20)
+                      for t in [m[i + 1] | m[i + 2] << 8] if site - 0x200 <= t <= site and not t <= i <= site})
+    for t in targets:
+        pc = t
+        while pc < site:
+            op = m[pc]
+            if op not in OPS or OPS[op][0] in ("RTS", "RTI", "BRK") or op == 0x6C:
+                break
+            if op == 0x4C and m[pc + 1] | m[pc + 2] << 8 != pc + 3:
+                break
+            pc += MODE_LENGTH[OPS[op][1]]
+        if pc == site:
+            return t
+    return None
+
+
+def run_exit_script(mem):
     """Run the level's exit code on the 6502 emulator (mem is modified).
 
     When the player leaves a level, its code rearranges the object table for
     the next level (moves objects in, parks the rest in room $3F, recolours
     the player...), shows a text screen, waits for a key and jumps to the
-    "next level" handler (LDA #$02 / STA $02D0).  We run it from `entry` with
-    ESC always pressed and stop at that handler.
+    "next level" handler (LDA #$02 / STA $02D0).  We run it with ESC always
+    pressed and stop at that handler.
     Returns {object: (old fields, new fields)} for the objects that changed.
     """
-    addr, expect = entry
-    if bytes(mem[addr:addr + len(expect) // 2]) != bytes.fromhex(expect):
-        raise ValueError(f"exit code not found at ${addr:04X}")
+    entry = find_exit_entry(mem)
+    if entry is None:
+        raise ValueError("exit code not found")
     handler = bytes(mem).find(bytes.fromhex("A9028DD002"), 0x0803, 0x2000)
     before = bytes(mem[0x6000:0x6A00])
     cpu = CPU(mem)
@@ -71,7 +107,7 @@ def run_exit_script(mem, entry):
     init_end = bytes(mem).find(bytes.fromhex("A9008D519C"), 0x0816, 0x0900) + 5
     cpu.call(0x0803, stop_at={init_end})
     cpu.sp = 0xFF
-    cpu.call(addr, stop_at={handler})
+    cpu.call(entry, stop_at={handler})
     changed = {}
     for i in range(NUM_OBJECTS):
         old = [before[k * 256 + i] for k in range(10)]
@@ -89,7 +125,7 @@ def build_world_memory(diskset, world_id, cache=None):
     w = WORLD_BY_ID[world_id]
     if "base" in w:
         mem = build_world_memory(diskset, w["base"], cache)
-        run_exit_script(mem, WORLD_BY_ID[w["base"]]["exit"])   # previous level's exit
+        run_exit_script(mem)                    # previous level's exit code
         mem[0x0803:0x2000] = bytes(0x2000 - 0x0803)
     else:
         mem = bytearray(0x10000)

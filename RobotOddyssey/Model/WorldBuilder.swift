@@ -52,10 +52,10 @@ struct WorldBuilder {
         if let m = cache[id] { return m }
         guard let def = GameCatalog.world(id) else { return [] }
         var mem: [UInt8]
-        if let baseID = def.base, let base = GameCatalog.world(baseID), let exit = base.exit {
+        if let baseID = def.base, let base = GameCatalog.world(baseID) {
             // Levels 2-5 inherit the object table left by the previous level's exit code.
             mem = try memory(for: baseID, cache: &cache)
-            try WorldBuilder.runExitCode(&mem, entry: exit, worldName: base.name)
+            try WorldBuilder.runExitCode(&mem, worldName: base.name)
             mem.replaceSubrange(0x0803 ..< 0x2000, with: repeatElement(0, count: 0x2000 - 0x0803))
         } else {
             mem = [UInt8](repeating: 0, count: 0x10000)
@@ -73,8 +73,8 @@ struct WorldBuilder {
     /// It moves objects in/out of the world (room $3F = nowhere), shows a text
     /// screen, waits for a key and jumps to the next-level handler
     /// (LDA #$02 / STA $02D0), where we stop.  ESC is reported as held down.
-    static func runExitCode(_ mem: inout [UInt8], entry: (address: Int, bytes: [UInt8]), worldName: String) throws {
-        guard Array(mem[entry.address ..< entry.address + entry.bytes.count]) == entry.bytes,
+    static func runExitCode(_ mem: inout [UInt8], worldName: String) throws {
+        guard let entry = exitEntry(in: mem),
               let handler = find([0xA9, 0x02, 0x8D, 0xD0, 0x02], in: mem, from: 0x0803, to: 0x2000),
               let initEnd = find([0xA9, 0x00, 0x8D, 0x51, 0x9C], in: mem, from: 0x0816, to: 0x0900)
         else { throw DiskError.exitCodeNotFound(worldName) }
@@ -83,8 +83,45 @@ struct WorldBuilder {
         // The level start-up code sets engine vectors used by the exit code.
         try cpu.call(0x0803, stopAt: [UInt16(initEnd + 5)])
         cpu.sp = 0xFF
-        try cpu.call(UInt16(entry.address), stopAt: [UInt16(handler)])
+        try cpu.call(UInt16(entry), stopAt: [UInt16(handler)])
         mem = cpu.mem
+    }
+
+    /// Entry of the level's exit code, or nil (level 5 has none).
+    ///
+    /// The exit code ends with LDY #next / JMP handler.  Its entry is the lowest
+    /// address before that which a JMP/JSR elsewhere targets and from which
+    /// straight-line code (no RTS/RTI/BRK, no JMP away) runs into the LDY.
+    /// The addresses differ between v1.0 and v1.1 (level 2: $0B6F vs $0B76).
+    static func exitEntry(in mem: [UInt8]) -> Int? {
+        guard let handler = find([0xA9, 0x02, 0x8D, 0xD0, 0x02], in: mem, from: 0x0803, to: 0x2000) else { return nil }
+        let regions = [0x0803 ..< 0x2000, 0x8EF0 ..< 0x9500]
+        let jmp: [UInt8] = [0x4C, UInt8(handler & 0xFF), UInt8(handler >> 8)]
+        let sites = regions.flatMap { r in
+            (r.lowerBound + 2 ..< r.upperBound - 2).filter { Array(mem[$0 ..< $0 + 3]) == jmp && mem[$0 - 2] == 0xA0 }
+        }.map { $0 - 2 }
+        guard sites.count == 1, let site = sites.first else { return nil }
+        var targets = Set<Int>()
+        for r in regions {
+            for i in r.lowerBound ..< r.upperBound - 2 where mem[i] == 0x4C || mem[i] == 0x20 {
+                let t = Int(mem[i + 1]) | Int(mem[i + 2]) << 8
+                if (site - 0x200 ... site).contains(t), !(t ... site).contains(i) { targets.insert(t) }
+            }
+        }
+        for t in targets.sorted() {
+            var pc = t
+            scan: while pc < site {
+                guard let info = CPU6502.table[Int(mem[pc])] else { break }
+                switch info.op {
+                case .rts, .rti, .brk: break scan
+                case .jmp where info.mode == .ind: break scan
+                case .jmp where Int(mem[pc + 1]) | Int(mem[pc + 2]) << 8 != pc + 3: break scan
+                default: pc += CPU6502.length(info.mode)
+                }
+            }
+            if pc == site { return t }
+        }
+        return nil
     }
 
     static func find(_ pattern: [UInt8], in mem: [UInt8], from: Int, to: Int) -> Int? {

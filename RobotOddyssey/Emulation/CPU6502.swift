@@ -282,6 +282,15 @@ final class CPU6502 {
         case rol, ror, rti, rts, sbc, sec, sed, sei, sta, stx, sty, tax, tay, tsx, txa, txs, tya
     }
 
+    /// Instruction length in bytes for an addressing mode.
+    static func length(_ mode: Mode) -> Int {
+        switch mode {
+        case .imp, .acc: 1
+        case .abs, .abx, .aby, .ind: 3
+        default: 2
+        }
+    }
+
     struct OpInfo {
         let op: Op
         let mode: Mode

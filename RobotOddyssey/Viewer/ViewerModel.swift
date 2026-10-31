@@ -94,7 +94,8 @@ final class ViewerModel {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// Pair program disk sides by version, build all worlds, then the saved games.
+    /// Pair program disk sides (same version, same file name apart from the side
+    /// letter/digit, e.g. ROBOT-1/ROBOT-2), build all worlds, then the saved games.
     private func rebuild(extraMessages: [String]) {
         var notes = extraMessages
         var sets: [String: DiskSet] = [:]
@@ -102,26 +103,35 @@ final class ViewerModel {
         for d in disks {
             switch d.role {
             case .programSide(let side, let version):
-                var set = sets[version] ?? DiskSet(version: version)
+                let key = "\(version)|\(ViewerModel.stem(d.name))"
+                var set = sets[key] ?? DiskSet(version: version)
                 if side == .a, set.sideA == nil { set.sideA = d }
                 if side == .b, set.sideB == nil { set.sideB = d }
-                sets[version] = set
+                sets[key] = set
             case .storage:
                 storage.append(d)
             case .unknown:
                 notes.append("\(d.name): not recognized (only Robot Odyssey I v1.0/v1.1 is supported so far).")
             }
         }
-        var newGroups: [WorldGroup] = []
-        for (version, set) in sets.sorted(by: { $0.key > $1.key }) {
-            let (worlds, errors) = WorldBuilder(disks: set).buildAll(idPrefix: "v\(version)/")
-            notes += errors
-            if set.sideA == nil { notes.append("v\(version): side A missing – Robotropolis levels unavailable.") }
-            if set.sideB == nil { notes.append("v\(version): side B missing – tutorials and lab unavailable.") }
-            newGroups.append(WorldGroup(id: version, title: set.title, worlds: worlds))
+        // Single sides with differently named partners of the same version belong together.
+        for (key, set) in sets where set.sideB == nil {
+            if let (otherKey, other) = sets.first(where: { $0.key != key && $0.value.sideA == nil && $0.value.version == set.version }) {
+                sets[key]?.sideB = other.sideB
+                sets[otherKey] = nil
+            }
         }
-        if let set = sets.sorted(by: { $0.key > $1.key }).first?.value {
-            let reference = newGroups.first?.worlds.filter { $0.kind == .level || $0.kind == .lab } ?? []
+        var newGroups: [WorldGroup] = []
+        let ordered = sets.sorted { ($0.value.version, $1.key) > ($1.value.version, $0.key) }
+        for (key, set) in ordered {
+            let (worlds, errors) = WorldBuilder(disks: set).buildAll(idPrefix: "\(key)/")
+            notes += errors
+            if set.sideA == nil { notes.append("\(set.title): side A missing – Robotropolis levels unavailable.") }
+            if set.sideB == nil { notes.append("\(set.title): side B missing – tutorials and lab unavailable.") }
+            newGroups.append(WorldGroup(id: key, title: set.title, worlds: worlds))
+        }
+        if let (key, set) = ordered.first(where: { $0.value.sideA != nil }) {
+            let reference = newGroups.first { $0.id == key }?.worlds.filter { $0.kind == .level || $0.kind == .lab } ?? []
             for disk in storage {
                 let games = WorldBuilder(disks: set).savedGames(on: disk, reference: reference)
                 newGroups.append(WorldGroup(id: "save:\(disk.md5)", title: "Saved games – \(disk.name)", worlds: games))
@@ -135,6 +145,13 @@ final class ViewerModel {
         if selectedWorld == nil {
             selectedWorldID = groups.first?.worlds.first?.id
         }
+    }
+
+    /// File name without extension and without a trailing side marker (a/b/1/2).
+    static func stem(_ name: String) -> String {
+        var s = (name as NSString).deletingPathExtension
+        if let last = s.last, "aAbB12".contains(last) { s.removeLast() }
+        return s
     }
 
     // MARK: navigation

@@ -20,7 +20,11 @@ struct DiskImage {
         guard data.count == DiskImage.size else { throw DiskError.notADiskImage(name) }
         self.name = name
         self.data = [UInt8](data)
-        md5 = Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        md5 = DiskImage.md5(data)
+    }
+
+    static func md5<D: DataProtocol>(_ data: D) -> String {
+        Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
     func page(_ n: Int) -> ArraySlice<UInt8> {

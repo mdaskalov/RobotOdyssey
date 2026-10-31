@@ -10,7 +10,7 @@ v2.0 (three sides) is different; see the end.
 | Ro1v11b.dsk | 1.1 | B | 3ade4e78583155e49bd0d08b8c0adf5e |
 | Ro1v10a.dsk | 1.0 | A | 0080e4fc5d65afc7ba39854584aa7b0c |
 | Ro1v10b.dsk | 1.0 | B | fd5a8ca79eb416803e62116af11d71d7 |
-| ROBOT-1/2.DSK, RobotOdyssey1/2.dsk | 1.0 dumps | A/B | same layout |
+| ROBOT-1/2.DSK, RobotOdyssey1/2.dsk, Robots_1/2.dsk | 1.0 | A/B | other cracks of v1.0, same data |
 | Ro1v20a/b/c.dsk | 2.0 | A/B/C | other layout |
 | DATAV10/11/20.DSK | – | storage | blank storage diskettes |
 
@@ -89,16 +89,20 @@ code runs an *exit script* that moves objects into the next level’s rooms and
 parks the rest in room $3F (“nowhere”), then sets `$02D0=2` (next level),
 `$02D1=n` and restarts the loader:
 
-| Exit script | Address |
-|---|---|
-| Level 1 → 2 | $0B93 (table of 6 objects at $0B7B) |
-| Level 2 → 3 | $0B76 (16 objects) |
-| Level 3 → 4 | $93BD (in the $8EF0 segment) |
-| Level 4 → 5 | $0AFC (parks everything not carried, brings in 33 objects) |
+| Exit script | v1.1 | v1.0 |
+|---|---|---|
+| Level 1 → 2 (table of 6 objects) | $0B93 | $0B93 |
+| Level 2 → 3 (16 objects) | $0B76 | $0B6F |
+| Level 3 → 4 (in the $8EF0 segment) | $93BD | $93BC |
+| Level 4 → 5 (parks everything not carried, brings in 33 objects) | $0AFC | $0AFC |
 
 The viewer/extractor rebuild levels 2‑5 by running these scripts on a 6502
 emulator, so they show the state of a level entered from an untouched
-previous level.
+previous level. The entries are found in the code
+(`ro_world.find_exit_entry`, `WorldBuilder.exitEntry`): the exit code ends
+with the only `LDY #next / JMP handler` (handler = `LDA #$02 / STA $02D0`),
+and its entry is the lowest JMP/JSR target before it from which straight‑line
+code runs into that `LDY`.
 
 ## Storage diskette (saved games)
 
@@ -117,6 +121,28 @@ Restoring loads these and then reloads the level code at $0803 selected by the
 header’s world index (0‑4 = levels 1‑5, 5 = lab). In the sample disk the Level 2
 save has index 0, so the viewer identifies a save’s level by comparing room
 walls instead.
+
+## Copy protection and the dumps
+
+Track 1 holds a nibble pattern a `.dsk` cannot store (`D5 E7 E7 E7`, then
+`FC EE EE FC E7 EE FC E7`), checked at boot ($5D58, result in bit 7 of $03FE)
+and when the menu starts ($6255, result in $02CE). Starting a world sets
+`$9C4E = $03FE AND $02CE`; the level code skips $F7BE/$F5C2 (Level 1 main loop
+$08DA) when the flag is clear. Boot stage 2 also sets the reset vector
+$03F2/$03F3 to $C600, which the game uses to return to its loader.
+
+All the .dsk files are cracked, each differently (details and a ranking in
+`README.md` next to the disk images): Ro1v11 and Ro1v10 turn the failure
+path into success (`SEC`), Ro1v10 and RobotOdyssey also force $9C4E in the
+loader, ROBOT‑1/2 (“(K) 1985 MR. CLEAN”) removes the retry loop, and
+Robots_1/2 removes the reset vector and patches only some of the
+`JMP ($03F2)` exits (levels 2‑5 are missed). Version fingerprints that the
+cracks leave alone: MD5 of side A pages 383‑399 and side B pages 196‑211
+(`GameCatalog.fingerprints`).
+
+v1.1 is a bug‑fix release of v1.0: engine ($D000/$F000), loader, menu,
+title pictures and level code changed; world data differs only on 3 pages of
+Level 2, 1 of Level 4 and 1 of the Lab Tutorial.
 
 ## Version 2.0
 

@@ -24,9 +24,7 @@ ENGINE_LEVELS = [("A", 247, 0x1A50, _len(5, 164)),
                  ("A", 290, 0xF000, _len(15, 244))]
 
 # The world data lives at $6000-$94FF.  Code for a world is loaded at $0803
-# (and sometimes $0B00/$14C0); see Docs/WorldFormat.md.  "exit" is the entry of
-# the level code that runs when the player leaves for the next level (it
-# rearranges the object table), with the bytes expected there.
+# (and sometimes $0B00/$14C0); see Docs/WorldFormat.md.
 WORLDS = [
     {
         "id": "level1", "name": "Level 1 - City Sewer", "side": "A", "kind": "level",
@@ -34,7 +32,6 @@ WORLDS = [
                      ("A", 253, 0x8200, _len(12, 217)),
                      ("A", 357, 0x8EF0, _len(5, 2))],
         "code": [("A", 340, 0x0803, _len(16, 223))],
-        "exit": (0x0B93, "A9078D0062"),
     },
     # Levels 2-5 only load rooms/walls/text ($6E40-$81FF) and level code.
     # The object table is inherited from the previous level, modified by that
@@ -43,19 +40,16 @@ WORLDS = [
         "id": "level2", "name": "Level 2 - Subway", "side": "A", "kind": "level", "base": "level1",
         "segments": [("A", 363, 0x6E40, _len(19, 192)), ("A", 400, 0x8EF0, _len(1, 63))],
         "code": [("A", 383, 0x0803, _len(16, 103))],
-        "exit": (0x0B76, "A9078D0062"),
     },
     {
         "id": "level3", "name": "Level 3 - Town", "side": "A", "kind": "level", "base": "level2",
         "segments": [("A", 402, 0x6E40, _len(19, 192)), ("A", 441, 0x8EF0, _len(5, 249))],
         "code": [("A", 422, 0x0803, _len(18, 44))],
-        "exit": (0x93BD, "A9078D0062"),
     },
     {
         "id": "level4", "name": "Level 4 - Master Computer Center", "side": "A", "kind": "level", "base": "level3",
         "segments": [("A", 447, 0x6E40, _len(19, 192)), ("A", 484, 0x8EF0, _len(5, 97))],
         "code": [("A", 467, 0x0803, _len(16, 98))],
-        "exit": (0x0AFC, "20B61D"),
     },
     {
         "id": "level5", "name": "Level 5 - Skyways", "side": "A", "kind": "level", "base": "level4",

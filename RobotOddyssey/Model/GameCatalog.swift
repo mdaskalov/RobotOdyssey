@@ -32,8 +32,6 @@ struct WorldDefinition {
     var base: String?
     let segments: [Segment]
     let code: [Segment]
-    /// Entry of the code run when leaving for the next level, and the bytes expected there.
-    var exit: (address: Int, bytes: [UInt8])?
 }
 
 /// Robot Odyssey I for the Apple II, versions 1.0 and 1.1 (two-sided program disk).
@@ -51,23 +49,19 @@ enum GameCatalog {
                         segments: [Segment(.a, 306, 0x6000, pages: 34, last: 0),
                                    Segment(.a, 253, 0x8200, pages: 12, last: 217),
                                    Segment(.a, 357, 0x8EF0, pages: 5, last: 2)],
-                        code: [Segment(.a, 340, 0x0803, pages: 16, last: 223)],
-                        exit: (0x0B93, [0xA9, 0x07, 0x8D, 0x00, 0x62])),
+                        code: [Segment(.a, 340, 0x0803, pages: 16, last: 223)]),
         WorldDefinition(id: "level2", name: "Level 2 – Subway", side: .a, kind: .level, base: "level1",
                         segments: [Segment(.a, 363, 0x6E40, pages: 19, last: 192),
                                    Segment(.a, 400, 0x8EF0, pages: 1, last: 63)],
-                        code: [Segment(.a, 383, 0x0803, pages: 16, last: 103)],
-                        exit: (0x0B76, [0xA9, 0x07, 0x8D, 0x00, 0x62])),
+                        code: [Segment(.a, 383, 0x0803, pages: 16, last: 103)]),
         WorldDefinition(id: "level3", name: "Level 3 – Town", side: .a, kind: .level, base: "level2",
                         segments: [Segment(.a, 402, 0x6E40, pages: 19, last: 192),
                                    Segment(.a, 441, 0x8EF0, pages: 5, last: 249)],
-                        code: [Segment(.a, 422, 0x0803, pages: 18, last: 44)],
-                        exit: (0x93BD, [0xA9, 0x07, 0x8D, 0x00, 0x62])),
+                        code: [Segment(.a, 422, 0x0803, pages: 18, last: 44)]),
         WorldDefinition(id: "level4", name: "Level 4 – Master Computer Center", side: .a, kind: .level, base: "level3",
                         segments: [Segment(.a, 447, 0x6E40, pages: 19, last: 192),
                                    Segment(.a, 484, 0x8EF0, pages: 5, last: 97)],
-                        code: [Segment(.a, 467, 0x0803, pages: 16, last: 98)],
-                        exit: (0x0AFC, [0x20, 0xB6, 0x1D])),
+                        code: [Segment(.a, 467, 0x0803, pages: 16, last: 98)]),
         WorldDefinition(id: "level5", name: "Level 5 – Skyways", side: .a, kind: .level, base: "level4",
                         segments: [Segment(.a, 490, 0x6E40, pages: 19, last: 192),
                                    Segment(.a, 529, 0x8EF0, pages: 5, last: 217)],
@@ -95,10 +89,14 @@ enum GameCatalog {
 
     static func world(_ id: String) -> WorldDefinition? { worlds.first { $0.id == id } }
 
-    /// Known dumps (MD5 of the .dsk file).
-    static let knownDisks: [String: (version: String, side: DiskSide)] = [
-        "0080e4fc5d65afc7ba39854584aa7b0c": ("1.0", .a), "fd5a8ca79eb416803e62116af11d71d7": ("1.0", .b),
-        "46f60717423e1e3fef68f18fc7229b87": ("1.1", .a), "3ade4e78583155e49bd0d08b8c0adf5e": ("1.1", .b),
+    /// Version fingerprints: MD5 of game code that the various cracked dumps
+    /// leave untouched (side A pages 383-399 = Level 2 code, side B pages
+    /// 196-211 = lab engine).  See the README next to the disk images.
+    static let fingerprints: [(side: DiskSide, pages: Range<Int>, md5: String, version: String)] = [
+        (.a, 383 ..< 400, "746986a031c024ecfe2dc5d4e7a8babe", "1.0"),
+        (.a, 383 ..< 400, "2ccd4a7f20f79a58293bd5543566e024", "1.1"),
+        (.b, 196 ..< 212, "3ddfbca61cfecb97a18af2d8221122d4", "1.0"),
+        (.b, 196 ..< 212, "01ccdab608976ab81aedc559afa4f11c", "1.1"),
     ]
 }
 
@@ -117,11 +115,13 @@ extension DiskImage {
     }
 
     var role: DiskRole {
-        if let known = GameCatalog.knownDisks[md5] {
-            return .programSide(known.side, version: known.version)
+        let side: DiskSide? = hasWorld(atPage: 306) ? .a : (hasWorld(atPage: 228) && hasWorld(atPage: 396) ? .b : nil)
+        if let side {
+            let version = GameCatalog.fingerprints.first { f in
+                f.side == side && DiskImage.md5(read(page: f.pages.lowerBound, length: f.pages.count * 256)) == f.md5
+            }?.version
+            return .programSide(side, version: version ?? "1.x")
         }
-        if hasWorld(atPage: 306) { return .programSide(.a, version: "1.x") }
-        if hasWorld(atPage: 228) && hasWorld(atPage: 396) { return .programSide(.b, version: "1.x") }
         // Storage diskettes boot with a "please insert the program disk" sector.
         if data.prefix(6) == [0x01, 0xA6, 0x2B, 0xBD, 0x88, 0xC0] { return .storage }
         return .unknown
