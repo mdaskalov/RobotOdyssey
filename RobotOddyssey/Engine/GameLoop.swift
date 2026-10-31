@@ -2,10 +2,11 @@ import Foundation
 
 /// A world's main loop running as in the game: tick after tick, the original
 /// 6502 code with the native routines, from the state after the world's
-/// start-up code (`GameScreen.loop`).  No keys are pressed, so the player
-/// stays where the world puts it, but everything else runs: robots, circuits
-/// and the world's own code.  Run it by CPU cycles (`run(until:)`) and show
-/// the page on screen, like the Apple II: a tick takes as long as its work.
+/// start-up code (`GameScreen.loop`).  Everything runs: the player by the
+/// keys typed (`devices`), robots, circuits and the world's own code.  Run it
+/// by CPU cycles (`run(until:)`) and show the page on screen, like the
+/// Apple II: a tick takes as long as its work.  It stops where the world
+/// hands back to the loader (`exit`): the menu, the next level, saving.
 ///
 /// The viewer may look at any room: on arriving at the draw phase, `room`
 /// replaces the room the loop chose (the player's), and the loop's room goes
@@ -33,6 +34,27 @@ final class GameLoop {
     private var drawing: Int?
     /// The loop's own `CUR_ROOM` while the draw phase draws `room`.
     private var loopRoom: UInt8?
+    /// The world's `JMP ($03F2)`, back to the loader.
+    private let exitJump: Int?
+    /// Where the loop stopped, handing back to the loader.
+    private(set) var exit: Exit?
+
+    /// The world's request to the loader.
+    struct Exit: CustomStringConvertible {
+        /// $02D0: 1 the menu, 2 the next level, 4 save the game, ...
+        let request: UInt8
+        /// $02D1: the level (or slot) it asks for.
+        let level: UInt8
+
+        var description: String {
+            switch request {
+            case 1: "back to the menu"
+            case 2: "on to the next level ($02D1 = \(level))"
+            case 4: "to save the game"
+            default: "to the loader ($02D0 = \(request), $02D1 = \(level))"
+            }
+        }
+    }
 
     init(machine: Machine, phase: DrawPhase, room: Int?) {
         self.machine = machine
@@ -40,9 +62,16 @@ final class GameLoop {
         self.room = room
         machine.cpu.pc = UInt16(phase.loopStart)
         tickStart = machine.copy()
+        exitJump = WorldBuilder.find([0x6C, 0xF2, 0x03], in: machine.cpu.mem, from: 0x0803, to: 0x2000)
     }
 
     var cycles: UInt64 { machine.cpu.cycles }
+
+    /// The keyboard, joystick and buttons the game reads.
+    var devices: InputDevices {
+        get { machine.devices }
+        set { machine.devices = newValue }
+    }
 
     /// Main RAM as the CPU sees it, and language card bank 1.
     var memory: [UInt8] { machine.cpu.mem }
@@ -54,15 +83,18 @@ final class GameLoop {
     /// The hi-res page on screen.
     func screen() -> HiresScreen { machine.shownScreen() }
 
-    /// Runs until the cycle counter reaches `cycles`.
+    /// Runs until the cycle counter reaches `cycles` (or the world exits).
     func run(until cycles: UInt64) throws {
-        while machine.cpu.cycles < cycles { try step() }
+        while exit == nil && machine.cpu.cycles < cycles { try step() }
     }
 
-    /// Runs to the start of the next tick.
-    func runTick() throws {
+    /// Runs to the start of the next tick (or the world's exit).  A tick
+    /// waiting for a key (a world's message) fails after `maxSteps`
+    /// instructions (`CPUError.tooManySteps`) and can go on later.
+    func runTick(maxSteps: Int = 20_000_000) throws {
         let t = ticks
-        for _ in 0 ..< 20_000_000 {
+        for _ in 0 ..< maxSteps {
+            guard exit == nil else { return }
             try step()
             if ticks != t { return }
         }
@@ -79,6 +111,10 @@ final class GameLoop {
         let page = machine.shownPage
         try machine.cpu.step()
         if machine.shownPage != page { shownRoom = drawing }
+        if Int(machine.cpu.pc) == exitJump {
+            exit = Exit(request: machine.cpu.mem[0x02D0], level: machine.cpu.mem[0x02D1])
+            return
+        }
         switch Int(machine.cpu.pc) {
         case phase.loopStart:
             restoreRoom()                           // in case the draw phase was left early

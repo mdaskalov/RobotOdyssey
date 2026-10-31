@@ -29,7 +29,7 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 | `ro_symbols.py` | generate the Mariani/AppleWin symbol files |
 | `ro_chips.py` | find the chips (program disks: the loaders' set‑up; save state; storage disk: every saved game) and disassemble them |
 | `ro_chip_disasm.py` | Micah Dowty's chip disassembler (PC CHP/CSV files, same bytecode as the Apple II; MIT licence, ported to Python 3) |
-| `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, every world's main loop tick by tick, and direct calls on random robot states (memory byte for byte) |
+| `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, every world's main loop tick by tick (without input, and 300 ticks with the same keys, joystick moves and buttons fed to both), and direct calls on random robot states and on random objects, moves, walls, keys and joystick positions (memory byte for byte; registers and flags too for the object motion and input routines) |
 | `cpu6502.py` | NMOS 6502 emulator with cycle counting (the Swift `CPU6502` mirrors it) |
 | `dis6502.py` | small disassembler: `dis6502.py FILE START END [BASE]` |
 | `hexdump.py` | hex dump with Apple text column: `hexdump.py FILE START END [BASE]` |

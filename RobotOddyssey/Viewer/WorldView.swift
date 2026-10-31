@@ -14,17 +14,20 @@ struct WorldView: View {
                 .focusable()
                 .focused($focused)
                 .focusEffectDisabled()
-                .onKeyPress(keys: [.upArrow, .downArrow, .leftArrow, .rightArrow]) { press in
+                .onKeyPress(phases: [.down, .repeat]) { press in
+                    if model.playing {
+                        guard let code = AppleKeyboard.code(for: press) else { return .ignored }
+                        model.type(code)
+                        return .handled
+                    }
                     switch press.key {
                     case .upArrow: model.go(.up)
                     case .downArrow: model.go(.down)
                     case .leftArrow: model.go(.left)
-                    default: model.go(.right)
+                    case .rightArrow: model.go(.right)
+                    case .space: model.paused.toggle()
+                    default: return .ignored
                     }
-                    return .handled
-                }
-                .onKeyPress(.space) {
-                    model.paused.toggle()
                     return .handled
                 }
                 .task(id: "\(world.id)#\(model.renderer.rawValue)#\(model.restarts)") {
@@ -139,6 +142,9 @@ struct RoomCanvas: View {
 
     private func hoverText(objects: [Int]) -> String {
         guard let (x, y) = hover, (0 ..< 140).contains(x), (0 ..< 192).contains(y) else {
+            if model.playing {
+                return "Playing: I J K M or the arrow keys move (Ctrl or Shift: slowly) · space picks up and drops · ? hints · Esc quits"
+            }
             return "Hover for coordinates · click an object to select it · arrow keys follow exits · space pauses"
         }
         var s = String(format: "x=$%02X y=$%02X   tile column %d row %d", x, y, x * 2 / 14, (191 - y) / 16)
@@ -204,6 +210,34 @@ private struct RoomMap: View {
                 .help(roomTitle(r) + (isCode ? " – 6502 code" : ""))
             }
         }
+    }
+}
+
+/// The Apple IIe key code (bit 7 set) for a key typed on the Mac: characters
+/// as ASCII, Ctrl + letter as its control code, Return, Esc, Tab; Delete
+/// as ← ($88).  The arrow keys move like I J K M, with Shift slowly like
+/// Ctrl-I J K M, as the arrow keys of the PC version do (the Apple's own arrow
+/// keys send ^H ^U ^K ^J, which the game reads as other keys).
+enum AppleKeyboard {
+    static func code(for press: KeyPress) -> UInt8? {
+        guard !press.modifiers.contains(.command) else { return nil }
+        let slowly = press.modifiers.contains(.shift) || press.modifiers.contains(.control)
+        switch press.key {
+        case .upArrow: return slowly ? 0x89 : 0xC9
+        case .downArrow: return slowly ? 0x8D : 0xCD
+        case .leftArrow: return slowly ? 0x8A : 0xCA
+        case .rightArrow: return slowly ? 0x8B : 0xCB
+        case .return: return 0x8D
+        case .escape: return 0x9B
+        case .tab: return 0x89
+        case .delete: return 0x88
+        case .space: return 0xA0
+        default: break
+        }
+        guard let c = press.characters.unicodeScalars.first, c.isASCII else { return nil }
+        var v = UInt8(c.value)
+        if press.modifiers.contains(.control), (0x40 ..< 0x80).contains(v) { v &= 0x1F }
+        return v | 0x80
     }
 }
 

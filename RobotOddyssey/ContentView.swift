@@ -29,6 +29,8 @@ struct ContentView: View {
                             .pickerStyle(.segmented)
                             .help("Game: the world's main loop running on the 6502 emulator. Static: tiles, texts, objects and wires only.")
                             if model.renderer == .game {
+                                Toggle("Play", systemImage: "gamecontroller", isOn: $model.playing)
+                                    .help("Play: the keyboard goes to the game (I J K M or the arrow keys, space, ?, Esc…) and the view follows the player")
                                 Button(model.paused ? "Run" : "Pause", systemImage: model.paused ? "play.fill" : "pause.fill") {
                                     model.paused.toggle()
                                 }

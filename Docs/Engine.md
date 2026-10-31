@@ -3,9 +3,8 @@
 Runs on a 128K Apple IIe but uses only the 64K main RAM (aux is untouched),
 including the language card. Graphics: hi‑res, double buffered (pages 1 and
 2, flipped every tick by $AEED). Input: keyboard, joystick/paddles
-($C061‑$C065, $C070). Sound: speaker $C030. The engine looks for a
-joystick at $AC24 (paddle 0's timer must run out after the $C070 strobe);
-without one it plays by keyboard.
+($C061‑$C065, $C070), an Apple mouse card – see "Input". Sound: speaker
+$C030.
 
 ## Memory map while playing
 
@@ -34,8 +33,8 @@ One loop iteration is one game tick. In order (names from
 `Data/RobotOdyssey.sym`; `_Q` = guess):
 
 ```
-$A90C READ_INPUT_Q        $0963 L1_KEY_COMMANDS      $DFA3 PLAYER_MOVE_Q
-$BEBC GRAB_BUTTON_Q       $1A50 KEY_T_HANDLER        $FE18 SAVE_MOVE_DELTA
+$A90C READ_INPUT          $0963 L1_KEY_COMMANDS      $DFA3 PLAYER_WALK_SPRITE
+$BEBC GRAB_BUTTON         $1A50 KEY_T_HANDLER        $FE18 KEEP_MOVE
 $1AB0 / $A5CD (only when $8DAA = 0)                  $0920 L1_HELD_CHANGED_Q
 $9C53 MOVE_LINKED_OBJECTS $BED6 / $BDE1 GRAB_LOGIC_Q $FE25 (if $8ED8 = $FF)
 $DE95 / $DF81 CRYSTALS_Q  $0CA8 / $918B / $10F8 level specific
@@ -62,6 +61,93 @@ up to opcode 7, so an empty chip must hold `07 FF FF FF` – the loader's job
 $8DAB mirrors the player's colour (object 0, $6200): 5 normally, 7 (white)
 after the toggle at $BEF4; the robot and circuit block runs only at 5. Both
 saved games on the sample storage disk are at 7.
+
+## Input
+
+**Devices.** At start‑up every world calls DETECT_JOYSTICK ($AC24): if paddle
+0's timer runs out after the $C070 strobe, INPUT_DEVICE ($9C3E) = 1
+(joystick); else if a slot holds an Apple mouse card ($Cn0C = $20, $CnFB =
+$D6), 2; else 0 (keyboard). The keyboard is always read, and in keyboard
+mode the paddles are too: the first change of the paddle values switches to
+the joystick, a key back to the keyboard. The mouse is read through the
+card's firmware ($ACD6).
+
+**READ_INPUT ($A90C)**, the first call of every world's main loop (Level 1
+skips it while FLAG_8ED8 is 0):
+
+1. READ_KEY ($AA25): one key per tick from $C000 (strobe cleared), lower‑case
+   letters made capitals (AND CASE_MASK $9C21 = $DF) → LAST_KEY ($9C3D), 0 if
+   none.
+2. READ_JOYSTICK ($AACB), keyboard mode included: strobe $C070, then count
+   rounds of a 24‑cycle loop while the timers run, at most 127 (paddle 0
+   read 14 cycles after the strobe, paddle 1 at 23; once one has run out the
+   loop keeps timing the other). The counts are doubled: PADDLE_X/Y
+   ($AAC9/$AACA), STICK_X ($9C39) and STICK_Y ($9C3A, upside down). Buttons:
+   button 1 alone → BUTTON_A ($9C3B), button 0 alone → BUTTON_B ($9C3C), both
+   → neither. A timer's 2816 cycles at position 255 give 116 rounds, so a
+   joystick reaches table entries 0‑14 only.
+3. Keyboard: KEY_AS_STICK ($AA40) centres the stick ($80/$80) and looks the
+   key up in MOVE_KEYS ($9C13, ten keys each world copies there at start‑up;
+   Level 1 from $080B): up, down, left, right, button A, button B, then
+   slowly up, down, left, right. A match sets the stick to an extreme ($00,
+   $FF) or near the centre ($3F, $C0), or a button, and uses the key up
+   (LAST_KEY = 0). A key that is not a movement key stays in LAST_KEY for the
+   world's own code.
+
+   | Key (all worlds) | Stick | Move |
+   |---|---|---|
+   | I / M | y $FF / $00 | 16 up / down |
+   | J / K | x $00 / $FF | 7 left / right |
+   | Ctrl‑I / Ctrl‑M | y $C0 / $3F | 1 up / down |
+   | Ctrl‑J / Ctrl‑K | x $3F / $C0 | 1 left / right |
+   | space | button B | |
+   | (button A: $01, never typed) | | |
+
+4. The move: MOVE_BY_KEY ($AB54) or MOVE_BY_STICK ($ABA1) look up the stick's
+   top four bits: MOVE_DX ($9C22) from $AB71 (keys: −7 −7 −1 −1 0… 1 1 7 7) or
+   $ABBE (joystick: −7 −4 −2 −1 −1 −1 0 0 0 0 1 1 1 2 4 7), MOVE_DY ($9C23)
+   from $AB81 (±16, ±1) or $ABCE (−15 −8 −4 −1 … 1 4 8 15). A held key
+   moves once per tick, since the Apple repeats keys faster than the 4‑7
+   ticks per second.
+5. LIMIT_MOVE ($ACF8, X = Y = $FF: no limit), then for the player (CUR_OBJECT
+   = 0): STOP_AT_WALLS ($AD40) unless WALLS_ON ($9C30) is 0, KEEP_ON_SCREEN
+   ($A934), MOVE_OBJECT ($9DB3).
+
+Right after it the levels call PLAYER_WALK_SPRITE ($DFA3; v1.0 $DFA4): the
+larger part of the move picks two frames (up 0/1, down 2/3, right 4/5,
+left 6/7, from PLAYER_SPRITES $BF30) and each tick toggles the step
+(WALK_FRAME $8ED7) into sprite 0; GRAB_BUTTON ($BEBC): GRAB_STATE ($8E3E) 0
+without a button (or both), 1 on a new press, unchanged while held (the grab
+code advances it); KEEP_MOVE ($FE18): the move to $8E88/$8E89. Then the
+world's own key commands read LAST_KEY (Level 1, $0963: `?` and `/` a hint,
+Esc "quit?", `L` with some objects held, …). A message waits for a key inside
+the tick ($0A77 polls $C000). Leaving a world goes through its only
+`JMP ($03F2)` to the loader, with the request in $02D0 (1 the menu, 2 the next
+level, 4 save the game, 5 …) and a level in $02D1.
+
+**Object motion** (engine main, used by the player's input, the robots and
+the worlds' code). Positions: x 0‑$85 (7 per tile), y 0‑$B0 from the bottom
+(16 per tile), 20 × 12 tiles; an object is a 7 × 16 box.
+
+* MOVE_OBJECT ($9DB3; MOVE_OBJECT_XY $9DB9 with X = room, Y = object): adds
+  the move; x of $D8 and more has left by the left edge (+$86, ROOM_LEFT),
+  $86 and more by the right one (−$86, ROOM_RIGHT); y likewise with $B1
+  (ROOM_DOWN, ROOM_UP). The room it ends in → DEST_ROOM ($9C2E), then
+  SET_OBJECT_ROOM ($9E07): out of the old room's object list, into the new
+  one's, which stays sorted by object number.
+* KEEP_ON_SCREEN ($A934): a move past the left/right edge goes exactly to it
+  ($FF/$86, SCREEN_EDGES $A979) and loses its vertical part; past the
+  bottom/top ($FF/$B1) its horizontal part.
+* STOP_AT_WALLS ($AD40): TEST_MOVE ($AE69) checks the box's four corners
+  after the move: bit 0 a wall (WALL_AT $B40B on the room's bitmap,
+  ROOM_WALLS_PTR $9D56: 30 bytes, three bands of four rows from the top,
+  a byte = two tile columns of 4 bits), bit 1 x ≥ $8C, bit 2 y ≥ $C0. On a
+  wall only, it keeps the longer part of the move and stops the shorter one
+  at the edge of the tile the object is in (STOP_AT_TILE_ROW $AE2A /
+  COLUMN $ADD5), then the other way round, else stops both. Bit 1 clears the
+  vertical move, bit 2 the horizontal one.
+* LIMIT_MOVE ($ACF8): at most X across, Y up or down (the worlds' code uses
+  it for other objects).
 
 ## Chips
 
@@ -162,21 +248,40 @@ The game runs as the original 6502 code on `CPU6502`, inside `Machine`:
   holds exactly these), the lab tutorial two others, the lab only empty
   chips; saved games bring their own.
 * soft switches: keyboard $C000/$C010, display page $C054/$C055, speaker
-  $C030; buttons read 0 and the paddle timers never run out – no joystick,
-  so the engine plays by keyboard. (Timers that run out at once read as a
-  joystick held up‑left: the player walks off.)
+  $C030, and the input devices (`InputDevices`): buttons $C061/$C062, paddle
+  timers $C064/$C065 started by $C070 and timed by the CPU's cycle counter
+  (2816 cycles at position 255, as AppleWin). Without a joystick (the
+  default) the timers never run out, so the engine finds none and plays by
+  keyboard; a joystick can be plugged in at any time. (Timers that run out
+  at once read as a joystick held up‑left: the player walks off.)
 * **native routines**: a Swift function registered at an engine entry point
-  runs when the 6502 code reaches it (CPU traps) and returns like RTS. It
-  works on the same memory (`RAM`), takes its parameters where the 6502 code
-  does and must leave memory **byte for byte** as the original leaves it,
-  temporaries included (registers are not reproduced). It is installed only
-  if the MD5 of the original code matches, so other builds or versions fall
-  back to emulation.
+  runs when the 6502 code reaches it – by JSR, JMP or falling through (CPU
+  traps) – and returns like RTS. It works on the same memory (`RAM`), the
+  registers (`Registers`) and the input devices, takes its parameters where
+  the 6502 code does and must leave memory **byte for byte** as the original
+  leaves it, temporaries included, and A, X, Y and the flags where other
+  code may use them (routines that the worlds' code calls). It may decline a
+  case it doesn't handle (READ_INPUT with a mouse) and the original code
+  runs. It is installed only if the MD5 of the original code (without the
+  variables kept in it) matches, so other builds or versions fall back to
+  emulation; `GameScreen` installs them after the world's start‑up code, so
+  the check sees any patches it makes.
 
 So level and room code always runs as the original code, and engine
-routines become Swift one at a time. Ported so far: the robot drawing
-($D2BC/$D72B and the kit/lab equivalents) with the primitives it uses
-(sprite, plot, lines, box) – see Robots.md.
+routines become Swift one at a time. Ported so far:
+
+| Routines | Swift | Worlds |
+|---|---|---|
+| robot drawing $D2BC/$D72B (kit/lab $D2AB/$D674), with sprite, plot, lines, box (Robots.md) | `RobotDrawing` | all |
+| READ_INPUT $A90C | `PlayerInput` | all |
+| MOVE_OBJECT $9DB3/$9DB9, SET_OBJECT_ROOM $9E07, ROOM_WALLS_PTR $9D56, WALL_AT $B40B, STOP_AT_WALLS $AD40, KEEP_ON_SCREEN $A934, LIMIT_MOVE $ACF8 (registers exact) | `ObjectMotion` | all |
+| PLAYER_WALK_SPRITE $DFA3 (v1.0 $DFA4), GRAB_BUTTON $BEBC, KEEP_MOVE $FE18 | `PlayerInput` | levels |
+
+A native routine takes no CPU cycles, so a tick with natives is shorter than
+the original's (READ_INPUT's paddle loop alone is about 3,000 cycles): the
+tick's work is identical, but the *Authentic* pacing runs a little fast
+where natives run. To be fixed by giving natives the original's cycle
+count.
 
 `GameScreen` uses this for the viewer: it runs the world's start‑up code
 ($0803 up to the main loop) once, then for any room sets $9C2D and runs the
@@ -184,8 +289,8 @@ draw phase, so rooms look exactly as in the game, including what the world's
 own code draws. A world built from the disks starts with the random generator
 at $4E/$4F = 0, which it never leaves; `GameScreen` seeds it (Robots.md).
 
-`GameLoop` runs the main loop from there as in the game, with no input:
-it is run by CPU cycles and the page on screen ($C054/$C055) is what the
+`GameLoop` runs the main loop from there as in the game, with the input
+devices (`devices`; the viewer's *Play* types keys): it is run by CPU cycles and the page on screen ($C054/$C055) is what the
 Apple shows, so each tick takes as long as its work. To watch any room, the
 selected room replaces the player's in `CUR_ROOM` when the loop arrives at
 the draw phase, and the loop's own value goes back before the page flip, so
@@ -196,24 +301,27 @@ writes differs. A room change shows the room at once, drawn on a copy of the
 machine at the start of the tick (`preview`). All eleven worlds (nine from
 the v1.1 disks, two saved games) run 100 ticks with the player standing
 still; v1.0 needs its own file lengths (`GameCatalog.lengthsV10`: its
-level engine is one byte longer, and that byte is code).
+level engine is one byte longer, and that byte is code). The loop stops
+where the world hands back to the loader (`exit`, its `JMP ($03F2)`): the
+menu, the next level, saving – the loader is not emulated yet.
 
 ## Porting strategy
 
 1. **Reference engine** – the original code on `CPU6502` in `Machine`, with
-   the language‑card banking (done: whole ticks in `GameLoop`; next: input).
-   This gives golden traces: the world memory after every tick for a given
-   input sequence.
+   the language‑card banking and the input devices (done: whole ticks in
+   `GameLoop`). This gives golden traces: the world memory after every tick
+   for a given input sequence.
 2. **Native engine** – port the engine routine by routine as native routines
    of the hybrid engine (above): input, player movement, grabbing, linked
    objects, robots (thrusters, bumpers, antennas, grabbers, sensors,
-   batteries), wires, gates, chips, room transitions. Started with the robot
-   drawing.
+   batteries), wires, gates, chips, room transitions. Done: the robot
+   drawing, the input and the object motion.
 3. **Lock‑step tests** – `Data/native_check.sh` compares every native routine
    with the original, per call on random states, per drawn frame and over
    whole ticks (each world's main loop, 40 ticks: all memory, bank 1 and the
-   page on screen after every tick); next, feed the same input to both;
-   any difference points to the routine to fix.
+   page on screen after every tick), and 300 more ticks with the same input
+   fed to both before every tick (keys held for a while, then a joystick
+   and its buttons); any difference points to the routine to fix.
 4. **Level and room code** ($0803 code, $8EF0 segments, code rooms) stays
    original 6502 code: it is world‑specific puzzle logic that pokes the same
    tables, and running it as is cannot break it.

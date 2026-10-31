@@ -1,11 +1,27 @@
 import Foundation
 
+/// A native routine: runs on the machine's memory, registers and input
+/// devices when the 6502 code reaches its entry point, and returns like RTS.
+/// It may decline (return false, having changed nothing), and the original
+/// code runs instead.
+typealias Native = (inout NativeState) -> Bool
+
+/// What a native routine works on.
+struct NativeState {
+    var ram: RAM
+    var registers: Registers
+    var devices: InputDevices
+    /// The CPU's cycle counter at the call (a native routine takes no time).
+    let cycles: UInt64
+}
+
 /// The Apple IIe as Robot Odyssey uses it, running the original code from the
 /// disks: 64K of main RAM, the language card's two $D000 banks, the soft
-/// switches the game touches, and native Swift routines in place of engine
-/// routines that have been ported (`installNatives`).  A native routine runs
-/// when the 6502 code reaches its entry point and returns like RTS; it must
-/// leave memory exactly as the original does (Data/native_check.swift).
+/// switches the game touches, its input devices, and native Swift routines in
+/// place of engine routines that have been ported (`installNatives`).  A
+/// native routine runs when the 6502 code reaches its entry point and returns
+/// like RTS; it must leave memory exactly as the original does, and the
+/// registers too where other code uses them (Data/native_check.swift).
 final class Machine {
     let cpu: CPU6502
     /// The $D000-$DFFF bank that is not mapped in; bank 1 (engine data) while
@@ -15,10 +31,10 @@ final class Machine {
     /// Hi-res page on screen, 1 or 2 ($C054/$C055).
     private(set) var shownPage = 1
     private(set) var speakerClicks = 0
-    /// Keyboard ($C000): bit 7 set while a key is waiting.
-    var key: UInt8 = 0
+    /// Keyboard, joystick and buttons.
+    var devices = InputDevices()
     /// Native routines by entry point (always in bank 2 when in $D000-$DFFF).
-    private var natives: [UInt16: (inout RAM) -> Void] = [:]
+    private var natives: [UInt16: Native] = [:]
     /// Off: everything runs as 6502 code, for comparisons.
     var nativesEnabled = true
     private(set) var nativeCalls = 0
@@ -35,12 +51,12 @@ final class Machine {
     var bank1: [UInt8] { bank == 1 ? Array(cpu.mem[0xD000 ..< 0xE000]) : otherBank }
 
     /// An independent machine in the same state: memory, banks, registers,
-    /// soft switches and natives (the native call count starts at 0).
+    /// soft switches, devices and natives (the native call count starts at 0).
     func copy() -> Machine {
         let m = Machine(memory: cpu.mem, bank1: otherBank)
         m.bank = bank
         m.shownPage = shownPage
-        m.key = key
+        m.devices = devices
         m.natives = natives
         m.nativesEnabled = nativesEnabled
         let c = m.cpu
@@ -51,17 +67,17 @@ final class Machine {
 
     private func io(_ a: UInt16) -> UInt8 {
         switch a {
-        case 0xC000: return key
-        case 0xC010: key &= 0x7F
+        case 0xC000: return devices.key
+        case 0xC010: devices.key &= 0x7F
         case 0xC030: speakerClicks += 1
         case 0xC054, 0xC055: shownPage = Int(a - 0xC054) + 1
+        case 0xC061, 0xC062: return devices.buttons[Int(a - 0xC061)] ? 0x80 : 0
+        case 0xC064 ... 0xC067: return devices.paddleRunning(Int(a - 0xC064), after: cpu.cycles &- devices.strobe) ? 0x80 : 0
+        case 0xC070: devices.strobe = cpu.cycles
         case 0xC080 ... 0xC08F: select(bank: a & 0x08 != 0 ? 1 : 2)
-        // No joystick: its timers never run out, so the engine ($AC24) plays by
-        // keyboard.  (Timers that run out at once read as a joystick held up-left.)
-        case 0xC064 ... 0xC067: return 0x80
         default: break
         }
-        return 0                                    // no buttons pressed
+        return 0
     }
 
     /// The game only ever uses language card RAM, so a bank switch swaps $D000-$DFFF.
@@ -75,28 +91,76 @@ final class Machine {
 
     // MARK: native routines
 
-    func install(at address: UInt16, _ routine: @escaping (inout RAM) -> Void) {
+    func install(at address: UInt16, _ routine: @escaping Native) {
         natives[address] = routine
         cpu.traps[Int(address)] = true
     }
 
+    /// A routine that works on memory and registers and always runs.
+    func install(at address: UInt16, _ routine: @escaping (inout RAM, inout Registers) -> Void) {
+        install(at: address) { (s: inout NativeState) in
+            routine(&s.ram, &s.registers)
+            return true
+        }
+    }
+
+    /// A routine whose callers use no registers it leaves.
+    func install(at address: UInt16, _ routine: @escaping (inout RAM) -> Void) {
+        install(at: address) { (s: inout NativeState) in
+            routine(&s.ram)
+            return true
+        }
+    }
+
     /// Native routines for the engine code in memory, matched by fingerprint;
-    /// returns their names.
+    /// returns their names.  Install them after the world's start-up code, so
+    /// the fingerprints see any patches it makes.
     @discardableResult
     func installNatives() -> [String] {
-        guard let layout = RobotDrawing.layout(in: cpu.mem) else { return [] }
-        let robots = RobotDrawing(layout: layout)
-        install(at: layout.exterior, robots.drawExteriors)
-        install(at: layout.interior, robots.drawInterior)
-        return [String(format: "robots $%04X/$%04X (%@)", layout.exterior, layout.interior, layout.name)]
+        var names: [String] = []
+        if let layout = RobotDrawing.layout(in: cpu.mem) {
+            let robots = RobotDrawing(layout: layout)
+            install(at: layout.exterior, robots.drawExteriors)
+            install(at: layout.interior, robots.drawInterior)
+            names.append(String(format: "robots $%04X/$%04X (%@)", layout.exterior, layout.interior, layout.name))
+        }
+        if ObjectMotion.matches(cpu.mem) {
+            for (entry, _, routine) in ObjectMotion.entries { install(at: entry, routine) }
+            names.append("object motion " + ObjectMotion.entries.map { String(format: "$%04X", $0.0) }.joined(separator: "/"))
+        }
+        if PlayerInput.matches(cpu.mem) {
+            install(at: PlayerInput.entry) { PlayerInput.readInput(&$0) }
+            names.append(String(format: "input $%04X", PlayerInput.entry))
+        }
+        if let level = PlayerInput.LevelRoutines.find(in: cpu.mem) {
+            install(at: level.walk) { PlayerInput.walk(&$0, &$1) }
+            install(at: level.grab) { PlayerInput.grabButton(&$0, &$1) }
+            install(at: level.keepMove) { PlayerInput.keepMove(&$0, &$1) }
+            names.append(String(format: "player $%04X/$%04X/$%04X", level.walk, level.grab, level.keepMove))
+        }
+        return names
     }
 
     private func runNative(at pc: UInt16) -> Bool {
         guard nativesEnabled, !(0xD000 ..< 0xE000).contains(pc) || bank == 2,
-              let routine = natives[pc] else { return false }
-        run(routine)
+              let routine = natives[pc], call(routine) else { return false }
         nativeCalls += 1
         cpu.returnFromSubroutine()
+        return true
+    }
+
+    /// Runs a native routine on the machine as it is: its memory (moved, not
+    /// copied), registers and devices.  False if the routine declined.
+    @discardableResult
+    func call(_ routine: Native) -> Bool {
+        var s = NativeState(ram: RAM(bytes: []), registers: Registers(a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p),
+                            devices: devices, cycles: cpu.cycles)
+        swap(&s.ram.bytes, &cpu.mem)
+        let done = routine(&s)
+        swap(&s.ram.bytes, &cpu.mem)
+        guard done else { return false }
+        (cpu.a, cpu.x, cpu.y, cpu.p) = (s.registers.a, s.registers.x, s.registers.y, s.registers.p)
+        devices = s.devices
         return true
     }
 
@@ -171,10 +235,10 @@ struct DrawPhase {
     }
 }
 
-/// Draws rooms the way the game does: the world's start-up code runs once,
-/// then for each room its draw phase (with `CUR_ROOM` set to the room) on the
-/// 6502 emulator, with the native engine routines in place.  `loop` runs the
-/// main loop from there (GameLoop).
+/// Draws rooms the way the game does: the world's start-up code runs once
+/// (all 6502 code), then for each room its draw phase (with `CUR_ROOM` set to
+/// the room) on the 6502 emulator, with the native engine routines in place.
+/// `loop` runs the main loop from there (GameLoop).
 final class GameScreen {
     let phase: DrawPhase
     /// Native routines in use (shown in the viewer).
@@ -191,7 +255,6 @@ final class GameScreen {
         guard let phase = DrawPhase(in: world.mem) else { throw Failure.noMainLoop }
         self.phase = phase
         let machine = Machine(memory: world.mem, bank1: world.bank1)
-        natives = machine.installNatives()
         // The random generator ($D429, a shift register in $4E/$4F) never leaves 0,
         // and Level 4 waits for a usable number.  On the Apple the monitor's
         // keyboard wait has stirred these bytes by the time a world starts.
@@ -201,6 +264,7 @@ final class GameScreen {
         }
         machine.cpu.sp = 0xFF
         try machine.cpu.call(0x0803, stopAt: [UInt16(phase.loopStart)], maxSteps: 2_000_000)
+        natives = machine.installNatives()
         started = machine
     }
 

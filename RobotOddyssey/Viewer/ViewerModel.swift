@@ -49,6 +49,13 @@ final class ViewerModel {
     var paused = false {
         didSet { showLive() }
     }
+    /// Play: the keyboard goes to the game and the view follows the player.
+    var playing = false {
+        didSet {
+            if playing { paused = false }
+            showLive()
+        }
+    }
     /// Counts restarts: the main loop starts again from the world's start-up state.
     private(set) var restarts = 0
     /// What the running loop shows of the selected room.
@@ -278,7 +285,7 @@ final class ViewerModel {
             // At most 0.1 s per step: a busy main thread slows the game down instead of skipping.
             let elapsed = min(clock.now - last, .milliseconds(100))
             last = clock.now
-            guard !paused else { continue }
+            guard !paused, loop.exit == nil else { continue }
             do {
                 try loop.run(until: loop.cycles + UInt64(elapsed / .seconds(1) * GameLoop.clock))
             } catch {
@@ -293,8 +300,12 @@ final class ViewerModel {
     func stepTick() {
         guard let running = loop, running.world == selectedWorldID else { return }
         do {
-            try running.loop.runTick()
+            // A tick is about 100,000 instructions; one that runs much longer waits for a key.
+            try running.loop.runTick(maxSteps: 2_000_000)
             showLive()
+        } catch CPU6502.CPUError.tooManySteps {
+            showLive()
+            loopStatus = "Paused in tick \(running.loop.ticks): the game waits for a key"
         } catch {
             stopGame(error)
         }
@@ -304,6 +315,12 @@ final class ViewerModel {
         restarts += 1
     }
 
+    /// A key typed on the Apple's keyboard (Play): the game reads it at its next tick.
+    func type(_ code: UInt8) {
+        guard let running = loop, running.world == selectedWorldID else { return }
+        running.loop.devices.type(code)
+    }
+
     /// The room drawings stay (GameScreen); only the loop stops.
     private func stopGame(_ error: Error) {
         loop = nil
@@ -311,23 +328,31 @@ final class ViewerModel {
         loopStatus = "Main loop stopped: \(error)"
     }
 
-    /// The room the loop draws: the selected one; code rooms can't be drawn, so the player's.
+    /// The room the loop draws: the selected one; when playing, and for code
+    /// rooms (which can't be drawn elsewhere), the player's.
     private func viewedRoom(_ world: World) -> Int? {
-        world.codeRooms[selectedRoom] == nil ? selectedRoom : nil
+        !playing && world.codeRooms[selectedRoom] == nil ? selectedRoom : nil
     }
 
     /// Updates `liveFrame` from the loop: the page on screen once the loop has
     /// drawn the selected room, until then the room drawn from the state at the
-    /// start of the tick.
+    /// start of the tick.  When playing, the selected room follows the room on screen.
     private func showLive() {
         guard let running = loop, let world = selectedWorld, world.id == running.world else { return }
         let loop = running.loop
         loop.room = viewedRoom(world)
         let speed = loop.tickCycles == 0 ? "" : String(format: " · %.1f ticks/s", GameLoop.clock / Double(loop.tickCycles))
-        let status = paused ? "Paused at tick \(loop.ticks)" : "Tick \(loop.ticks)" + speed
+        var status = paused ? "Paused at tick \(loop.ticks)" : "Tick \(loop.ticks)" + speed
+        if let exit = loop.exit {
+            status = "Tick \(loop.ticks): the world hands back to the loader, \(exit) – not emulated yet, Restart to play again"
+        }
         if loopStatus != status { loopStatus = status }
+        if playing, let shown = loop.shownRoom, shown != selectedRoom {
+            selectedRoom = shown                    // shows it
+            return
+        }
         let room = selectedRoom
-        guard loop.room == room else {
+        guard playing || loop.room == room else {
             liveFrame = nil
             return
         }

@@ -17,19 +17,29 @@ faithful Swift version.
 * **Viewer app** (macOS, SwiftUI): opens the v1.0/v1.1 disk images and storage
   disks, shows all nine worlds and the saved games room by room, with
   inspector, hover read‑out and exits.
-* **The game runs.** In *Game* mode each world's main loop runs on the 6502
-  emulator as in the game, tick after tick at the original speed (4‑7 ticks/s,
-  paced by CPU cycles at 1.0205 MHz): robots, circuits and the worlds' own
-  code animate. Any room can be watched. No input reaches the game yet.
+* **The game runs and can be played.** In *Game* mode each world's main loop
+  runs on the 6502 emulator as in the game, tick after tick at the original
+  speed (4‑7 ticks/s, paced by CPU cycles at 1.0205 MHz): robots, circuits
+  and the worlds' own code animate. Any room can be watched. With *Play*
+  the keyboard goes to the game (I J K M or the arrow keys, space, `?`,
+  Esc…) and the view follows the player; leaving a world (menu, next level,
+  saving) stops the loop, as the loader is not emulated yet.
+* **Input:** the Apple's keyboard, joystick (paddle timers by CPU cycles)
+  and buttons are emulated in `Machine`; the viewer uses the keyboard.
 * **Hybrid engine:** level and room code always runs as original 6502 code;
-  one engine routine is ported to Swift so far, the robot drawing.
+  ported to Swift so far: the robot drawing, the input (READ_INPUT and the
+  levels' player routines) and the object motion (moving objects across
+  rooms, walls, screen edges), Engine.md "Input".
 * **Verified:** every native routine against the original code
-  (`Data/native_check.sh`), per drawn room, per direct call and over whole
-  ticks: v1.1 670 frames, 440 ticks, 26,400 calls; v1.0 542 frames,
-  360 ticks, 21,600 calls – all identical.
-* **Next:** input (keyboard, joystick), then porting the tick's engine
-  routines one by one (player, grabbing, robots, wires, gates, chips), each
-  checked tick by tick against the original; sound.
+  (`Data/native_check.sh`), per drawn room, per direct call (memory, and
+  registers and flags for the routines the worlds' code calls) and over
+  whole ticks with and without input: v1.1 670 frames, 440 ticks, 3,300
+  ticks with input, 50,400 calls; v1.0 542 frames, 360 ticks, 2,700 ticks
+  with input, 40,800 calls – all identical.
+* **Next:** porting the tick's engine routines one by one (grabbing, linked
+  objects, robots, wires, gates, chips), each checked tick by tick against
+  the original; natives' cycle counts (pacing); the loader (level changes,
+  save/load); sound.
 
 ## What we know so far
 
@@ -56,7 +66,10 @@ faithful Swift version.
   interpreter never ends a tick. Restoring a game puts the chip table and
   four engine variables back from the save's header (DiskLayout.md).
 * With no joystick plugged in, the engine plays by keyboard (it tests the
-  paddle timer at $AC24); a joystick read as 0 holds the player up‑left.
+  paddle timer at $AC24) but keeps reading the paddles, and switches to the
+  joystick when they change. Keys move the player by one step a tick
+  (7 across, 16 up or down, 1 with Ctrl); the movement keys are a table
+  each world sets (Engine.md "Input").
 * **Hybrid engine.** The original code runs on the 6502 emulator with the
   language card; engine routines are replaced by native Swift routines one at
   a time, each bound to the MD5 of the code it replaces and checked byte for
@@ -102,7 +115,9 @@ chip is burned), so it comes in two stages:
       programs at $D000 + $400n, run up to opcode 7 by $F56B; their bytecode
       (PC CHP format) and the pin direction table $F008 are decoded
       (Engine.md "Chips", `Data/ro_chips.py`)
-- [ ] player: movement, grabbing, entering robots, remote control/solder pen
+- [x] input: keyboard, joystick, buttons, movement keys (Engine.md "Input")
+- [x] object motion: moving across rooms, walls, screen edges
+- [ ] player: grabbing, entering robots, remote control/solder pen
 - [ ] level scripts: what each world's $0803/$8EF0 code does
 - [ ] v2.0 disks (other loader and engine layout)
 
@@ -111,19 +126,23 @@ chip is burned), so it comes in two stages:
       switches and native routines (traps); each world's draw phase runs
 - [x] whole ticks on `Machine` (`GameLoop`, the reference engine): every
       world's main loop runs as in the game – without input so far
-- [ ] input: keyboard ($C000), joystick and buttons
-- [ ] native Swift engine, routine by routine – started: robot drawing
+- [x] input: keyboard ($C000), joystick (paddle timers) and buttons in
+      `Machine`; the world's exit to the loader stops `GameLoop`
+- [ ] native Swift engine, routine by routine – done: robot drawing, input
+      (READ_INPUT, the levels' player routines), object motion
 - [x] per‑routine checks: native vs original on random states and every
       drawn frame (`Data/native_check.sh`)
 - [x] lock‑step over whole ticks without input: native vs original, memory,
       bank 1 and screen after every tick (`native_check`, 40 ticks per world)
-- [ ] the same with input sequences (this is what guarantees that circuits
-      behave identically)
+- [x] the same with input sequences (keys, joystick, buttons; 300 ticks per
+      world) – this is what guarantees that circuits behave identically
+- [ ] natives' cycle counts, so ticks with natives take the original's time
 - [x] tick pacing: authentic (cycle based, in the viewer)
 - [ ] tick pacing: fixed rate, fast
 
 **Phase 4 – the game**
-- [ ] input (keyboard, game controller), sound, menu, save/load
+- [x] keyboard (viewer *Play*)
+- [ ] game controller as joystick, sound, menu, level changes, save/load
 - [ ] optional extras: larger window, zoom, better colours, debugging tools
 
 ## The viewer app
@@ -143,8 +162,17 @@ phase in place of the player's room, while the rest of the tick runs as in the
 game; on a room change the room appears at once, drawn from the state at the
 start of the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
 (one tick, when paused) and *Restart*; the line under the canvas shows the
-tick and ticks/s. No input reaches the game yet, and the room thumbnails show
-the rooms after the world's start‑up code. *Static* uses `RoomRenderer`
+tick and ticks/s. The room thumbnails show the rooms after the world's
+start‑up code.
+
+*Play* sends the keyboard to the game and makes the view follow the player.
+Keys are typed on the Apple's keyboard as they are (letters, digits, Ctrl,
+Return, Esc, Tab; Delete is ←), so I J K M move, Ctrl‑I J K M move slowly,
+space picks up and drops, `?` gives hints and Esc asks to quit. The arrow keys
+move like I J K M, and with Shift slowly, as in the PC version (the Apple's
+own arrow keys send codes the game takes for other keys). When a world hands
+back to the loader (the menu, the next level, saving) the loop stops;
+*Restart* starts it again. *Step* stops inside a tick that waits for a key. *Static* uses `RoomRenderer`
 (tiles, texts, objects, wires).
 
 In Debug builds `-openDisks <path>…` opens disks at launch (needs
