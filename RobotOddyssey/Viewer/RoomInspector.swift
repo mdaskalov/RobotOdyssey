@@ -10,6 +10,11 @@ struct RoomInspector: View {
         let objects = world.objectsInRoom(room.id)
         List(selection: $model.selectedObject) {
             Section(roomTitle(room.id)) {
+                if let code = world.codeRooms[room.id] {
+                    let walls = 0x7000 + room.id * 30
+                    row("Walls", String(format: "6502 code $%04X–$%04X", walls, walls + 29))
+                    row("Routine", String(format: "$%04X, called from $%04X", code.entry, code.caller))
+                }
                 row("Floor colour", hex(room.floorColor))
                 row("Wall colour", hex(room.wallColor))
                 row("Exits ↑ ↓ ← →", [room.up, room.down, room.left, room.right]

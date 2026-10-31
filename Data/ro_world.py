@@ -9,10 +9,11 @@ A world is the memory image $6000-$94FF.  Layout (see Docs/WorldFormat.md):
   $7000 room walls, 64 x 30 bytes
   $7880 text tables, 8 arrays x 128 entries, strings from $7C80
   $8200 robot table, $861C wire tables, $8EF0 level code/data
+(the tutorials and the lab keep their wire tables in their code, see ro_catalog)
 """
 from cpu6502 import CPU
 from dis6502 import OPS, _modes as MODE_LENGTH
-from ro_catalog import WORLDS, WORLD_BY_ID, ENGINE_MAIN, ENGINE_LEVELS
+from ro_catalog import WORLDS, WORLD_BY_ID, ENGINE_MAIN, ENGINE_LEVELS, LEVEL_WIRES
 from ro_disk import Disk
 
 WORLD_BASE = 0x6000
@@ -85,6 +86,28 @@ def find_exit_entry(mem):
     return None
 
 
+def trace_code(mem, entry, area):
+    """Addresses of the instruction bytes reachable from entry inside area
+    (a range), following branches and JSR/JMP; None at an invalid opcode or BRK."""
+    code, pending = set(), [entry]
+    while pending:
+        pc = pending.pop()
+        while pc in area and pc not in code:
+            op = mem[pc]
+            if op not in OPS or OPS[op][0] == "BRK":
+                return None
+            mn, mode = OPS[op]
+            code.update(range(pc, pc + MODE_LENGTH[mode]))
+            if mode == "rel":
+                pending.append(pc + 2 + (mem[pc + 1] ^ 0x80) - 0x80)
+            if mn == "JSR" or (mn == "JMP" and mode == "abs"):
+                pending.append(mem[pc + 1] | mem[pc + 2] << 8)
+            if mn in ("JMP", "RTS", "RTI"):
+                break
+            pc += MODE_LENGTH[mode]
+    return code
+
+
 def run_exit_script(mem):
     """Run the level's exit code on the 6502 emulator (mem is modified).
 
@@ -141,9 +164,10 @@ def build_world_memory(diskset, world_id, cache=None):
 class World:
     """Decoded view of a world memory image (64K array, world at $6000)."""
 
-    def __init__(self, mem, wid="", name=""):
+    def __init__(self, mem, wid="", name="", wires=LEVEL_WIRES):
         self.mem = mem
         self.id, self.name = wid, name
+        self.wires = wires          # base of the wire tables ("to" array)
 
     def image(self):
         return bytes(self.mem[WORLD_BASE:WORLD_END])
@@ -197,6 +221,30 @@ class World:
     def room_is_used(self, r):
         return any(self.mem[0x7000 + r * 30:0x7000 + r * 30 + 30]) or self.objects_in_room(r) or self.texts_in_room(r)
 
+    def code_rooms(self):
+        """Rooms whose wall bytes hold 6502 code: {room: (caller, entry)}.
+
+        The world's code ($0803-$1FFF, $8EF0-$94FF) calls a routine in the wall
+        table with JSR/JMP.  Followed through branches and JSR/JMP inside the
+        table until RTS/RTI/JMP, it must contain only valid opcodes (no BRK),
+        and every room it covers must lead back to itself on all four sides.
+        """
+        m, walls = self.mem, range(0x7000, 0x7000 + NUM_ROOMS * 30)
+        found = {}
+        for lo, hi in ((0x0803, 0x2000), (0x8EF0, 0x9500)):
+            for site in range(lo, hi - 2):
+                if m[site] not in (0x20, 0x4C):
+                    continue
+                entry = m[site + 1] | m[site + 2] << 8
+                code = trace_code(m, entry, walls) if entry in walls else None
+                if not code:
+                    continue
+                rooms = sorted({(a - walls.start) // 30 for a in code})
+                if all(m[0x6E00 + k * 0x40 + r] == r for r in rooms for k in (3, 4, 5, 6)):
+                    for r in rooms:
+                        found.setdefault(r, (site, entry))
+        return found
+
     # --- texts ---------------------------------------------------------
     def text(self, i):
         m = self.mem
@@ -214,11 +262,17 @@ class World:
 
     # --- wires / robots ------------------------------------------------
     def wire(self, o):
-        m = self.mem
-        if not m[0x861C + o]:
+        m, w = self.mem, self.wires + o
+        if not m[w]:
             return None
-        return {"to": m[0x861C + o], "ax": m[0x871C + o], "ay": m[0x891C + o],
-                "bx": m[0x881C + o], "by": m[0x8A1C + o]}
+        return {"to": m[w], "ax": m[w + 0x100], "ay": m[w + 0x300], "bx": m[w + 0x200], "by": m[w + 0x400]}
+
+    def loose_wire(self, o):
+        """Wire of a loose wire object $D1-$DF ($8A82... in the levels), or None."""
+        m, w = self.mem, self.wires + 0x466 + o
+        if not m[w]:
+            return None
+        return {"ax": m[w + 0x0F], "ay": m[w + 0x2D], "bx": m[w + 0x1E], "by": m[w + 0x3C]}
 
     def robots(self):
         return [{"object": self.mem[0x8200 + i], "interior": self.mem[0x8204 + i]} for i in range(4)]
@@ -226,6 +280,7 @@ class World:
     # --- export ----------------------------------------------------------
     def to_json(self):
         rooms = []
+        code_rooms = self.code_rooms()
         for r in range(NUM_ROOMS):
             if not self.room_is_used(r):
                 continue
@@ -234,6 +289,9 @@ class World:
                           "links": {k: d[k] for k in ("up", "down", "left", "right")},
                           "walls": ["".join("#" if b else "." for b in row) for row in d["walls"]],
                           "objects": self.objects_in_room(r), "texts": self.texts_in_room(r)})
+            if r in code_rooms:
+                caller, entry = code_rooms[r]
+                rooms[-1]["code"] = {"caller": caller, "entry": entry}
         objects = []
         for i in range(NUM_OBJECTS):
             o = self.obj(i)
@@ -261,5 +319,5 @@ def load_all(side_a, side_b):
         if w["side"] not in ds.sides:
             continue
         mem = build_world_memory(ds, w["id"], cache)
-        out.append(World(mem, w["id"], w["name"]))
+        out.append(World(mem, w["id"], w["name"], w.get("wires", LEVEL_WIRES)))
     return out

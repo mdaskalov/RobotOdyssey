@@ -45,6 +45,12 @@ struct Wire {
     let to, ax, ay, bx, by: Int
 }
 
+/// 6502 code in the wall bytes of an unused room: part of the routine at `entry`,
+/// which the world's code calls with JSR/JMP at `caller`.
+struct RoomCode: Hashable {
+    let caller, entry: Int
+}
+
 /// A world: the memory image $6000-$94FF plus the engine tables needed to draw it.
 /// See Docs/WorldFormat.md for the layout.
 struct World: Identifiable {
@@ -53,12 +59,30 @@ struct World: Identifiable {
     static let textCount = 128
     static let nowhere = 0x3F
     static let noObject = 0xFF
+    static let levelWireTables = 0x861C
 
     let id: String
     let name: String
     let kind: WorldKind
     /// Full 64K memory image (world at $6000, engine font at $9500, colours at $9B91, code at $0803).
     let mem: [UInt8]
+    /// Rooms whose wall bytes hold 6502 code instead of walls.
+    let codeRooms: [Int: RoomCode]
+    /// Start of the wire tables ("to", ax, bx, ay, by: 256 bytes each, loose
+    /// wires from +$466): $861C in the levels; the Robot Anatomy/Toolkit engine
+    /// keeps them at $14C0 and the lab engine at $0B00, in the world's code.
+    let wireTables: Int
+
+    /// `codeRooms` is found in `mem` unless given.
+    init(id: String, name: String, kind: WorldKind, mem: [UInt8], codeRooms: [Int: RoomCode]? = nil,
+         wireTables: Int = World.levelWireTables) {
+        self.id = id
+        self.name = name
+        self.kind = kind
+        self.mem = mem
+        self.codeRooms = codeRooms ?? World.findCodeRooms(in: mem)
+        self.wireTables = wireTables
+    }
 
     @inline(__always) private func m(_ addr: Int) -> Int { Int(mem[addr]) }
 
@@ -103,8 +127,16 @@ struct World: Identifiable {
     }
 
     func wire(_ o: Int) -> Wire? {
-        guard mem[0x861C + o] != 0 else { return nil }
-        return Wire(to: m(0x861C + o), ax: m(0x871C + o), ay: m(0x891C + o), bx: m(0x881C + o), by: m(0x8A1C + o))
+        let w = wireTables + o
+        guard mem[w] != 0 else { return nil }
+        return Wire(to: m(w), ax: m(w + 0x100), ay: m(w + 0x300), bx: m(w + 0x200), by: m(w + 0x400))
+    }
+
+    /// Wire of a loose wire object $D1-$DF ($8A82... in the levels).
+    func looseWire(_ o: Int) -> (ax: Int, ay: Int, bx: Int, by: Int)? {
+        let w = wireTables + 0x466 + o
+        guard mem[w] != 0 else { return nil }
+        return (m(w + 0x0F), m(w + 0x2D), m(w + 0x1E), m(w + 0x3C))
     }
 
     /// Robot table at $8200: body object and interior room of each of the 4 robots.
@@ -136,6 +168,47 @@ struct World: Identifiable {
     func isRoomUsed(_ r: Int) -> Bool {
         let base = 0x7000 + r * 30
         return mem[base ..< base + 30].contains { $0 != 0 } || !objectsInRoom(r).isEmpty || !textsInRoom(r).isEmpty
+    }
+
+    /// Rooms whose wall bytes hold a routine that the world's code ($0803-$1FFF,
+    /// $8EF0-$94FF) calls with JSR/JMP.  Followed through branches and JSR/JMP
+    /// inside the wall table until RTS/RTI/JMP, the routine must contain only
+    /// valid opcodes (no BRK), and every room it covers must lead back to itself
+    /// on all four sides.  Same as `World.code_rooms` in Data/ro_world.py.
+    static func findCodeRooms(in mem: [UInt8]) -> [Int: RoomCode] {
+        let walls = 0x7000 ..< 0x7000 + roomCount * 30
+        var found: [Int: RoomCode] = [:]
+        for region in [0x0803 ..< 0x2000, 0x8EF0 ..< 0x9500] {
+            for site in region.lowerBound ..< region.upperBound - 2 where mem[site] == 0x20 || mem[site] == 0x4C {
+                let entry = Int(mem[site + 1]) | Int(mem[site + 2]) << 8
+                guard walls.contains(entry), let code = traceCode(in: mem, from: entry, within: walls) else { continue }
+                let rooms = Set(code.map { ($0 - walls.lowerBound) / 30 })
+                guard rooms.allSatisfy({ r in (3 ... 6).allSatisfy { Int(mem[0x6E00 + $0 * 0x40 + r]) == r } }) else { continue }
+                for r in rooms where found[r] == nil { found[r] = RoomCode(caller: site, entry: entry) }
+            }
+        }
+        return found
+    }
+
+    /// Addresses of the instruction bytes reachable from `entry` inside `area`,
+    /// following branches and JSR/JMP; nil at an invalid opcode or BRK.
+    private static func traceCode(in mem: [UInt8], from entry: Int, within area: Range<Int>) -> Set<Int>? {
+        var code = Set<Int>()
+        var pending = [entry]
+        while var pc = pending.popLast() {
+            while area.contains(pc), !code.contains(pc) {
+                guard let info = CPU6502.table[Int(mem[pc])], info.op != .brk else { return nil }
+                let n = CPU6502.length(info.mode)
+                code.formUnion(pc ..< pc + n)
+                if info.mode == .rel { pending.append(pc + 2 + Int(Int8(bitPattern: mem[pc + 1]))) }
+                if info.op == .jsr || (info.op == .jmp && info.mode == .abs) {
+                    pending.append(Int(mem[pc + 1]) | Int(mem[pc + 2]) << 8)
+                }
+                if [.jmp, .rts, .rti].contains(info.op) { break }
+                pc += n
+            }
+        }
+        return code
     }
 
     // MARK: texts

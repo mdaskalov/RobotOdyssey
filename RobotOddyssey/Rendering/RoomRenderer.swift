@@ -44,9 +44,10 @@ struct RoomRenderer {
                 drawWire(&screen, w.ax, w.ay, w.bx, w.by, colour: Int(mem[0x6200 + o]))
             }
         }
-        for o in 0xD1 ..< 0xE0 where Int(mem[0x6300 + o]) == room && mem[0x8A82 + o] != 0 {
-            drawWire(&screen, Int(mem[0x8A91 + o]), Int(mem[0x8AAF + o]), Int(mem[0x8AA0 + o]),
-                     Int(mem[0x8ABE + o]), colour: Int(mem[0x6200 + o]))   // loose wires
+        for o in 0xD1 ..< 0xE0 where Int(mem[0x6300 + o]) == room {       // loose wires
+            if let w = world.looseWire(o) {
+                drawWire(&screen, w.ax, w.ay, w.bx, w.by, colour: Int(mem[0x6200 + o]))
+            }
         }
         return screen
     }

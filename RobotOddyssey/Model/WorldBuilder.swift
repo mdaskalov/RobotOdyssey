@@ -40,7 +40,8 @@ struct WorldBuilder {
         for def in GameCatalog.worlds where disks.disk(def.side) != nil {
             do {
                 let mem = try memory(for: def.id, cache: &cache)
-                worlds.append(World(id: idPrefix + def.id, name: def.name, kind: def.kind, mem: mem))
+                worlds.append(World(id: idPrefix + def.id, name: def.name, kind: def.kind, mem: mem,
+                                    wireTables: def.wireTables))
             } catch {
                 errors.append("\(def.name): \(error.localizedDescription)")
             }
@@ -163,9 +164,17 @@ struct WorldBuilder {
                 zip(a.mem[0x7000 ..< 0x7780], walls).count { $0 == $1 } < zip(b.mem[0x7000 ..< 0x7780], walls).count { $0 == $1 }
             }
             let level = match.map { $0.name.components(separatedBy: " – ").first ?? $0.name } ?? "?"
+            // Code below $0B00 is not saved (Level 5 calls its code rooms from $08DA),
+            // so take the matching world's code rooms whose bytes are unchanged.
+            var codeRooms = World.findCodeRooms(in: mem)
+            for (r, code) in match?.codeRooms ?? [:] where codeRooms[r] == nil {
+                let w = 0x7000 + r * 30 ..< 0x7000 + r * 30 + 30
+                if mem[w] == match?.mem[w] { codeRooms[r] = code }
+            }
             games.append(World(id: "\(storage.name)#\(slot)",
                                name: "\(name.isEmpty ? "Slot \(slot + 1)" : name) (\(level))",
-                               kind: .savedGame, mem: mem))
+                               kind: .savedGame, mem: mem, codeRooms: codeRooms,
+                               wireTables: match?.wireTables ?? World.levelWireTables))
         }
         return games
     }

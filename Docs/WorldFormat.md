@@ -73,6 +73,24 @@ in a band, byte *c/2* holds two columns (low nibble = even column), and bit *k*
 of a nibble is row *k* of the band (bit 0 = top). So `1F 11 … 11 F1 | 0F 00 … F0
 | 8F 88 … 88 F8` is a closed box.
 
+**Code in unused rooms.** Unused rooms link to themselves on all four sides,
+and some worlds keep 6502 code in their wall bytes. Level 5 rooms $16‑$1D
+(wall colour 6, $7294‑$7376) hold a routine the main loop calls every tick
+(`JSR $7294` at $08DA): once $8F96 is set ($1060, buttons pressed in order
+in the transporter room $2A) it draws the active transporter, and when the
+player stands on it at (70, 20) it runs its own redraw loop that beams the
+player out and leaves through the ESC wait at $09C1 to `LDY #5 / JMP $097B`.
+The Lab ($7400, rooms $22‑$39) and Lab Tutorial ($774E, rooms $3E‑$3F) do
+the same. Level 5's texts 31‑33 in these rooms are empty strings.
+
+`World.code_rooms` (Python) and `World.findCodeRooms` (Swift) find such rooms:
+a JSR/JMP in the world's code ($0803‑$1FFF, $8EF0‑$94FF) into the wall table,
+followed through branches and JSR/JMP until RTS/RTI/JMP, must hit only valid
+opcodes (no BRK), and every room it covers must link only to itself. The JSON
+marks them with `"code": {caller, entry}`; the viewer shows them as code rooms.
+Saved games lack the code below $0B00 and take the code rooms of the matching
+level when those bytes are unchanged.
+
 ## Texts ($7880‑$7C7F, strings from $7C80)
 
 | Array | Field |
@@ -95,6 +113,20 @@ the other end) a wire is drawn in *o*'s colour between
 A = (`$871C[o]`, `$891C[o]`) and B = (`$881C[o]`, `$8A1C[o]`).
 Objects $D1‑$DF in the room with `$8A82[o] ≠ 0` are loose wires with
 A = (`$8A91[o]`, `$8AAF[o]`), B = (`$8AA0[o]`, `$8ABE[o]`).
+
+These addresses are the levels'. The other worlds bring their own engine
+pieces, which keep the same tables (same offsets from the `to` array) in the
+world's code segment, and their $8200‑$8B1B is something else (Robot
+Anatomy's text strings run from $7C80 through it):
+
+| Worlds | Engine pieces (side B) | Wire tables | Drawn by |
+|---|---|---|---|
+| Levels 1‑5 | 247, 266, 274, 290 (side A) | $861C | $FC62 |
+| Robot Anatomy, Toolkit | 360→$B900, 367→$D000, 383→$F000 | $14C0 | $FAAE |
+| Innovation Lab, Lab Tutorial | 189→$B8E0, 196→$D000, 212→$F000 | $0B00 | $FB1E |
+
+The robot table moves as well (Anatomy/Toolkit: bodies at $1BEE, Lab
+around $13B8), with a layout not yet worked out.
 
 Wires are **L‑shaped**, never diagonal ($FC62):
 
@@ -148,4 +180,16 @@ the screen; big text is bit‑reversed into 16‑row sprites.
 `Data/ro_verify.py` runs these original routines on the 6502 emulator for
 every room of the save state and compares with `Data/ro_render.py`: all 64
 rooms are identical byte for byte. `RoomRenderer.swift` produces the same
-bytes as the Python renderer for all 576 rooms of v1.1.
+bytes as the Python renderer for all 1152 rooms of v1.0 and v1.1.
+
+**Not drawn yet.** A full main‑loop tick draws more than these four steps,
+so the viewer is still incomplete there:
+
+- robot exteriors – antenna, grabber, bumpers, thruster flames around the body
+  objects: $D2BC in the levels, $D2AB in Anatomy/Toolkit;
+- robot interiors – thrusters, bumpers, antenna, grabber, battery and the
+  box around the gear: $D72B in the levels, $D674 in Anatomy/Toolkit;
+- sprites drawn by a world's own code, e.g. Robot Anatomy's $09CD (table at
+  $09BB: the INPUT pin in room $1A, the OUTPUT pin in $1B, the lock in $06;
+  sprite $20 in room [$1E35]; a 9‑sprite sequence in room $28) and Level 5's
+  transporter (see “Code in unused rooms”).

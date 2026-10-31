@@ -10,7 +10,7 @@ struct WorldView: View {
         let room = world.room(model.selectedRoom)
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                RoomHeader(model: model, room: room)
+                RoomHeader(model: model, room: room, code: world.codeRooms[room.id])
                 RoomCanvas(model: model, world: world)
                     .focusable()
                     .focused($focused)
@@ -37,10 +37,16 @@ struct WorldView: View {
 private struct RoomHeader: View {
     var model: ViewerModel
     let room: Room
+    let code: RoomCode?
 
     var body: some View {
         HStack(spacing: 12) {
             Text(roomTitle(room.id)).font(.title2.monospacedDigit().bold())
+            if let code {
+                Label("Code room", systemImage: "curlybraces")
+                    .foregroundStyle(.orange)
+                    .help(String(format: "The wall bytes are 6502 code: routine $%04X, called from $%04X", code.entry, code.caller))
+            }
             Spacer()
             ForEach([(Room.Direction.left, "arrow.left"), (.up, "arrow.up"), (.down, "arrow.down"), (.right, "arrow.right")],
                     id: \.1) { dir, icon in
@@ -157,10 +163,14 @@ private struct RoomMap: View {
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
             ForEach(0 ..< World.roomCount, id: \.self) { r in
-                let used = world.isRoomUsed(r)
+                let isCode = world.codeRooms[r] != nil
+                let used = world.isRoomUsed(r) && !isCode
                 VStack(spacing: 2) {
                     Group {
-                        if used || model.showEmptyRooms, let t = model.thumbnail(room: r) {
+                        if isCode {
+                            Rectangle().fill(.quaternary)
+                                .overlay { Image(systemName: "curlybraces").foregroundStyle(.orange) }
+                        } else if used || model.showEmptyRooms, let t = model.thumbnail(room: r) {
                             Image(decorative: t, scale: 1).interpolation(.none).resizable()
                         } else {
                             Rectangle().fill(.quaternary)
@@ -174,7 +184,7 @@ private struct RoomMap: View {
                 }
                 .contentShape(Rectangle())
                 .onTapGesture { model.selectedRoom = r }
-                .help(roomTitle(r))
+                .help(roomTitle(r) + (isCode ? " – 6502 code" : ""))
             }
         }
     }

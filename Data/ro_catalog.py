@@ -23,6 +23,11 @@ ENGINE_LEVELS = [("A", 247, 0x1A50, _len(5, 164)),
                  ("A", 274, 0xD000, _len(15, 254)),
                  ("A", 290, 0xF000, _len(15, 244))]
 
+# Wire tables ("to", ax, bx, ay, by arrays of 256, loose wires from +$466):
+# $861C in the levels; the Robot Anatomy/Toolkit engine reads them at $14C0 and
+# the lab engine at $0B00, in the world's code segments.
+LEVEL_WIRES = 0x861C
+
 # The world data lives at $6000-$94FF.  Code for a world is loaded at $0803
 # (and sometimes $0B00/$14C0); see Docs/WorldFormat.md.
 WORLDS = [
@@ -57,22 +62,22 @@ WORLDS = [
         "code": [("A", 510, 0x0803, _len(18, 42))],
     },
     {
-        "id": "anatomy", "name": "Robot Anatomy", "side": "B", "kind": "tutorial",
+        "id": "anatomy", "name": "Robot Anatomy", "side": "B", "kind": "tutorial", "wires": 0x14C0,
         "segments": [("B", 396, 0x6000, _len(53, 0))],
         "code": [("B", 348, 0x14C0, _len(11, 64)), ("B", 449, 0x0803, _len(4, 99)), ("B", 454, 0x14C0, _len(6, 121))],
     },
     {
-        "id": "toolkit", "name": "Toolkit", "side": "B", "kind": "tutorial",
+        "id": "toolkit", "name": "Toolkit", "side": "B", "kind": "tutorial", "wires": 0x14C0,
         "segments": [("B", 461, 0x6000, _len(53, 0))],
         "code": [("B", 348, 0x14C0, _len(11, 64)), ("B", 514, 0x0803, _len(9, 176)), ("B", 524, 0x14C0, _len(6, 20))],
     },
     {
-        "id": "labtutorial", "name": "Innovation Lab Tutorial", "side": "B", "kind": "tutorial",
+        "id": "labtutorial", "name": "Innovation Lab Tutorial", "side": "B", "kind": "tutorial", "wires": 0x0B00,
         "segments": [("B", 284, 0x6000, _len(53, 0))],
         "code": [("B", 337, 0x0803, _len(2, 251)), ("B", 168, 0x0B00, _len(20, 225)), ("B", 340, 0x0B00, _len(8, 0))],
     },
     {
-        "id": "lab", "name": "Innovation Lab", "side": "B", "kind": "lab",
+        "id": "lab", "name": "Innovation Lab", "side": "B", "kind": "lab", "wires": 0x0B00,
         "segments": [("B", 228, 0x6000, _len(53, 0))],
         "code": [("B", 281, 0x0803, _len(2, 248)), ("B", 168, 0x0B00, _len(20, 225))],
     },

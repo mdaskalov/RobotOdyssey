@@ -30,6 +30,8 @@ struct WorldDefinition {
     let kind: WorldKind
     /// For levels 2-5: the level whose final object table this level inherits.
     var base: String?
+    /// Where the world's engine keeps the wire tables (see `World.wireTables`).
+    var wireTables = World.levelWireTables
     let segments: [Segment]
     let code: [Segment]
 }
@@ -66,22 +68,22 @@ enum GameCatalog {
                         segments: [Segment(.a, 490, 0x6E40, pages: 19, last: 192),
                                    Segment(.a, 529, 0x8EF0, pages: 5, last: 217)],
                         code: [Segment(.a, 510, 0x0803, pages: 18, last: 42)]),
-        WorldDefinition(id: "anatomy", name: "Robot Anatomy", side: .b, kind: .tutorial,
+        WorldDefinition(id: "anatomy", name: "Robot Anatomy", side: .b, kind: .tutorial, wireTables: 0x14C0,
                         segments: [Segment(.b, 396, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 348, 0x14C0, pages: 11, last: 64),
                                Segment(.b, 449, 0x0803, pages: 4, last: 99),
                                Segment(.b, 454, 0x14C0, pages: 6, last: 121)]),
-        WorldDefinition(id: "toolkit", name: "Toolkit", side: .b, kind: .tutorial,
+        WorldDefinition(id: "toolkit", name: "Toolkit", side: .b, kind: .tutorial, wireTables: 0x14C0,
                         segments: [Segment(.b, 461, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 348, 0x14C0, pages: 11, last: 64),
                                Segment(.b, 514, 0x0803, pages: 9, last: 176),
                                Segment(.b, 524, 0x14C0, pages: 6, last: 20)]),
-        WorldDefinition(id: "labtutorial", name: "Innovation Lab Tutorial", side: .b, kind: .tutorial,
+        WorldDefinition(id: "labtutorial", name: "Innovation Lab Tutorial", side: .b, kind: .tutorial, wireTables: 0x0B00,
                         segments: [Segment(.b, 284, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 337, 0x0803, pages: 2, last: 251),
                                Segment(.b, 168, 0x0B00, pages: 20, last: 225),
                                Segment(.b, 340, 0x0B00, pages: 8, last: 0)]),
-        WorldDefinition(id: "lab", name: "Innovation Lab", side: .b, kind: .lab,
+        WorldDefinition(id: "lab", name: "Innovation Lab", side: .b, kind: .lab, wireTables: 0x0B00,
                         segments: [Segment(.b, 228, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 281, 0x0803, pages: 2, last: 248),
                                Segment(.b, 168, 0x0B00, pages: 20, last: 225)]),

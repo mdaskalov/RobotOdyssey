@@ -181,8 +181,9 @@ def render_room(world, room):
         if w:
             draw_wire(scr, mem, w["ax"], w["ay"], w["bx"], w["by"], mem[0x6200 + o])
     for o in range(0xD1, 0xE0):                     # loose wires of objects $D1-$DF
-        if mem[0x6300 + o] == room and mem[0x8A82 + o]:
-            draw_wire(scr, mem, mem[0x8A91 + o], mem[0x8AAF + o], mem[0x8AA0 + o], mem[0x8ABE + o], mem[0x6200 + o])
+        w = world.loose_wire(o)
+        if mem[0x6300 + o] == room and w:
+            draw_wire(scr, mem, w["ax"], w["ay"], w["bx"], w["by"], mem[0x6200 + o])
     return scr
 
 

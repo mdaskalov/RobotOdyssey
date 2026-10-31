@@ -37,7 +37,7 @@ python3 ro_symbols.py                # writes RobotOdyssey.sym and RobotOdysseyL
 |---|---|
 | `<world>.bin` | world image $6000‑$94FF (0x3500 bytes) |
 | `<world>.code.bin` | $0800‑$1FFF: the world's own 6502 code |
-| `<world>.json` | rooms (walls, links, colours, objects, texts), all objects (with wires), all texts, robots |
+| `<world>.json` | rooms (walls, links, colours, objects, texts; `code` for rooms holding 6502 code), all objects (with wires), all texts, robots |
 | `<world>.png` | all 64 rooms; room *n* at column *n*%8, row *n*/8 |
 | `<world>/room_NN.png` | single rooms (with `--rooms`) |
 | `font.bin` | 8 glyph rows × 96 characters ($A0‑$FF), row 0 = bottom, bit 0 = left |
