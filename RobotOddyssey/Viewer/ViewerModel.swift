@@ -31,12 +31,26 @@ final class ViewerModel {
     var mode: HiresImage.Mode = .color {
         didSet { thumbnails = [:] }
     }
+    var renderer: Renderer = .game {
+        didSet { thumbnails = [:] }
+    }
     var showEmptyRooms = false
     var showGrid = false
 
     /// Render caches; not observed, so filling them while a view draws is fine.
     @ObservationIgnored private var thumbnails: [Int: CGImage] = [:]
     @ObservationIgnored private var roomImage: (key: String, image: CGImage?)?
+    /// Each world after its start-up code ran (nil: it could not run).
+    @ObservationIgnored private var gameScreens: [World.ID: GameScreen?] = [:]
+    @ObservationIgnored private var renderErrors: [String: String] = [:]
+
+    enum Renderer: String, CaseIterable, Identifiable {
+        /// The world's own draw phase on the 6502 emulator, with the native engine routines.
+        case game = "Game"
+        /// RoomRenderer: tiles, texts, objects and wires only.
+        case staticRooms = "Static"
+        var id: String { rawValue }
+    }
 
     static let diskTypes: [UTType] = [.folder, UTType(filenameExtension: "dsk") ?? .data, .data]
 
@@ -140,6 +154,8 @@ final class ViewerModel {
         } else if !storage.isEmpty {
             notes.append("Open the program disk too, to view saved games.")
         }
+        gameScreens = [:]
+        renderErrors = [:]
         groups = newGroups
         messages = notes
         if selectedWorld == nil {
@@ -165,9 +181,9 @@ final class ViewerModel {
     // MARK: images
 
     func image(world: World, room: Int) -> CGImage? {
-        let key = "\(world.id)#\(room)#\(mode.rawValue)"
+        let key = "\(world.id)#\(room)#\(mode.rawValue)#\(renderer.rawValue)"
         if let cached = roomImage, cached.key == key { return cached.image }
-        let image = HiresImage.make(RoomRenderer(world: world).render(room: room), mode: mode)
+        let image = HiresImage.make(screen(world: world, room: room), mode: mode)
         roomImage = (key, image)
         return image
     }
@@ -175,9 +191,47 @@ final class ViewerModel {
     func thumbnail(room: Int) -> CGImage? {
         if let t = thumbnails[room] { return t }
         guard let w = selectedWorld else { return nil }
-        let t = HiresImage.make(RoomRenderer(world: w).render(room: room), mode: mode, scale: 1)
+        let t = HiresImage.make(screen(world: w, room: room), mode: mode, scale: 1)
         thumbnails[room] = t
         return t
+    }
+
+    /// The room as the chosen renderer draws it; the game's code falls back to the static renderer.
+    private func screen(world: World, room: Int) -> HiresScreen {
+        if renderer == .game, world.codeRooms[room] == nil, let game = gameScreen(world) {
+            do {
+                return try game.render(room: room).screen
+            } catch {
+                renderErrors["\(world.id)#\(room)"] = error.localizedDescription
+            }
+        }
+        return RoomRenderer(world: world).render(room: room)
+    }
+
+    private func gameScreen(_ world: World) -> GameScreen? {
+        if let cached = gameScreens[world.id] { return cached }
+        do {
+            let screen = try GameScreen(world: world)
+            gameScreens[world.id] = screen
+            return screen
+        } catch {
+            gameScreens[world.id] = .some(nil)
+            renderErrors[world.id] = error.localizedDescription
+            return nil
+        }
+    }
+
+    /// How the room in the canvas was drawn.
+    func renderNote(world: World, room: Int) -> String {
+        guard renderer == .game else { return "Static renderer: tiles, texts, objects and wires" }
+        if world.codeRooms[room] != nil { return "Code room – drawn as walls by the static renderer" }
+        if let e = renderErrors["\(world.id)#\(room)"] ?? renderErrors[world.id] {
+            return "The game's code could not draw this room (\(e)) – static renderer"
+        }
+        guard let game = gameScreen(world) else { return "" }
+        let natives = game.natives.isEmpty ? "none" : game.natives.joined(separator: ", ")
+        return String(format: "Drawn by the world's code ($%04X–$%04X) on the 6502 emulator · native: %@",
+                      game.phase.start, game.phase.end, natives)
     }
 }
 

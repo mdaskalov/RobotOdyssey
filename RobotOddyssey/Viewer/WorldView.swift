@@ -107,6 +107,9 @@ struct RoomCanvas: View {
             Text(hoverText(objects: objects))
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
+            Text(model.renderNote(world: world, room: model.selectedRoom))
+                .font(.caption)
+                .foregroundStyle(.tertiary)
         }
     }
 

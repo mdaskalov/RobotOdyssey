@@ -64,8 +64,11 @@ struct World: Identifiable {
     let id: String
     let name: String
     let kind: WorldKind
-    /// Full 64K memory image (world at $6000, engine font at $9500, colours at $9B91, code at $0803).
+    /// Full 64K memory image (world at $6000, engine at $9500/$B8E0/$D000/$F000,
+    /// code at $0803) with language card bank 2 at $D000.
     let mem: [UInt8]
+    /// Language card bank 1 ($D000-$DFFF): engine data, chips.
+    let bank1: [UInt8]
     /// Rooms whose wall bytes hold 6502 code instead of walls.
     let codeRooms: [Int: RoomCode]
     /// Start of the wire tables ("to", ax, bx, ay, by: 256 bytes each, loose
@@ -74,12 +77,13 @@ struct World: Identifiable {
     let wireTables: Int
 
     /// `codeRooms` is found in `mem` unless given.
-    init(id: String, name: String, kind: WorldKind, mem: [UInt8], codeRooms: [Int: RoomCode]? = nil,
-         wireTables: Int = World.levelWireTables) {
+    init(id: String, name: String, kind: WorldKind, mem: [UInt8], bank1: [UInt8]? = nil,
+         codeRooms: [Int: RoomCode]? = nil, wireTables: Int = World.levelWireTables) {
         self.id = id
         self.name = name
         self.kind = kind
         self.mem = mem
+        self.bank1 = bank1 ?? [UInt8](repeating: 0, count: 0x1000)
         self.codeRooms = codeRooms ?? World.findCodeRooms(in: mem)
         self.wireTables = wireTables
     }

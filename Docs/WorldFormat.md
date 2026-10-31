@@ -125,8 +125,9 @@ Anatomy's text strings run from $7C80 through it):
 | Robot Anatomy, Toolkit | 360→$B900, 367→$D000, 383→$F000 | $14C0 | $FAAE |
 | Innovation Lab, Lab Tutorial | 189→$B8E0, 196→$D000, 212→$F000 | $0B00 | $FB1E |
 
-The robot table moves as well (Anatomy/Toolkit: bodies at $1BEE, Lab
-around $13B8), with a layout not yet worked out.
+The robot state moves as well: grabbers and robot blocks at $8DBD/$8DCD in
+the levels, $1ADF/$1AEB in Anatomy/Toolkit, $129F/$12AB in the lab worlds
+(Robots.md).
 
 Wires are **L‑shaped**, never diagonal ($FC62):
 
@@ -182,14 +183,11 @@ every room of the save state and compares with `Data/ro_render.py`: all 64
 rooms are identical byte for byte. `RoomRenderer.swift` produces the same
 bytes as the Python renderer for all 1152 rooms of v1.0 and v1.1.
 
-**Not drawn yet.** A full main‑loop tick draws more than these four steps,
-so the viewer is still incomplete there:
-
-- robot exteriors – antenna, grabber, bumpers, thruster flames around the body
-  objects: $D2BC in the levels, $D2AB in Anatomy/Toolkit;
-- robot interiors – thrusters, bumpers, antenna, grabber, battery and the
-  box around the gear: $D72B in the levels, $D674 in Anatomy/Toolkit;
-- sprites drawn by a world's own code, e.g. Robot Anatomy's $09CD (table at
-  $09BB: the INPUT pin in room $1A, the OUTPUT pin in $1B, the lock in $06;
-  sprite $20 in room [$1E35]; a 9‑sprite sequence in room $28) and Level 5's
-  transporter (see “Code in unused rooms”).
+**The rest of a frame.** A main‑loop tick draws more than these four steps:
+robot exteriors and interiors ($D2BC/$D72B, see Robots.md), sprites drawn by
+the world's own code (e.g. Robot Anatomy's $09CD with its table at $09BB: the
+INPUT pin in room $1A, the OUTPUT pin in $1B, the lock in $06; Level 5's
+transporter in its code rooms) and the remote control. The viewer's *Game*
+renderer draws all of it by running the world's draw phase on the emulator
+(Engine.md); `RoomRenderer` (the *Static*
+renderer) draws only the four steps above.

@@ -41,12 +41,19 @@ struct WorldBuilder {
             do {
                 let mem = try memory(for: def.id, cache: &cache)
                 worlds.append(World(id: idPrefix + def.id, name: def.name, kind: def.kind, mem: mem,
-                                    wireTables: def.wireTables))
+                                    bank1: try bank1(def.side), wireTables: def.wireTables))
             } catch {
                 errors.append("\(def.name): \(error.localizedDescription)")
             }
         }
         return (worlds, errors)
+    }
+
+    /// Language card bank 1 ($D000-$DFFF) as the menu leaves it.
+    func bank1(_ side: DiskSide) throws -> [UInt8] {
+        var mem = [UInt8](repeating: 0, count: 0x10000)
+        try load(GameCatalog.bank1(side), into: &mem)
+        return Array(mem[0xD000 ..< 0xE000])
     }
 
     func memory(for id: String, cache: inout [String: [UInt8]]) throws -> [UInt8] {
@@ -62,7 +69,7 @@ struct WorldBuilder {
             mem = [UInt8](repeating: 0, count: 0x10000)
         }
         try loadEngineMain(into: &mem)
-        if def.kind == .level { try load(GameCatalog.engineLevels, into: &mem) }
+        try load(def.engine, into: &mem)
         try load(def.segments, into: &mem)
         try load(def.code, into: &mem)
         cache[id] = mem
@@ -164,6 +171,15 @@ struct WorldBuilder {
                 zip(a.mem[0x7000 ..< 0x7780], walls).count { $0 == $1 } < zip(b.mem[0x7000 ..< 0x7780], walls).count { $0 == $1 }
             }
             let level = match.map { $0.name.components(separatedBy: " – ").first ?? $0.name } ?? "?"
+            // The save holds language card bank 1 at $D000.  Restoring reloads the
+            // engine and the level code from the program disk; take them from the
+            // matching world (the saved $0B00-$1FFF stays).
+            let bank1 = Array(mem[0xD000 ..< 0xE000])
+            if let match {
+                for r in [0x0803 ..< 0x0B00, 0xB8E0 ..< 0xC000, 0xD000 ..< 0xE000, 0xF000 ..< 0x10000] {
+                    mem.replaceSubrange(r, with: match.mem[r])
+                }
+            }
             // Code below $0B00 is not saved (Level 5 calls its code rooms from $08DA),
             // so take the matching world's code rooms whose bytes are unchanged.
             var codeRooms = World.findCodeRooms(in: mem)
@@ -173,7 +189,7 @@ struct WorldBuilder {
             }
             games.append(World(id: "\(storage.name)#\(slot)",
                                name: "\(name.isEmpty ? "Slot \(slot + 1)" : name) (\(level))",
-                               kind: .savedGame, mem: mem, codeRooms: codeRooms,
+                               kind: .savedGame, mem: mem, bank1: bank1, codeRooms: codeRooms,
                                wireTables: match?.wireTables ?? World.levelWireTables))
         }
         return games

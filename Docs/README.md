@@ -8,7 +8,8 @@ faithful Swift version.
 |---|---|
 | [DiskLayout.md](DiskLayout.md) | disks and versions, the custom loader, every file on the v1.x disks, saved games |
 | [WorldFormat.md](WorldFormat.md) | the world image $6000‑$94FF: objects, sprites, rooms, walls, texts, wires, colours, font, exact drawing rules |
-| [Engine.md](Engine.md) | memory map, the main loop (tick), timing measurements, porting strategy |
+| [Engine.md](Engine.md) | memory map, the main loop (tick), draw phase, timing, the hybrid engine, porting strategy |
+| [Robots.md](Robots.md) | robot drawing ($D2BC/$D72B): robot state, the three engine builds, the random generator, verification |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
 ## What we know so far
@@ -31,6 +32,12 @@ faithful Swift version.
   sync, so the original runs at about 4‑7 ticks/s depending on the room.
   Circuits only depend on the per‑tick update order.
 * Saved games (storage diskette) are fully decoded and can be viewed.
+* **Hybrid engine.** The original code runs on the 6502 emulator with the
+  language card; engine routines are replaced by native Swift routines one at
+  a time, each bound to the MD5 of the code it replaces and checked byte for
+  byte against it. The robot drawing is the first (Robots.md); level and room
+  code stays original. The viewer draws rooms by running each world's own
+  draw phase, so robots, puzzle sprites and code rooms look as in the game.
 
 ## Plan
 
@@ -44,8 +51,8 @@ faithful Swift version.
 
 **Phase 2 – understand the engine**
 - [ ] name every routine of the tick (start from `RobotOdyssey.sym`)
-- [ ] robots: thrusters, bumpers, grabbers, antennas, batteries, the robot
-      body drawing (the viewer shows only the two body sprites)
+- [x] robot drawing: exteriors and interiors in all three engine builds
+- [ ] robots: thrusters, bumpers, grabbers, antennas, batteries (behaviour)
 - [ ] circuits: gate types ($8CB7), flip‑flops, chips and burning (lab),
       the $7780 table and the chip pin lines ($8A82)
 - [ ] player: movement, grabbing, entering robots, remote control/solder pen
@@ -53,10 +60,14 @@ faithful Swift version.
 - [ ] v2.0 disks (other loader and engine layout)
 
 **Phase 3 – port the game logic**
-- [ ] headless reference engine: the original code on `CPU6502`, tick by tick
-- [ ] native Swift engine, subsystem by subsystem
-- [ ] lock‑step tests: same input to both, compare the world after every
-      tick (this is what guarantees that circuits behave identically)
+- [x] `Machine`: original code on `CPU6502` with language card banks, soft
+      switches and native routines (traps); each world's draw phase runs
+- [ ] whole ticks with input on `Machine` (the reference engine)
+- [ ] native Swift engine, routine by routine – started: robot drawing
+- [x] per‑routine checks: native vs original on random states and every
+      drawn frame (`Data/native_check.sh`)
+- [ ] lock‑step tests over whole ticks: same input to both, compare the world
+      after every tick (this is what guarantees that circuits behave identically)
 - [ ] tick pacing: authentic (cycle based), fixed rate, fast
 
 **Phase 4 – the game**
@@ -67,6 +78,8 @@ faithful Swift version.
 
 Open the side A and B images (or the folder) with *Open Disk Images…* or by
 dropping them on the window; storage disks with saved games can be added.
+The *Game* renderer runs the world's draw phase on the emulator (with the
+native routines); *Static* uses `RoomRenderer` (tiles, texts, objects, wires).
 The app remembers the disks (macOS). Pick a world in the sidebar and a room
 in the 8×8 map (room *n* is at column *n*%8, row *n*/8). Arrow keys follow
 exits. Hover shows object coordinates. Click an object to select it in the

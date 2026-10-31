@@ -32,6 +32,8 @@ struct WorldDefinition {
     var base: String?
     /// Where the world's engine keeps the wire tables (see `World.wireTables`).
     var wireTables = World.levelWireTables
+    /// The engine pieces loaded with the world (besides `GameCatalog.engineMain`).
+    var engine = GameCatalog.engineLevels
     let segments: [Segment]
     let code: [Segment]
 }
@@ -45,6 +47,20 @@ enum GameCatalog {
                                Segment(.a, 266, 0xB8E0, pages: 7, last: 32),
                                Segment(.a, 274, 0xD000, pages: 15, last: 254),
                                Segment(.a, 290, 0xF000, pages: 15, last: 244)]
+    /// Engine pieces of Robot Anatomy and Toolkit (with 348 -> $14C0 in their code).
+    static let engineKit = [Segment(.b, 360, 0xB900, pages: 6, last: 49),
+                            Segment(.b, 367, 0xD000, pages: 15, last: 242),
+                            Segment(.b, 383, 0xF000, pages: 12, last: 118)]
+    /// Engine pieces of the Innovation Lab and its tutorial.
+    static let engineLab = [Segment(.b, 189, 0xB8E0, pages: 6, last: 252),
+                            Segment(.b, 196, 0xD000, pages: 15, last: 250),
+                            Segment(.b, 212, 0xF000, pages: 15, last: 248)]
+
+    /// Language card bank 1 as the menu loads it: page 167 -> $D000, 165 -> $D400
+    /// (the Level 1 save state has exactly these, $D400 changed by play).
+    static func bank1(_ side: DiskSide) -> [Segment] {
+        [Segment(side, 167, 0xD000, pages: 1, last: 170), Segment(side, 165, 0xD400, pages: 1, last: 131)]
+    }
 
     static let worlds: [WorldDefinition] = [
         WorldDefinition(id: "level1", name: "Level 1 – City Sewer", side: .a, kind: .level,
@@ -69,21 +85,25 @@ enum GameCatalog {
                                    Segment(.a, 529, 0x8EF0, pages: 5, last: 217)],
                         code: [Segment(.a, 510, 0x0803, pages: 18, last: 42)]),
         WorldDefinition(id: "anatomy", name: "Robot Anatomy", side: .b, kind: .tutorial, wireTables: 0x14C0,
+                        engine: engineKit,
                         segments: [Segment(.b, 396, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 348, 0x14C0, pages: 11, last: 64),
                                Segment(.b, 449, 0x0803, pages: 4, last: 99),
                                Segment(.b, 454, 0x14C0, pages: 6, last: 121)]),
         WorldDefinition(id: "toolkit", name: "Toolkit", side: .b, kind: .tutorial, wireTables: 0x14C0,
+                        engine: engineKit,
                         segments: [Segment(.b, 461, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 348, 0x14C0, pages: 11, last: 64),
                                Segment(.b, 514, 0x0803, pages: 9, last: 176),
                                Segment(.b, 524, 0x14C0, pages: 6, last: 20)]),
         WorldDefinition(id: "labtutorial", name: "Innovation Lab Tutorial", side: .b, kind: .tutorial, wireTables: 0x0B00,
+                        engine: engineLab,
                         segments: [Segment(.b, 284, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 337, 0x0803, pages: 2, last: 251),
                                Segment(.b, 168, 0x0B00, pages: 20, last: 225),
                                Segment(.b, 340, 0x0B00, pages: 8, last: 0)]),
         WorldDefinition(id: "lab", name: "Innovation Lab", side: .b, kind: .lab, wireTables: 0x0B00,
+                        engine: engineLab,
                         segments: [Segment(.b, 228, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 281, 0x0803, pages: 2, last: 248),
                                Segment(.b, 168, 0x0B00, pages: 20, last: 225)]),

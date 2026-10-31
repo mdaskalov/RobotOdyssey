@@ -23,6 +23,11 @@ struct ContentView: View {
                     }
                     .toolbar {
                         ToolbarItemGroup {
+                            Picker("Renderer", selection: $model.renderer) {
+                                ForEach(ViewerModel.Renderer.allCases) { Text($0.rawValue).tag($0) }
+                            }
+                            .pickerStyle(.segmented)
+                            .help("Game: the world's own drawing code on the 6502 emulator. Static: tiles, texts, objects and wires only.")
                             Picker("Display", selection: $model.mode) {
                                 ForEach(HiresImage.Mode.allCases) { Text($0.rawValue).tag($0) }
                             }

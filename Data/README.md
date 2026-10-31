@@ -11,6 +11,7 @@ python3 ro_extract.py "$A" "$B" Extracted/v1.1 [--rooms]   # all worlds -> bin/j
 python3 ro_verify.py "$STATE"        # renderer vs. the original drawing code: 64/64 rooms identical
 python3 ro_timing.py "$STATE" 20     # cycles per tick of the Level 1 main loop
 python3 ro_symbols.py                # writes RobotOdyssey.sym and RobotOdysseyLoader.sym
+./native_check.sh "$A" "$B" [STORAGE.dsk]   # native Swift routines vs. the original code
 ```
 
 ## Scripts
@@ -25,6 +26,7 @@ python3 ro_symbols.py                # writes RobotOdyssey.sym and RobotOdysseyL
 | `ro_verify.py` | run the original drawing routines on the emulator and compare with `ro_render` |
 | `ro_timing.py` | run the main loop of a save state on the emulator and measure cycles per tick |
 | `ro_symbols.py` | generate the Mariani/AppleWin symbol files |
+| `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, and direct calls on random robot states (memory byte for byte) |
 | `cpu6502.py` | NMOS 6502 emulator with cycle counting (the Swift `CPU6502` mirrors it) |
 | `dis6502.py` | small disassembler: `dis6502.py FILE START END [BASE]` |
 | `hexdump.py` | hex dump with Apple text column: `hexdump.py FILE START END [BASE]` |

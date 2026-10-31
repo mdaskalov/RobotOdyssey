@@ -15,6 +15,11 @@ final class CPU6502 {
     var cycles: UInt64 = 0
     var ioRead: (UInt16) -> UInt8 = { _ in 0 }
     var ioWrite: (UInt16, UInt8) -> Void = { _, _ in }
+    /// Addresses where `onTrap` is asked first, before the instruction there runs.
+    /// It returns true when it handled the instruction (e.g. ran a native routine
+    /// and returned); see `Machine`.
+    var traps = [Bool](repeating: false, count: 0x10000)
+    var onTrap: (UInt16) -> Bool = { _ in false }
 
     enum Flag {
         static let carry: UInt8 = 0x01, zero: UInt8 = 0x02, interrupt: UInt8 = 0x04, decimal: UInt8 = 0x08
@@ -56,6 +61,11 @@ final class CPU6502 {
         return mem[0x100 + Int(sp)]
     }
 
+    /// What RTS does: return to the address on the stack.
+    func returnFromSubroutine() {
+        pc = (UInt16(pull()) | UInt16(pull()) << 8) &+ 1
+    }
+
     // MARK: running
 
     /// JSR to `address` and run until it returns or PC reaches one of `stopAt`.
@@ -72,6 +82,7 @@ final class CPU6502 {
     }
 
     func step() throws {
+        if traps[Int(pc)], onTrap(pc) { return }
         let opcode = read(pc)
         guard let info = CPU6502.table[Int(opcode)] else { throw CPUError.illegalOpcode(opcode, at: pc) }
         pc &+= 1
@@ -248,7 +259,7 @@ final class CPU6502 {
             push(UInt8(r >> 8))
             push(UInt8(r & 0xFF))
             pc = addr
-        case .rts: pc = (UInt16(pull()) | UInt16(pull()) << 8) &+ 1
+        case .rts: returnFromSubroutine()
         case .rti:
             p = (pull() & ~Flag.brk) | Flag.unused
             pc = UInt16(pull()) | UInt16(pull()) << 8
