@@ -6,6 +6,9 @@
 //
 //   frames: each room drawn by the world's draw phase with the native routines
 //           and with all 6502 code -- memory, bank 1 and screen must match;
+//   ticks:  the world's main loop run as in the game (GameLoop, no input) with
+//           the native routines and with all 6502 code -- memory, bank 1 and
+//           the page on screen must match after every tick;
 //   calls:  the robot routines called directly on randomised states (robots in
 //           the room, thrusters, bumpers, grabbers, battery, switch, antenna,
 //           animation counters, random generator, interior rooms), several ticks
@@ -68,7 +71,7 @@ struct NativeCheck {
             all += builder.savedGames(on: disk, reference: worlds.filter { $0.kind == .level || $0.kind == .lab })
         }
         var rng = SplitMix(state: 1984)
-        var frames = 0, calls = 0
+        var frames = 0, ticks = 0, calls = 0
         for world in all {
             let screen: GameScreen
             do {
@@ -81,9 +84,10 @@ struct NativeCheck {
             print("\(world.name) (v\(set.version)): natives \(screen.natives.joined(separator: ", "))")
             guard let layout = RobotDrawing.layout(in: world.mem) else { continue }
             frames += checkFrames(world, screen)
+            ticks += checkTicks(world, screen)
             calls += checkCalls(world, screen, layout, &rng)
         }
-        print("\(frames) frames, \(calls) calls compared; \(failures) differences")
+        print("\(frames) frames, \(ticks) ticks, \(calls) calls compared; \(failures) differences")
         exit(failures == 0 ? 0 : 1)
     }
 
@@ -115,6 +119,35 @@ struct NativeCheck {
             }
         }
         return n
+    }
+
+    /// The main loop with and without the native routines, tick by tick.
+    static func checkTicks(_ world: World, _ screen: GameScreen, count: Int = 40) -> Int {
+        let native = screen.loop(room: nil)
+        let original = screen.loop(room: nil, nativesEnabled: false)
+        for tick in 0 ..< count {
+            do {
+                try native.runTick()
+                try original.runTick()
+            } catch {
+                fail("\(world.name) tick \(tick): \(error)")
+                return tick
+            }
+            // Native routines leave no return addresses on the stack page.
+            let deadStack = 0x0100 ... 0x01FF
+            if let d = firstDifference(native.memory, original.memory, ignoring: deadStack) {
+                fail("\(world.name) tick \(tick): memory \(hex(d)) native \(native.memory[d]) original \(original.memory[d])")
+                return tick
+            } else if native.bank1 != original.bank1 {
+                fail("\(world.name) tick \(tick): bank 1 differs")
+                return tick
+            } else if native.screen().bytes != original.screen().bytes {
+                fail("\(world.name) tick \(tick): screen differs")
+                return tick
+            }
+        }
+        print("  \(count) ticks")
+        return count
     }
 
     /// The robot routines called directly, on randomised states, 4 ticks each.

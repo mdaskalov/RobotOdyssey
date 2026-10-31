@@ -27,7 +27,18 @@ struct ContentView: View {
                                 ForEach(ViewerModel.Renderer.allCases) { Text($0.rawValue).tag($0) }
                             }
                             .pickerStyle(.segmented)
-                            .help("Game: the world's own drawing code on the 6502 emulator. Static: tiles, texts, objects and wires only.")
+                            .help("Game: the world's main loop running on the 6502 emulator. Static: tiles, texts, objects and wires only.")
+                            if model.renderer == .game {
+                                Button(model.paused ? "Run" : "Pause", systemImage: model.paused ? "play.fill" : "pause.fill") {
+                                    model.paused.toggle()
+                                }
+                                .help(model.paused ? "Run the world's main loop" : "Pause the world's main loop")
+                                Button("Step", systemImage: "forward.frame.fill") { model.stepTick() }
+                                    .disabled(!model.paused)
+                                    .help("Run one tick")
+                                Button("Restart", systemImage: "arrow.counterclockwise") { model.restartGame() }
+                                    .help("Start the main loop again from the world's start-up state")
+                            }
                             Picker("Display", selection: $model.mode) {
                                 ForEach(HiresImage.Mode.allCases) { Text($0.rawValue).tag($0) }
                             }

@@ -34,6 +34,21 @@ final class Machine {
     /// Bank 1 as it is now, wherever it is mapped.
     var bank1: [UInt8] { bank == 1 ? Array(cpu.mem[0xD000 ..< 0xE000]) : otherBank }
 
+    /// An independent machine in the same state: memory, banks, registers,
+    /// soft switches and natives (the native call count starts at 0).
+    func copy() -> Machine {
+        let m = Machine(memory: cpu.mem, bank1: otherBank)
+        m.bank = bank
+        m.shownPage = shownPage
+        m.key = key
+        m.natives = natives
+        m.nativesEnabled = nativesEnabled
+        let c = m.cpu
+        c.traps = cpu.traps
+        (c.a, c.x, c.y, c.sp, c.p, c.pc, c.cycles) = (cpu.a, cpu.x, cpu.y, cpu.sp, cpu.p, cpu.pc, cpu.cycles)
+        return m
+    }
+
     private func io(_ a: UInt16) -> UInt8 {
         switch a {
         case 0xC000: return key
@@ -41,9 +56,12 @@ final class Machine {
         case 0xC030: speakerClicks += 1
         case 0xC054, 0xC055: shownPage = Int(a - 0xC054) + 1
         case 0xC080 ... 0xC08F: select(bank: a & 0x08 != 0 ? 1 : 2)
+        // No joystick: its timers never run out, so the engine ($AC24) plays by
+        // keyboard.  (Timers that run out at once read as a joystick held up-left.)
+        case 0xC064 ... 0xC067: return 0x80
         default: break
         }
-        return 0                                    // no buttons, paddles read 0
+        return 0                                    // no buttons pressed
     }
 
     /// The game only ever uses language card RAM, so a bank switch swaps $D000-$DFFF.
@@ -90,7 +108,18 @@ final class Machine {
         swap(&ram.bytes, &cpu.mem)
     }
 
-    // MARK: the hi-res page
+    // MARK: the hi-res pages
+
+    /// The page on screen ($C054/$C055), top line first.
+    func shownScreen() -> HiresScreen {
+        var screen = HiresScreen()
+        let base = shownPage == 1 ? 0x2000 : 0x4000
+        for line in 0 ..< HiresScreen.height {
+            let address = base + line % 8 * 0x400 + line / 8 % 8 * 0x80 + line / 64 * 0x28
+            screen.bytes.replaceSubrange(line * 40 ..< line * 40 + 40, with: cpu.mem[address ..< address + 40])
+        }
+        return screen
+    }
 
     /// The page the engine is drawing on, read through its line tables
     /// ($9839 and ($16)), top line first.
@@ -130,17 +159,28 @@ struct DrawPhase {
         end = flip
         loopStart = Int(mem[jmp + 1]) | Int(mem[jmp + 2]) << 8
     }
+
+    /// Runs the draw phase for `room` on `machine`, a world between two ticks,
+    /// and returns the page drawn.
+    func draw(room: Int, on machine: Machine) throws -> HiresScreen {
+        machine.cpu.mem[RAM.currentRoom] = UInt8(room)
+        machine.cpu.sp = 0xF0
+        // A world's own loop (e.g. Level 5's transporter) may flip pages itself: stop there too.
+        try machine.cpu.call(UInt16(start), stopAt: [UInt16(end), 0xAEED], maxSteps: 3_000_000)
+        return machine.drawnScreen()
+    }
 }
 
 /// Draws rooms the way the game does: the world's start-up code runs once,
 /// then for each room its draw phase (with `CUR_ROOM` set to the room) on the
-/// 6502 emulator, with the native engine routines in place.
+/// 6502 emulator, with the native engine routines in place.  `loop` runs the
+/// main loop from there (GameLoop).
 final class GameScreen {
     let phase: DrawPhase
     /// Native routines in use (shown in the viewer).
     let natives: [String]
-    private let started: [UInt8]
-    private let startedBank1: [UInt8]
+    /// The world at the first instruction of its main loop.
+    private let started: Machine
 
     enum Failure: LocalizedError {
         case noMainLoop
@@ -161,20 +201,21 @@ final class GameScreen {
         }
         machine.cpu.sp = 0xFF
         try machine.cpu.call(0x0803, stopAt: [UInt16(phase.loopStart)], maxSteps: 2_000_000)
-        started = machine.cpu.mem
-        startedBank1 = machine.bank1
+        started = machine
     }
 
     /// Room `room` as the game draws it.  `nativesEnabled: false` runs every
     /// engine routine as 6502 code.
     func render(room: Int, nativesEnabled: Bool = true) throws -> (screen: HiresScreen, machine: Machine) {
-        let machine = Machine(memory: started, bank1: startedBank1)
-        machine.installNatives()
+        let machine = started.copy()
         machine.nativesEnabled = nativesEnabled
-        machine.cpu.mem[RAM.currentRoom] = UInt8(room)
-        machine.cpu.sp = 0xF0
-        // A world's own loop (e.g. Level 5's transporter) may flip pages itself: stop there too.
-        try machine.cpu.call(UInt16(phase.start), stopAt: [UInt16(phase.end), 0xAEED], maxSteps: 3_000_000)
-        return (machine.drawnScreen(), machine)
+        return (try phase.draw(room: room, on: machine), machine)
+    }
+
+    /// The main loop, ready to run its first tick, drawing `room`.
+    func loop(room: Int?, nativesEnabled: Bool = true) -> GameLoop {
+        let machine = started.copy()
+        machine.nativesEnabled = nativesEnabled
+        return GameLoop(machine: machine, phase: phase, room: room)
     }
 }

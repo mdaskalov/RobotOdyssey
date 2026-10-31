@@ -21,7 +21,8 @@ struct WorldBuilder {
     private func load(_ segments: [Segment], into mem: inout [UInt8]) throws {
         for s in segments {
             guard let disk = disks.disk(s.side) else { throw DiskError.missingSide(s.side.rawValue) }
-            mem.replaceSubrange(s.address ..< s.address + s.length, with: disk.read(page: s.page, length: s.length))
+            let length = disks.version == "1.0" ? GameCatalog.lengthsV10[s.side]?[s.page] ?? s.length : s.length
+            mem.replaceSubrange(s.address ..< s.address + length, with: disk.read(page: s.page, length: length))
         }
     }
 
@@ -39,9 +40,10 @@ struct WorldBuilder {
         var errors: [String] = []
         for def in GameCatalog.worlds where disks.disk(def.side) != nil {
             do {
-                let mem = try memory(for: def.id, cache: &cache)
+                var mem = try memory(for: def.id, cache: &cache)
+                let bank1 = try setUpChips(def.chips, mem: &mem)
                 worlds.append(World(id: idPrefix + def.id, name: def.name, kind: def.kind, mem: mem,
-                                    bank1: try bank1(def.side), wireTables: def.wireTables))
+                                    bank1: bank1, wireTables: def.wireTables))
             } catch {
                 errors.append("\(def.name): \(error.localizedDescription)")
             }
@@ -49,11 +51,15 @@ struct WorldBuilder {
         return (worlds, errors)
     }
 
-    /// Language card bank 1 ($D000-$DFFF) as the menu leaves it.
-    func bank1(_ side: DiskSide) throws -> [UInt8] {
-        var mem = [UInt8](repeating: 0, count: 0x10000)
-        try load(GameCatalog.bank1(side), into: &mem)
-        return Array(mem[0xD000 ..< 0xE000])
+    /// The loader's chip set-up on a loaded world; returns language card bank 1
+    /// ($D000-$DFFF), which nothing else loads.
+    func setUpChips(_ chips: ChipSetup, mem: inout [UInt8]) throws -> [UInt8] {
+        var bank1 = [UInt8](repeating: 0, count: 0x1000)
+        try chips.apply(to: &mem, bank1: &bank1) { s in
+            guard let disk = disks.disk(s.side) else { throw DiskError.missingSide(s.side.rawValue) }
+            return disk.read(page: s.page, length: s.length)
+        }
+        return bank1
     }
 
     func memory(for id: String, cache: inout [String: [UInt8]]) throws -> [UInt8] {
@@ -178,6 +184,16 @@ struct WorldBuilder {
             if let match {
                 for r in [0x0803 ..< 0x0B00, 0xB8E0 ..< 0xC000, 0xD000 ..< 0xE000, 0xF000 ..< 0x10000] {
                     mem.replaceSubrange(r, with: match.mem[r])
+                }
+            }
+            // RESTORE_GAME ($450C) puts back the chip table and four engine variables,
+            // HELD_OBJECT first.  Some saves have an empty header (not written by the
+            // v1.0/v1.1 save code); restored, the player would hold itself (object 0)
+            // and the main loop hang, so they keep the program disk's values.
+            if header[0 ..< 0x44].contains(where: { $0 != 0 }) {
+                mem.replaceSubrange(0xF008 ..< 0xF048, with: header[0 ..< 0x40])
+                for (i, a) in [0x9C26, 0x9C27, 0xA5C9, 0xA5CA].enumerated() {
+                    mem[a] = header[0x40 + i]
                 }
             }
             // Code below $0B00 is not saved (Level 5 calls its code rooms from $08DA),

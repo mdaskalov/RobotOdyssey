@@ -12,6 +12,25 @@ faithful Swift version.
 | [Robots.md](Robots.md) | robot drawing ($D2BC/$D72B): robot state, the three engine builds, the random generator, verification |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
+## Current status (2026‑10‑31)
+
+* **Viewer app** (macOS, SwiftUI): opens the v1.0/v1.1 disk images and storage
+  disks, shows all nine worlds and the saved games room by room, with
+  inspector, hover read‑out and exits.
+* **The game runs.** In *Game* mode each world's main loop runs on the 6502
+  emulator as in the game, tick after tick at the original speed (4‑7 ticks/s,
+  paced by CPU cycles at 1.0205 MHz): robots, circuits and the worlds' own
+  code animate. Any room can be watched. No input reaches the game yet.
+* **Hybrid engine:** level and room code always runs as original 6502 code;
+  one engine routine is ported to Swift so far, the robot drawing.
+* **Verified:** every native routine against the original code
+  (`Data/native_check.sh`), per drawn room, per direct call and over whole
+  ticks: v1.1 670 frames, 440 ticks, 26,400 calls; v1.0 542 frames,
+  360 ticks, 21,600 calls – all identical.
+* **Next:** input (keyboard, joystick), then porting the tick's engine
+  routines one by one (player, grabbing, robots, wires, gates, chips), each
+  checked tick by tick against the original; sound.
+
 ## What we know so far
 
 * The disks have **no DOS**. A track‑1 loader ($4A20) loads files by
@@ -31,13 +50,20 @@ faithful Swift version.
 * **Timing:** one main‑loop iteration is one tick. There is no vertical‑blank
   sync, so the original runs at about 4‑7 ticks/s depending on the room.
   Circuits only depend on the per‑tick update order.
-* Saved games (storage diskette) are fully decoded and can be viewed.
+* Saved games (storage diskette) are fully decoded and can be viewed and run.
+* **After loading, the loader sets up the chips** (8 chip programs in
+  language‑card RAM, a chip table at $F008); without that the chip
+  interpreter never ends a tick. Restoring a game puts the chip table and
+  four engine variables back from the save's header (DiskLayout.md).
+* With no joystick plugged in, the engine plays by keyboard (it tests the
+  paddle timer at $AC24); a joystick read as 0 holds the player up‑left.
 * **Hybrid engine.** The original code runs on the 6502 emulator with the
   language card; engine routines are replaced by native Swift routines one at
   a time, each bound to the MD5 of the code it replaces and checked byte for
   byte against it. The robot drawing is the first (Robots.md); level and room
-  code stays original. The viewer draws rooms by running each world's own
-  draw phase, so robots, puzzle sprites and code rooms look as in the game.
+  code stays original. The viewer runs each world's main loop and shows any
+  room as the world's own draw phase draws it, so robots, puzzle sprites and
+  code rooms look and move as in the game.
 
 ## Plan
 
@@ -48,13 +74,16 @@ faithful Swift version.
 - [x] Swift viewer: open the .dsk images (and storage disks), browse worlds
       and rooms by number, follow exits, inspect objects/texts/wires
 - [x] Mariani symbol files
+- [x] the loader's set‑up after loading (chips, chip table), restoring saved
+      games (header), v1.0's file lengths
 
 **Phase 2 – understand the engine**
 - [ ] name every routine of the tick (start from `RobotOdyssey.sym`)
 - [x] robot drawing: exteriors and interiors in all three engine builds
 - [ ] robots: thrusters, bumpers, grabbers, antennas, batteries (behaviour)
 - [ ] circuits: gate types ($8CB7), flip‑flops, chips and burning (lab),
-      the $7780 table and the chip pin lines ($8A82)
+      the $7780 table and the chip pin lines ($8A82) – known so far: 8 chip
+      programs at $D000 + $400n, run up to opcode 7 by $F56B
 - [ ] player: movement, grabbing, entering robots, remote control/solder pen
 - [ ] level scripts: what each world's $0803/$8EF0 code does
 - [ ] v2.0 disks (other loader and engine layout)
@@ -62,13 +91,18 @@ faithful Swift version.
 **Phase 3 – port the game logic**
 - [x] `Machine`: original code on `CPU6502` with language card banks, soft
       switches and native routines (traps); each world's draw phase runs
-- [ ] whole ticks with input on `Machine` (the reference engine)
+- [x] whole ticks on `Machine` (`GameLoop`, the reference engine): every
+      world's main loop runs as in the game – without input so far
+- [ ] input: keyboard ($C000), joystick and buttons
 - [ ] native Swift engine, routine by routine – started: robot drawing
 - [x] per‑routine checks: native vs original on random states and every
       drawn frame (`Data/native_check.sh`)
-- [ ] lock‑step tests over whole ticks: same input to both, compare the world
-      after every tick (this is what guarantees that circuits behave identically)
-- [ ] tick pacing: authentic (cycle based), fixed rate, fast
+- [x] lock‑step over whole ticks without input: native vs original, memory,
+      bank 1 and screen after every tick (`native_check`, 40 ticks per world)
+- [ ] the same with input sequences (this is what guarantees that circuits
+      behave identically)
+- [x] tick pacing: authentic (cycle based, in the viewer)
+- [ ] tick pacing: fixed rate, fast
 
 **Phase 4 – the game**
 - [ ] input (keyboard, game controller), sound, menu, save/load
@@ -78,12 +112,22 @@ faithful Swift version.
 
 Open the side A and B images (or the folder) with *Open Disk Images…* or by
 dropping them on the window; storage disks with saved games can be added.
-The *Game* renderer runs the world's draw phase on the emulator (with the
-native routines); *Static* uses `RoomRenderer` (tiles, texts, objects, wires).
 The app remembers the disks (macOS). Pick a world in the sidebar and a room
 in the 8×8 map (room *n* is at column *n*%8, row *n*/8). Arrow keys follow
 exits. Hover shows object coordinates. Click an object to select it in the
 inspector, and the inspector lists all objects, wires and texts.
+
+The *Game* renderer runs the world's main loop on the emulator (with the
+native routines) as in the game: each tick takes the CPU cycles it takes at
+1.0205 MHz, so every room runs at its original speed, and the canvas shows
+the hi‑res page on screen. The selected room is drawn by the world's draw
+phase in place of the player's room, while the rest of the tick runs as in the
+game; on a room change the room appears at once, drawn from the state at the
+start of the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
+(one tick, when paused) and *Restart*; the line under the canvas shows the
+tick and ticks/s. No input reaches the game yet, and the room thumbnails show
+the rooms after the world's start‑up code. *Static* uses `RoomRenderer`
+(tiles, texts, objects, wires).
 
 In Debug builds `-openDisks <path>…` opens disks at launch (needs
 `ENABLE_APP_SANDBOX=NO`).

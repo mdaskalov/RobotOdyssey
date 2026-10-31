@@ -25,11 +25,19 @@ final class ViewerModel {
         }
     }
     var selectedRoom = 0 {
-        didSet { if oldValue != selectedRoom { selectedObject = nil } }
+        didSet {
+            if oldValue != selectedRoom {
+                selectedObject = nil
+                showLive()
+            }
+        }
     }
     var selectedObject: Int?
     var mode: HiresImage.Mode = .color {
-        didSet { thumbnails = [:] }
+        didSet {
+            thumbnails = [:]
+            showLive()
+        }
     }
     var renderer: Renderer = .game {
         didSet { thumbnails = [:] }
@@ -37,11 +45,25 @@ final class ViewerModel {
     var showEmptyRooms = false
     var showGrid = false
 
+    /// The Game renderer runs the selected world's main loop (`runGame`).
+    var paused = false {
+        didSet { showLive() }
+    }
+    /// Counts restarts: the main loop starts again from the world's start-up state.
+    private(set) var restarts = 0
+    /// What the running loop shows of the selected room.
+    private(set) var liveFrame: (world: World.ID, room: Int, image: CGImage)?
+    /// Tick count and speed of the running loop.
+    private(set) var loopStatus = ""
+
     /// Render caches; not observed, so filling them while a view draws is fine.
     @ObservationIgnored private var thumbnails: [Int: CGImage] = [:]
     @ObservationIgnored private var roomImage: (key: String, image: CGImage?)?
     /// Each world after its start-up code ran (nil: it could not run).
     @ObservationIgnored private var gameScreens: [World.ID: GameScreen?] = [:]
+    @ObservationIgnored private var loop: (world: World.ID, loop: GameLoop)?
+    /// Source of `liveFrame`: room, display mode, on screen or preview; and the page shown.
+    @ObservationIgnored private var liveSource: (key: String, bytes: [UInt8])?
     @ObservationIgnored private var renderErrors: [String: String] = [:]
 
     enum Renderer: String, CaseIterable, Identifiable {
@@ -181,6 +203,7 @@ final class ViewerModel {
     // MARK: images
 
     func image(world: World, room: Int) -> CGImage? {
+        if renderer == .game, let live = liveFrame, live.world == world.id, live.room == room { return live.image }
         let key = "\(world.id)#\(room)#\(mode.rawValue)#\(renderer.rawValue)"
         if let cached = roomImage, cached.key == key { return cached.image }
         let image = HiresImage.make(screen(world: world, room: room), mode: mode)
@@ -230,8 +253,104 @@ final class ViewerModel {
         }
         guard let game = gameScreen(world) else { return "" }
         let natives = game.natives.isEmpty ? "none" : game.natives.joined(separator: ", ")
-        return String(format: "Drawn by the world's code ($%04X–$%04X) on the 6502 emulator · native: %@",
+        return String(format: "The world's main loop on the 6502 emulator, its draw phase ($%04X–$%04X) drawing this room · native: %@",
                       game.phase.start, game.phase.end, natives)
+    }
+
+    // MARK: running the game
+
+    /// Runs the world's main loop as in the game, paced by its CPU cycles at
+    /// 1.0205 MHz, and shows the selected room.  Runs as the canvas's task:
+    /// ends when the world, the renderer or `restarts` changes.
+    func runGame(world: World) async {
+        loop = nil
+        liveFrame = nil
+        liveSource = nil
+        loopStatus = ""
+        guard renderer == .game, let game = gameScreen(world) else { return }
+        let loop = game.loop(room: viewedRoom(world))
+        self.loop = (world.id, loop)
+        showLive()
+        let clock = ContinuousClock()
+        var last = clock.now
+        while !Task.isCancelled {
+            try? await Task.sleep(for: .milliseconds(15))
+            // At most 0.1 s per step: a busy main thread slows the game down instead of skipping.
+            let elapsed = min(clock.now - last, .milliseconds(100))
+            last = clock.now
+            guard !paused else { continue }
+            do {
+                try loop.run(until: loop.cycles + UInt64(elapsed / .seconds(1) * GameLoop.clock))
+            } catch {
+                stopGame(error)
+                return
+            }
+            showLive()
+        }
+    }
+
+    /// Runs the paused main loop to the start of the next tick.
+    func stepTick() {
+        guard let running = loop, running.world == selectedWorldID else { return }
+        do {
+            try running.loop.runTick()
+            showLive()
+        } catch {
+            stopGame(error)
+        }
+    }
+
+    func restartGame() {
+        restarts += 1
+    }
+
+    /// The room drawings stay (GameScreen); only the loop stops.
+    private func stopGame(_ error: Error) {
+        loop = nil
+        liveFrame = nil
+        loopStatus = "Main loop stopped: \(error)"
+    }
+
+    /// The room the loop draws: the selected one; code rooms can't be drawn, so the player's.
+    private func viewedRoom(_ world: World) -> Int? {
+        world.codeRooms[selectedRoom] == nil ? selectedRoom : nil
+    }
+
+    /// Updates `liveFrame` from the loop: the page on screen once the loop has
+    /// drawn the selected room, until then the room drawn from the state at the
+    /// start of the tick.
+    private func showLive() {
+        guard let running = loop, let world = selectedWorld, world.id == running.world else { return }
+        let loop = running.loop
+        loop.room = viewedRoom(world)
+        let speed = loop.tickCycles == 0 ? "" : String(format: " · %.1f ticks/s", GameLoop.clock / Double(loop.tickCycles))
+        let status = paused ? "Paused at tick \(loop.ticks)" : "Tick \(loop.ticks)" + speed
+        if loopStatus != status { loopStatus = status }
+        let room = selectedRoom
+        guard loop.room == room else {
+            liveFrame = nil
+            return
+        }
+        let shown = loop.shownRoom == room
+        let key = "\(room)#\(mode.rawValue)#\(shown)"
+        let screen: HiresScreen
+        if shown {
+            screen = loop.screen()
+            if liveSource?.key == key, liveSource?.bytes == screen.bytes { return }
+        } else {
+            if liveSource?.key == key { return }
+            do {
+                screen = try loop.preview(room: room)
+            } catch {
+                renderErrors["\(world.id)#\(room)"] = error.localizedDescription
+                liveFrame = nil
+                return
+            }
+        }
+        liveSource = (key, screen.bytes)
+        if let image = HiresImage.make(screen, mode: mode) {
+            liveFrame = (world.id, room, image)
+        }
     }
 }
 

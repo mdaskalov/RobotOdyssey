@@ -131,10 +131,14 @@ the original code:
 * **frames** – every room of every world (and saved game) is drawn by the
   world's own draw phase twice, with the native routines and as pure 6502
   code: all memory, bank 1 and the screen must match;
+* **ticks** – each world's main loop runs 40 ticks as in the game
+  (`GameLoop`, no input), with the native routines and as pure 6502 code:
+  all memory, bank 1 and the page on screen must match after every tick;
 * **calls** – the two routines are called directly on 300 random states per
   world (robots in the room at random positions, thrusters, bumpers,
   grabbers, battery, switch, antenna, counters, generator, interior rooms),
   4 ticks in a row: all memory must match except the dead stack.
 
-Result on v1.1 (with the saved games of `Robots_s.dsk`): 670 frames and 26,400
-calls identical; v1.0: 542 frames and 21,600 calls identical.
+Result on v1.1 (with the saved games of `Robots_s.dsk`): 670 frames, 440 ticks
+and 26,400 calls identical; v1.0: 542 frames, 360 ticks and 21,600 calls
+identical.

@@ -23,6 +23,13 @@ struct WorldView: View {
                     }
                     return .handled
                 }
+                .onKeyPress(.space) {
+                    model.paused.toggle()
+                    return .handled
+                }
+                .task(id: "\(world.id)#\(model.renderer.rawValue)#\(model.restarts)") {
+                    await model.runGame(world: world)
+                }
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Rooms").font(.headline)
@@ -107,9 +114,14 @@ struct RoomCanvas: View {
             Text(hoverText(objects: objects))
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
-            Text(model.renderNote(world: world, room: model.selectedRoom))
-                .font(.caption)
-                .foregroundStyle(.tertiary)
+            HStack(spacing: 12) {
+                if model.renderer == .game, !model.loopStatus.isEmpty {
+                    Text(model.loopStatus).font(.caption.monospacedDigit())
+                }
+                Text(model.renderNote(world: world, room: model.selectedRoom))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
         }
     }
 
@@ -127,7 +139,7 @@ struct RoomCanvas: View {
 
     private func hoverText(objects: [Int]) -> String {
         guard let (x, y) = hover, (0 ..< 140).contains(x), (0 ..< 192).contains(y) else {
-            return "Hover for coordinates · click an object to select it · arrow keys follow exits"
+            return "Hover for coordinates · click an object to select it · arrow keys follow exits · space pauses"
         }
         var s = String(format: "x=$%02X y=$%02X   tile column %d row %d", x, y, x * 2 / 14, (191 - y) / 16)
         if let o = objectAt(x, y, objects: objects) {

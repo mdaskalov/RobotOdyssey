@@ -3,7 +3,9 @@
 Runs on a 128K Apple IIe but uses only the 64K main RAM (aux is untouched),
 including the language card. Graphics: hi‑res, double buffered (pages 1 and
 2, flipped every tick by $AEED). Input: keyboard, joystick/paddles
-($C061‑$C065, $C070). Sound: speaker $C030.
+($C061‑$C065, $C070). Sound: speaker $C030. The engine looks for a
+joystick at $AC24 (paddle 0's timer must run out after the $C070 strobe);
+without one it plays by keyboard.
 
 ## Memory map while playing
 
@@ -52,7 +54,14 @@ $9F3C (sound toggle) with the player's room swapped in
 
 The circuit is evaluated once per tick: wires copy the colour (signal) of
 their source ($F0CC), gates are evaluated from a type table at $8CB7
-($F04B), chips at $F56B.
+($F04B), chips at $F56B: it runs the program of each of the 8 chips (chip
+*n* at $D000 + $400*n*, program from +8; chips 0‑3 in language card bank 1)
+up to opcode 7, so an empty chip must hold `07 FF FF FF` – the loader's job
+(DiskLayout.md); with zeros there a tick never ends.
+
+$8DAB mirrors the player's colour (object 0, $6200): 5 normally, 7 (white)
+after the toggle at $BEF4; the robot and circuit block runs only at 5. Both
+saved games on the sample storage disk are at 7.
 
 ## Timing
 
@@ -72,7 +81,9 @@ work, mostly redrawing the whole room. Measured with `Data/ro_timing.py`
 So the original runs at roughly **4‑7 ticks per second**, varying by room.
 (Measured without joystick reads; the paddle read loops add up to ~3 ms per
 read on real hardware. Worth confirming in Mariani with a breakpoint on
-MAIN_LOOP and the cycle counter.)
+MAIN_LOOP and the cycle counter.) `GameLoop` on the worlds built from the
+disks agrees: Level 1's room $28 takes 200‑208 K cycles per tick, 5.0
+ticks/s.
 
 What matters for circuits is **the tick**: every robot, sensor, wire, gate
 and chip is updated exactly once per tick in a fixed order, and nothing in
@@ -81,7 +92,8 @@ update order bit‑exact keeps every circuit working, whatever the tick rate.
 The wall‑clock rate is a separate, user‑visible choice:
 
 * **Authentic** – compute each tick's cycle cost (or run the original code)
-  and pace ticks at 1.0205 MHz, reproducing the room‑dependent speed.
+  and pace ticks at 1.0205 MHz, reproducing the room‑dependent speed. The
+  viewer does this.
 * **Fixed** – a constant rate (e.g. 5 or 6 ticks/s), smoother but not
   identical in feel.
 * **Fast** – for testing circuits.
@@ -102,11 +114,16 @@ The game runs as the original 6502 code on `CPU6502`, inside `Machine`:
 
 * 64K main RAM plus language card bank 1 (engine data, chips): a switch via
   $C080‑$C08F swaps $D000‑$DFFF. The chips ($F56B) and sensors ($F44D) use
-  bank 1 every tick. Worlds built from the disks get bank 1 from loader files
-  167 → $D000 and 165 → $D400 (the Level 1 save state holds exactly these);
-  saved games bring their own.
+  bank 1 every tick. Worlds built from the disks get bank 1 (and chips 4‑7 at
+  $E000‑$EFFF, the chip table at $F008) from the loader's set‑up after
+  loading the world (`ChipSetup`, DiskLayout.md): Level 1, and with it levels
+  2‑5, gets two chips (167 → $D000, 165 → $D400 – the Level 1 save state
+  holds exactly these), the lab tutorial two others, the lab only empty
+  chips; saved games bring their own.
 * soft switches: keyboard $C000/$C010, display page $C054/$C055, speaker
-  $C030; buttons and paddles read 0.
+  $C030; buttons read 0 and the paddle timers never run out – no joystick,
+  so the engine plays by keyboard. (Timers that run out at once read as a
+  joystick held up‑left: the player walks off.)
 * **native routines**: a Swift function registered at an engine entry point
   runs when the 6502 code reaches it (CPU traps) and returns like RTS. It
   works on the same memory (`RAM`), takes its parameters where the 6502 code
@@ -126,10 +143,24 @@ draw phase, so rooms look exactly as in the game, including what the world's
 own code draws. A world built from the disks starts with the random generator
 at $4E/$4F = 0, which it never leaves; `GameScreen` seeds it (Robots.md).
 
+`GameLoop` runs the main loop from there as in the game, with no input:
+it is run by CPU cycles and the page on screen ($C054/$C055) is what the
+Apple shows, so each tick takes as long as its work. To watch any room, the
+selected room replaces the player's in `CUR_ROOM` when the loop arrives at
+the draw phase, and the loop's own value goes back before the page flip, so
+the rest of the tick (including the `$6300 ↔ CUR_ROOM` swap around $9F3C)
+sees what the game would. Watching the player's room changes nothing
+(checked tick by tick on every world); elsewhere only what the draw phase
+writes differs. A room change shows the room at once, drawn on a copy of the
+machine at the start of the tick (`preview`). All eleven worlds (nine from
+the v1.1 disks, two saved games) run 100 ticks with the player standing
+still; v1.0 needs its own file lengths (`GameCatalog.lengthsV10`: its
+level engine is one byte longer, and that byte is code).
+
 ## Porting strategy
 
 1. **Reference engine** – the original code on `CPU6502` in `Machine`, with
-   the language‑card banking (done for drawing; next: whole ticks with input).
+   the language‑card banking (done: whole ticks in `GameLoop`; next: input).
    This gives golden traces: the world memory after every tick for a given
    input sequence.
 2. **Native engine** – port the engine routine by routine as native routines
@@ -138,10 +169,10 @@ at $4E/$4F = 0, which it never leaves; `GameScreen` seeds it (Robots.md).
    batteries), wires, gates, chips, room transitions. Started with the robot
    drawing.
 3. **Lock‑step tests** – `Data/native_check.sh` compares every native routine
-   with the original, per call on random states and per drawn frame; next,
-   feed the same input to both for whole ticks and compare the world
-   ($6000‑$94FF, $D000‑$EFFF) after every tick; any difference points to the
-   routine to fix.
+   with the original, per call on random states, per drawn frame and over
+   whole ticks (each world's main loop, 40 ticks: all memory, bank 1 and the
+   page on screen after every tick); next, feed the same input to both;
+   any difference points to the routine to fix.
 4. **Level and room code** ($0803 code, $8EF0 segments, code rooms) stays
    original 6502 code: it is world‑specific puzzle logic that pokes the same
    tables, and running it as is cannot break it.

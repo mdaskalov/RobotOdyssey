@@ -79,6 +79,29 @@ at $40B9‑$40DD):
 | Toolkit | B | 461→$6000 53p · code 514→$0803, 348/524→$14C0 |
 | Innovation Lab Tutorial | B | 284→$6000 53p · code 337→$0803, 168/340→$0B00 |
 
+After loading, the world loaders set up the **chips** (8 chip programs: chip
+*n* at $D000 + $400*n*, chips 0‑3 in language card bank 1, 4‑7 at
+$E000‑$EFFF; `GameCatalog`'s `ChipSetup`). CLEAR_CHIPS ($4D13, mask in A,
+bit 7 = chip 0) writes `00 ×8, 07 FF FF FF` to each chip in the mask: an empty
+program (opcode 7 ends it).
+
+| Loader | Bank 1 | Chip table | Cleared |
+|---|---|---|---|
+| LOAD_LEVEL1 $4595 | 167 → $D000 (1p+170), 165 → $D400 (1p+131) | $F008‑$F017 = `01 01 02 02 02 02 02 02 02 01 02 01 01 02 01 02` | $3F: chips 2‑7 |
+| LOAD_LAB $45C4 | – | – | $FF: all |
+| LOAD_LAB_TUTORIAL $460E | 165 → $D800 (patches the entry at $4DDC), 167 → $D000 (0p+19) | $F008 = `02 00 ×7`, $F018 = `02 01 02 01 01 02 01 02` | $5F: chips 1, 3‑7 |
+| LOAD_ANATOMY $45E2, LOAD_TOOLKIT $45F8 | – | – | – |
+
+The next‑level loaders ($40B9‑$40DD) load neither engine nor chips, so levels
+2‑5 keep Level 1's.
+
+v1.0's file table is the same apart from eight lengths (bytes in the last
+page): level engine $D000 15p+255 (v1.1: 254 – in v1.0 the byte at $DFFE is
+code), Robot Anatomy/Toolkit engine $D000 15p+237 (242), lab engine $D000
+15p+242 (250), Level 2 code 16p+26 (103) and $8EF0 1p+62 (63), Level 3 code
+18p+30 (44) and $8EF0 5p+248 (249), Level 4 code 16p+95 (98)
+(`GameCatalog.lengthsV10`).
+
 Leftover fragments of the original assembler source on the disk (side A page
 128) name these files `KITPREASM1..4`, `TUT3WORLD`, `LABPREASM2`, `FONTADV`, …
 
@@ -112,15 +135,21 @@ Slot *k* (0‑3) occupies 107 pages from page **117 + 107k**:
 
 | Pages | Memory | Contents |
 |---|---|---|
-| +0 | $5E00 | header: $40‑$43 = $9C26,$9C27,$A5C9,$A5CA; $44 = world index ($02D2) |
+| +0 | $5E00 | header: $00‑$3F = chip table $F008‑$F047; $40‑$43 = $9C26 (HELD_OBJECT), $9C27, $A5C9, $A5CA; $44 = world index ($02D2) |
 | +1…+32 | $D000‑$EFFF | language‑card RAM (bank 1 $D000‑$DFFF, then $E000‑$EFFF) |
 | +33…+85 | $6000‑$94FF | the world |
 | +86…+106 | $0B00‑$1FFF | level code and state |
 
-Restoring loads these and then reloads the level code at $0803 selected by the
+Saving ($4166) writes the header from those addresses. Restoring
+(RESTORE_GAME $443A) loads the three parts, reloads the engine from the
+program disk, copies the header back ($450C: $00‑$3F → $F008, $40‑$43 → the
+four variables) and then reloads the level code at $0803 selected by the
 header’s world index (0‑4 = levels 1‑5, 5 = lab). In the sample disk the Level 2
 save has index 0, so the viewer identifies a save’s level by comparing room
-walls instead.
+walls instead. Its Level 1 save (slot 0) has an all‑zero header, which the
+v1.0/v1.1 save code never writes (HELD_OBJECT is $FF when nothing is held);
+restored as is, the player would hold itself (object 0) and the tick at $B8E6
+never end, so the viewer keeps the program disk's values for an empty header.
 
 ## Copy protection and the dumps
 
