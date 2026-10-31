@@ -11,6 +11,7 @@ python3 ro_extract.py "$A" "$B" Extracted/v1.1 [--rooms]   # all worlds -> bin/j
 python3 ro_verify.py "$STATE"        # renderer vs. the original drawing code: 64/64 rooms identical
 python3 ro_timing.py "$STATE" 20     # cycles per tick of the Level 1 main loop
 python3 ro_symbols.py                # writes RobotOdyssey.sym and RobotOdysseyLoader.sym
+python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml or a STORAGE.dsk)
 ./native_check.sh "$A" "$B" [STORAGE.dsk]   # native Swift routines vs. the original code
 ```
 
@@ -26,6 +27,8 @@ python3 ro_symbols.py                # writes RobotOdyssey.sym and RobotOdysseyL
 | `ro_verify.py` | run the original drawing routines on the emulator and compare with `ro_render` |
 | `ro_timing.py` | run the main loop of a save state on the emulator and measure cycles per tick |
 | `ro_symbols.py` | generate the Mariani/AppleWin symbol files |
+| `ro_chips.py` | find the chips (program disks: the loaders' set‑up; save state; storage disk: every saved game) and disassemble them |
+| `ro_chip_disasm.py` | Micah Dowty's chip disassembler (PC CHP/CSV files, same bytecode as the Apple II; MIT licence, ported to Python 3) |
 | `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, every world's main loop tick by tick, and direct calls on random robot states (memory byte for byte) |
 | `cpu6502.py` | NMOS 6502 emulator with cycle counting (the Swift `CPU6502` mirrors it) |
 | `dis6502.py` | small disassembler: `dis6502.py FILE START END [BASE]` |
@@ -44,6 +47,7 @@ python3 ro_symbols.py                # writes RobotOdyssey.sym and RobotOdysseyL
 | `<world>/room_NN.png` | single rooms (with `--rooms`) |
 | `font.bin` | 8 glyph rows × 96 characters ($A0‑$FF), row 0 = bottom, bit 0 = left |
 | `colors.bin` | 32 colours × 4 pattern bytes |
+| `chips.txt` | disassembled chips of Level 1 and the Innovation Lab Tutorial (`ro_chips.py "$A" "$B" > …`) |
 
 Worlds: `level1`‑`level5`, `anatomy` (Robot Anatomy), `toolkit`,
 `labtutorial` (Innovation Lab Tutorial), `lab` (Innovation Lab).

@@ -63,6 +63,47 @@ $8DAB mirrors the player's colour (object 0, $6200): 5 normally, 7 (white)
 after the toggle at $BEF4; the robot and circuit block runs only at 5. Both
 saved games on the sample storage disk are at 7.
 
+## Chips
+
+The chips use the same bytecode as the PC version's CHP files, so Micah
+Dowty's disassembler (`Data/ro_chip_disasm.py`, ported to Python 3)
+reads them unchanged; `Data/ro_chips.py` finds them on the program disks, in
+save states and on storage disks (listing: `Data/Extracted/v1.1/chips.txt`).
+v1.0 and v1.1 have the same chips.
+
+A chip is 8 pin bytes (pins 1‑4, then 8‑5) followed by its program. Every
+input is a byte *inside* the program holding its current value (0/1); every
+output is a list of 16‑bit big‑endian offsets from the chip's start (to pin
+bytes or to other parts' input bytes), ended by $FF:
+
+| Opcode | Part | Operands |
+|---|---|---|
+| 01 / 02 / 03 | AND / OR / XOR | in0 in1, outputs |
+| 04 | NOT | in, outputs |
+| 05 | flip‑flop | in0 in1 state0 state1, outputs of half 0, outputs of half 1 |
+| 06 | nested chip | a whole chip inline (its offsets relative to its own start) |
+| 07 | end | lists *source, destinations…* (wires to and from pins), an empty list ends the chip |
+
+The chip table at **$F008 + 8n** holds chip *n*'s pin directions in the same
+order (0 unused, 1 in, 2 out) – the PC CSV files' PIN table. The saved‑game
+header keeps it at +$00 (DiskLayout.md).
+
+Chips on the disks (the loaders' set‑up):
+
+* Level 1, kept by levels 2‑5: chip 0 ($D000, 426 bytes; pins 1‑2 in, 3‑8
+  out): 2 flip‑flops, 2 ANDs, a NOT and 5 nested chips of one flip‑flop each.
+  Chip 1 ($D400, 386 bytes; pins 2, 4, 6, 8 in, 1, 3, 5, 7 out): ORs, ANDs, a NOT
+  and a nested chip with 4 flip‑flops.
+* Innovation Lab Tutorial: chip 0 ($D000, 17 bytes, pin 1 out) is a NOT
+  whose output feeds its own input and pin 1 (a clock); chip 2 ($D800) is
+  Level 1's chip 1.
+
+The disassembler's notes on evaluation (PC version: parts run in program
+order, outputs to the current chip's pins or nodes propagate at once, others
+are queued until just before the nodes; flip‑flops in chips don't toggle with
+both inputs high; one extra tick of delay across a nested chip's pins) are
+still to be checked against $F56B.
+
 ## Timing
 
 The engine never waits for the vertical blank: a tick takes as long as its

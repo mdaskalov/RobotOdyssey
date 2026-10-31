@@ -77,13 +77,31 @@ faithful Swift version.
 - [x] the loader's set‑up after loading (chips, chip table), restoring saved
       games (header), v1.0's file lengths
 
+**Chip view (viewer, planned)** – a *Chips* section below the rooms. The
+chips are netlists without coordinates (the lab's placement is lost when a
+chip is burned), so it comes in two stages:
+- [ ] stage 1 – no layout needed: a Swift parser for the chip bytecode
+      (`Data/ro_chip_disasm.py` as reference, checked against
+      `Data/Extracted/v1.1/chips.txt`); the 8 chip slots as 8‑pin boxes
+      (directions from $F008, live pin values, empty slots greyed); the
+      selected chip's parts in program order like `chips.txt`, every input
+      and output with its live value, nested chips foldable. Inputs are bytes
+      inside the program, so in *Game* mode re‑reading $D000‑$EFFF (bank 1)
+      each tick animates it. Doubles as the reference view for porting $F56B.
+- [ ] stage 2 – after $F56B is understood: a schematic with automatic layout
+      (layers left to right from the input pins, feedback cut at the
+      flip‑flops, fewer crossings, nested chips as boxes), showing the timing
+      too (the extra tick across a nested chip's pins)
+
 **Phase 2 – understand the engine**
 - [ ] name every routine of the tick (start from `RobotOdyssey.sym`)
 - [x] robot drawing: exteriors and interiors in all three engine builds
 - [ ] robots: thrusters, bumpers, grabbers, antennas, batteries (behaviour)
 - [ ] circuits: gate types ($8CB7), flip‑flops, chips and burning (lab),
       the $7780 table and the chip pin lines ($8A82) – known so far: 8 chip
-      programs at $D000 + $400n, run up to opcode 7 by $F56B
+      programs at $D000 + $400n, run up to opcode 7 by $F56B; their bytecode
+      (PC CHP format) and the pin direction table $F008 are decoded
+      (Engine.md "Chips", `Data/ro_chips.py`)
 - [ ] player: movement, grabbing, entering robots, remote control/solder pen
 - [ ] level scripts: what each world's $0803/$8EF0 code does
 - [ ] v2.0 disks (other loader and engine layout)
