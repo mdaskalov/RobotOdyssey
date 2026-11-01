@@ -218,27 +218,90 @@ wipe, v1.0 and v1.1. The app shows v1.1's `title_2` on its *No Disks* page
 
 ## Storage diskette (saved games)
 
-Boot sector starts `01 A6 2B BD 88 C0` (prints “insert program diskette”).
-Page 32 is the directory: 16‑byte names (high‑bit ASCII), e.g. `Level 1 mike`.
-Slot *k* (0‑3) occupies 107 pages from page **117 + 107k**:
+Every disk the loader uses carries its *side number* in the boot sector:
+byte $FB, with $FC = $FB EOR $A5 (READ_SIDE_ID $4B9C reads track 0 sector 0
+to $5F00 and checks it): 0 side A (“side 1” on screen), 1 side B (“side 2”),
+2 a storage disk.
+
+The loader makes a storage disk itself (the save prompt's *C*,
+NEW_STORAGE_DISK $4C79, after a warning): it formats the disk (RWTS command 4,
+all sectors zero) and writes the boot sector from $5400 (the program disk's
+track 0 sector 6: it prints “insert program diskette”, `01 A6 2B BD 88 C0…`,
+side number 2) and two pages of spaces, the directories. The blank storage
+diskettes DATAV10/11.DSK are exactly that.
+
+Page 32 is the game directory, page 33 the chip directory: entries of 18
+letters (high‑bit ASCII, padded with spaces; DIRECTORY_OFFSETS $4D50), e.g.
+`Level 1 mike`. A game slot *k* (0‑3) occupies 107 pages from page
+**118 + 107k** (GAME_SLOT_TRACKS/SECTORS $4DBC/$4DC0, GAME_SLOT_FILES $46C3):
 
 | Pages | Memory | Contents |
 |---|---|---|
-| +0 | $5E00 | header: $00‑$3F = chip table $F008‑$F047; $40‑$43 = $9C26 (HELD_OBJECT), $9C27, $A5C9, $A5CA; $44 = world index ($02D2) |
-| +1…+32 | $D000‑$EFFF | language‑card RAM (bank 1 $D000‑$DFFF, then $E000‑$EFFF) |
-| +33…+85 | $6000‑$94FF | the world |
-| +86…+106 | $0B00‑$1FFF | level code and state |
+| +0…+31 | $D000‑$EFFF | language‑card RAM (bank 1 $D000‑$DFFF, then $E000‑$EFFF) |
+| +32…+84 | $6000‑$94FF | the world |
+| +85…+105 | $0B00‑$1FFF | level code and state |
+| +106 | $5E00 | header: $00‑$3F = chip table $F008‑$F047; $40‑$43 = $9C26 (HELD_OBJECT), $9C27, $A5C9, $A5CA; $44 = WORLD_INDEX ($02D2) |
 
-Saving ($4166) writes the header from those addresses. Restoring
-(RESTORE_GAME $443A) loads the three parts, reloads the engine from the
-program disk, copies the header back ($450C: $00‑$3F → $F008, $40‑$43 → the
-four variables) and then reloads the level code at $0803 selected by the
-header’s world index (0‑4 = levels 1‑5, 5 = lab). In the sample disk the Level 2
-save has index 0, so the viewer identifies a save’s level by comparing room
-walls instead. Its Level 1 save (slot 0) has an all‑zero header, which the
-v1.0/v1.1 save code never writes (HELD_OBJECT is $FF when nothing is held);
-restored as is, the player would hold itself (object 0) and the tick at $B8E6
-never end, so the viewer keeps the program disk's values for an empty header.
+So slot 0's header is page 224, slot 1's page 331. Saving
+(SAVE_GAME_WRITE $4166) builds the header from those addresses and writes
+the directory, the header, bank 1, the world and $0B00‑$1FFF. Restoring
+(RESTORE_GAME $443A) loads the header and, if its WORLD_INDEX fits the world
+chosen in the menu (a level for Robotropolis, 5 for the lab; else “Not a saved
+game”), $0B00‑$1FFF, the world and bank 1; then the engine from the program
+disk (engine main and the pieces at $B8E0 and up: the levels' $1A50 piece
+comes with $0B00‑$1FFF), the header back ($450C: $00‑$3F → $F008, $40‑$43
+→ the four variables, WORLD_INDEX), COPY_FLAG_RESTORE, and the level code at
+$0803 for WORLD_INDEX (RESTORE_LOAD_CODE: one file, which overwrites the saved
+code below its end). `WorldBuilder.savedGames` does the same.
+
+Until 2026‑11‑01 the docs and the viewer took the header to be the slot's
+first page (117 + 107k), which is the page before the slot: slot 0's read
+as all zero, slot 1's as slot 0's (world index 0 for a Level 2 game), so the
+viewer told the level by the room walls and kept the program disk's values
+for an empty header.
+
+## The loader's requests
+
+A world hands back to the loader with `JMP ($03F2)`: the reset vector, which
+boot stage 2 points at the disk controller's boot ROM ($C600), so the Apple
+boots again from the disk in the drive. Before that the world sets
+MENU_MODE ($02D0), MENU_MODE_CHECK ($02CF = MENU_MODE EOR $A5), NEXT_LEVEL
+($02D1) and its WORLD_INDEX (the levels 0‑4). LOADER_START ($4000) takes the
+request only if the check matches and engine main's first 7 pages
+($9500‑$9BFF) still add up to $F5, else it starts with the title; it
+dispatches through REQUEST_LOW/HIGH ($408B/$4092):
+
+| MENU_MODE | Handler | Request |
+|---|---|---|
+| 0 | $4055 | the title, then the menu ($6000) |
+| 1 | TO_MENU $4049 | the menu without the title ($6003) |
+| 2 | NEXT_LEVEL_REQUEST $4099 | checks the side, loads level NEXT_LEVEL (rooms and texts, $8EF0, code: LOAD_LEVEL2…), START_WORLD |
+| 3 | $402F | clears the screen, then as 0 (where a request that doesn't check out goes too) |
+| 4 | SAVE_GAME $410B | the storage disk (or a new one), a letter, a name; saves; back to the world (RETURN_TO_WORLD $434D) |
+| 5 | LOAD_CHIP $427F | a disk with chips (side 2's chip library or a storage disk), a letter: into chip NEXT_LEVEL; back to the world |
+| 6 | SAVE_CHIP $41AD | chip NEXT_LEVEL on a storage disk, as a game |
+
+Level 1 asks for 1 and 4 from its Esc screen (Esc, S) and for 5 with L while
+holding a chip ($E7‑$EE). The menu (“Press SPACE to choose — RETURN to load”;
+MENU_LOOP $606B, MENU_READ_DEVICES $619B: space, → ($95) and ↓ ($8A) the next
+item, ← ($88) and ↑ ($8B) the one before, the joystick too) calls
+LOADER_RESTART ($4003 → MENU_CHOICE $43AE) with its choice: 0
+Robotropolis and 1 the lab ask RETURN (go) or O (an old saved game:
+RESTORE_GAME), the others start at once (START_CHOSEN_WORLD $4539);
+WORLD_INDEX is the choice + 4 (5 lab, 6 Robot Anatomy, 7 Toolkit, 8 Chip
+Design, the lab tutorial). Robotropolis first plays its intro (PLAY_INTRO
+$4550: `JSR $6000` of a bytecode program from side A page 169, pictures from
+page 171 at $6300; any key ends it). Esc in the menu (MENU_ESCAPE $6224)
+plays a tune and reboots: the request no longer checks out, so the loader
+starts with the title – the same in every v1.0/v1.1 dump but Robots_1, whose
+crack makes Esc do nothing. Typing Ctrl‑A, Ctrl‑L, T in the menu sets
+WALLS_KEY ($03FF, which the title clears) to Ctrl‑E: in levels 1‑5 Ctrl‑E
+then turns WALLS_ON off and on, so the player walks through walls (the easter
+egg, Engine.md *Easter egg: walking through walls*). START_WORLD ($456C) maps language card bank 2,
+clears the keyboard strobe and jumps to WORLD_START ($0803). The next level
+loads neither the engine nor $0803‑$1FFF beyond the new code, so Level 1's
+code past Level 2's end and the $1A50 piece's variables carry over; the
+menu's pictures ($6300‑$9A1E) stay where the world loaded doesn't reach.
 
 ## Copy protection and the dumps
 

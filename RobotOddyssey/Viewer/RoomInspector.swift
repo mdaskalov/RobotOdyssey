@@ -37,6 +37,13 @@ struct RoomInspector: View {
                 if !model.loopStatus.isEmpty {
                     Text(model.loopStatus).monospacedDigit()
                 }
+                if !model.driveChoices.isEmpty {
+                    Picker("Drive", selection: Binding { model.driveDisk } set: { if let d = $0 { model.insert(d) } }) {
+                        ForEach(model.driveChoices, id: \.disk) { Text($0.name).tag(Optional($0.disk)) }
+                    }
+                    .help("The disk in the Apple's drive. Where the loader waits for a disk it takes the one asked for; "
+                          + "insert another for a prompt that takes any (chips from a storage disk)")
+                }
                 PointerReadout(model: model, world: world)
                 Text(model.renderNote(world: world, room: room.id))
                     .font(.caption)

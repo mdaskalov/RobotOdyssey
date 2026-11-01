@@ -6,9 +6,9 @@ solders nothing (no sound, no wire), and the robots can't be wired. The
 check runs at boot and in the menu, the loader turns its result into a flag
 when it starts a world, and the worlds' main loops test the flag.
 
-The app doesn't run the loader, so it sets the flag the way an original disk
-leaves it (see [In the app](#in-the-app)). Until 2026‑11‑01 the flag kept its
-value from the disk, $00, and the pen did nothing in *Play*.
+The app passes both checks as an original disk does (see
+[In the app](#in-the-app)). Until 2026‑11‑01 the flag kept its value from
+the disk, $00, and the pen did nothing in *Play*.
 
 ## On the disk
 
@@ -59,10 +59,11 @@ loader writes it, and only bit 7 counts:
 | COPY_FLAG_RESTORE $452D | restoring a saved game | the same, then RESTORE_LOAD_CODE |
 | RETURN_TO_WORLD $434D | back to the world after saving | `ASL $03FE / ROR $9C4E`, then RESTORE_LOAD_CODE |
 
-Open question: the `ASL` shifts $03FE itself, so after a save its bit 7 is the
-bit below the boot's result, whatever $03FE held before the boot. A later
-level change or save would then take that bit. Not tested on an Apple. It
-doesn't affect the app, which sets the flag itself.
+Every return to the loader is a boot, and every boot shifts its result into
+bit 7 of $03FE (`ROR`), so the `ASL` after a save takes the latest boot's
+result into the carry; the `ROR $9C4E` makes it the flag. (Until 2026‑11‑01
+this was an open question here: the `ASL` leaves $03FE shifted, but the next
+boot shifts it back in.)
 
 ## What it disables
 
@@ -124,10 +125,15 @@ code.
 
 ## In the app
 
-`WorldBuilder.passCopyProtection` sets COPY_PROTECTION_OK to $80 in every
-world it loads and every saved game, as the loader leaves it when both checks
-pass (and as the Ro1v10 crack forces it). The app never runs the check, so
-every dump plays alike, the pen included.
+`WorldBuilder.passCopyProtection` sets COPY_PROTECTION_OK, BOOT_CHECK_RESULT
+and MENU_CHECK_RESULT to $80 in every world it loads and every saved game,
+as the loader leaves them when both checks pass (and as the Ro1v10 crack
+forces the flag). When a world hands back to the loader, the app runs boot
+stage 2, the loader and the menu as 6502 code (Loader.md); natives stand in
+for the two checks: BOOT_COPY_CHECK goes on at $5DD3 with the carry set,
+MENU_COPY_CHECK returns with it set, as the checks end on an original disk.
+The original code then sets the flag. So every dump plays alike, the pen
+included.
 
 Checked with each level running 20 ticks with TOOL_MODE = $FD: SOLDER_WIRE
 and SOLDER_TOUCH run on every tick with the flag at $80 and never at $00

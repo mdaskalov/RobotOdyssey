@@ -28,7 +28,7 @@ struct WorldView: View {
                     .focusEffectDisabled()
                     .onKeyPress(phases: [.down, .repeat]) { press in
                         if model.playing {
-                            guard let code = AppleKeyboard.code(for: press) else { return .ignored }
+                            guard let code = AppleKeyboard.code(for: press, appleArrows: model.inLoader) else { return .ignored }
                             model.type(code)
                             return .handled
                         }
@@ -42,8 +42,8 @@ struct WorldView: View {
                         }
                         return .handled
                     }
-                    .task(id: "\(world.id)#\(model.restarts)") {
-                        await model.runGame(world: world)
+                    .task(id: model.session) {
+                        await model.runGame()
                     }
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -130,14 +130,14 @@ struct RoomCanvas: View {
                         .resizable()
                         .frame(width: geo.size.width, height: geo.size.height)
                 }
-                if model.showGrid { TileGrid(k: k) }
-                if let s = model.selection.flatMap(contents.sprite) {
+                if model.showGrid && !model.inLoader { TileGrid(k: k) }
+                if !model.inLoader, let s = model.selection.flatMap(contents.sprite) {
                     Rectangle()
                         .stroke(.yellow, lineWidth: 2)
                         .frame(width: 28 * k + 4, height: 32 * k + 4)
                         .offset(x: CGFloat(s.x * 4) * k - 2, y: CGFloat((191 - s.y - 15) * 2) * k - 2)
                 }
-                if let w = model.selection.flatMap(contents.wire) {
+                if !model.inLoader, let w = model.selection.flatMap(contents.wire) {
                     // Through the middle of each unit: 4 x 2 image pixels.
                     Path { path in
                         path.addLines(w.points.map { CGPoint(x: CGFloat($0.x * 4 + 2) * k, y: CGFloat((191 - $0.y) * 2 + 1) * k) })
@@ -249,12 +249,23 @@ struct RoomImage: View {
 
 /// The Apple IIe key code (bit 7 set) for a key typed on the Mac: characters
 /// as ASCII, Ctrl + letter as its control code, Return, Esc, Tab; Delete
-/// as ← ($88).  The arrow keys move like I J K M, with Shift slowly like
-/// Ctrl-I J K M, as the arrow keys of the PC version do (the Apple's own arrow
-/// keys send ^H ^U ^K ^J, which the game reads as other keys).
+/// as ← ($88).  In the worlds the arrow keys move like I J K M, with Shift
+/// slowly like Ctrl-I J K M, as the arrow keys of the PC version do (the
+/// Apple's own arrow keys send ^H ^U ^K ^J, which the worlds read as other
+/// keys); with `appleArrows` (the loader: the menu's cursor, names) they are
+/// the Apple's.
 enum AppleKeyboard {
-    static func code(for press: KeyPress) -> UInt8? {
+    static func code(for press: KeyPress, appleArrows: Bool = false) -> UInt8? {
         guard !press.modifiers.contains(.command) else { return nil }
+        if appleArrows {
+            switch press.key {
+            case .leftArrow: return 0x88
+            case .rightArrow: return 0x95
+            case .upArrow: return 0x8B
+            case .downArrow: return 0x8A
+            default: break
+            }
+        }
         let slowly = press.modifiers.contains(.shift) || press.modifiers.contains(.control)
         switch press.key {
         case .upArrow: return slowly ? 0x89 : 0xC9

@@ -17,19 +17,27 @@ nonisolated struct DiskImage {
     let md5: String
 
     init(name: String, data: Data) throws {
-        guard data.count == DiskImage.size else { throw DiskError.notADiskImage(name) }
+        try self.init(name: name, bytes: [UInt8](data))
+    }
+
+    init(name: String, bytes: [UInt8]) throws {
+        guard bytes.count == DiskImage.size else { throw DiskError.notADiskImage(name) }
         self.name = name
-        self.data = [UInt8](data)
-        md5 = DiskImage.md5(data)
+        data = bytes
+        md5 = DiskImage.md5(bytes)
     }
 
     static func md5<D: DataProtocol>(_ data: D) -> String {
         Insecure.MD5.hash(data: data).map { String(format: "%02x", $0) }.joined()
     }
 
+    /// Where page `n` is in the image: track n / 16, the loader's sector n % 16.
+    static func offset(page n: Int) -> Int {
+        n / 16 * 4096 + trackPageOrder[n % 16] * 256
+    }
+
     func page(_ n: Int) -> ArraySlice<UInt8> {
-        let track = n / 16, k = n % 16
-        let offset = track * 4096 + DiskImage.trackPageOrder[k] * 256
+        let offset = DiskImage.offset(page: n)
         return data[offset ..< offset + 256]
     }
 

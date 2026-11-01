@@ -5,6 +5,8 @@ struct WorldGroup: Identifiable {
     let id: String
     let title: String
     let worlds: [World]
+    /// The program disk the worlds run with (saved games: the one they were read with).
+    let disks: DiskSet
 }
 
 @Observable
@@ -16,6 +18,7 @@ final class ViewerModel {
     var selectedWorldID: World.ID? {
         didSet {
             if oldValue != selectedWorldID {
+                if !followingLoader { session += 1 }
                 thumbnails = [:]
                 selection = nil
                 if let w = selectedWorld, !w.isRoomUsed(selectedRoom) {
@@ -85,8 +88,19 @@ final class ViewerModel {
             if !sound { soundPlayer.stop() }
         }
     }
-    /// Counts restarts: the main loop starts again from the world's start-up state.
-    private(set) var restarts = 0
+    /// Counts the games started (a world selected, Restart): the canvas's
+    /// task runs one (`runGame`), from the world's start-up state.  The
+    /// loader taking the game to another world selects that world, the game
+    /// going on (`followLoader`).
+    private(set) var session = 0
+    @ObservationIgnored private var followingLoader = false
+    /// The loader's screen while it runs (menu, saving...), in place of the room.
+    private(set) var loaderImage: CGImage?
+    /// The disk in the drive (`DiskDrive`).
+    private(set) var driveDisk: DiskDrive.Disk?
+
+    /// The canvas shows the loader's screen.
+    var inLoader: Bool { loaderImage != nil }
     /// What the running loop shows of the selected room.
     private(set) var liveFrame: (world: World.ID, room: Int, image: CGImage)? {
         didSet {
@@ -115,6 +129,10 @@ final class ViewerModel {
     @ObservationIgnored private let soundPlayer = SoundPlayer()
     /// The last sound the game played (GameSounds' name), for the status.
     @ObservationIgnored private var lastSound: String?
+    /// The worlds the loader started in this game so far (`followLoader`).
+    @ObservationIgnored private var worldsLoaded = 0
+    /// Storage disks loaded from the app's own copies (`StorageDisks`).
+    @ObservationIgnored private var ownCopies: Set<String> = []
     /// Rooms the player left while playing, with the tick they left in: their
     /// last live frame shows the player at the exit (`redrawLeftRooms`).
     @ObservationIgnored private var leftRooms: [Int: Int] = [:]
@@ -148,43 +166,53 @@ final class ViewerModel {
         disks = []
         groups = []
         messages = []
+        ownCopies = []
         selectedWorldID = nil
         Bookmarks.clear()
     }
 
-    /// At launch: the disk images in the app's resources (not tracked in git), then
-    /// `urls` – by default the last opened disks.
+    /// At launch: the storage disks the game wrote (`StorageDisks`), the disk
+    /// images in the app's resources (not tracked in git), then `urls` – by
+    /// default the last opened disks.
     func openAtLaunch(_ urls: [URL] = Bookmarks.load()) {
-        load([Bundle.main.resourceURL].compactMap { $0 } + urls)
+        let own = StorageDisks.folder.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+        load([own, Bundle.main.resourceURL].compactMap { $0 } + urls)
     }
 
     /// Adds the disks in `urls` (files or folders), in order.  The first program
-    /// disk side of a version wins: later ones of the same side and version are ignored.
+    /// disk side of a version wins: later ones of the same side and version are
+    /// ignored; so are storage disks of a name already loaded (the app's copy
+    /// of a disk the game wrote stands in for it).
     private func load(_ urls: [URL]) {
-        var found: [DiskImage] = []
+        var found: [(disk: DiskImage, own: Bool)] = []
         var problems: [String] = []
+        let own = StorageDisks.folder?.standardizedFileURL
         for url in urls {
             let scoped = url.startAccessingSecurityScopedResource()
             defer { if scoped { url.stopAccessingSecurityScopedResource() } }
             for file in diskFiles(at: url) {
                 do {
-                    found.append(try DiskImage(name: file.lastPathComponent, data: Data(contentsOf: file)))
+                    let disk = try DiskImage(name: file.lastPathComponent, data: Data(contentsOf: file))
+                    found.append((disk, file.deletingLastPathComponent().standardizedFileURL == own))
                 } catch {
                     problems.append(error.localizedDescription)
                 }
             }
         }
         var ignored: [String] = []
-        for d in found where !disks.contains(where: { $0.md5 == d.md5 }) {
+        for (d, isOwn) in found where !disks.contains(where: { $0.md5 == d.md5 }) {
             let role = d.role
             if case .programSide = role, let first = disks.first(where: { $0.role == role }) {
                 ignored.append("\(d.name) (\(first.name) loaded first)")
+            } else if role == .storage, disks.contains(where: { $0.role == .storage && $0.name == d.name }) {
+                if !ownCopies.contains(d.name) { ignored.append("\(d.name) (a storage disk of that name loaded first)") }
             } else {
                 disks.append(d)
+                if isOwn { ownCopies.insert(d.name) }
             }
         }
         if !ignored.isEmpty {
-            problems.append("Ignored, same version and side: " + ignored.joined(separator: ", ") + ".")
+            problems.append("Ignored: " + ignored.joined(separator: ", ") + ".")
         }
         rebuild(extraMessages: problems)
     }
@@ -235,14 +263,13 @@ final class ViewerModel {
             notes += codeNotes(set, worlds)
             if set.sideA == nil { notes.append("\(set.title): side A missing – Robotropolis levels unavailable.") }
             if set.sideB == nil { notes.append("\(set.title): side B missing – tutorials and lab unavailable.") }
-            newGroups.append(WorldGroup(id: key, title: set.title, worlds: worlds))
+            newGroups.append(WorldGroup(id: key, title: set.title, worlds: worlds, disks: set))
         }
-        if let (key, set) = ordered.first(where: { $0.value.sideA != nil }) {
-            let reference = newGroups.first { $0.id == key }?.worlds.filter { $0.kind == .level || $0.kind == .lab } ?? []
+        if let set = savedGamesDisks(ordered.map(\.value)) {
             for disk in storage {
-                let games = WorldBuilder(disks: set).savedGames(on: disk, reference: reference)
-                newGroups.append(WorldGroup(id: "save:\(disk.md5)", title: "Saved games – \(disk.name)", worlds: games))
-                if games.isEmpty { notes.append("\(disk.name): storage disk without saved games.") }
+                let group = savedGames(on: disk, set)
+                newGroups.append(group)
+                if group.worlds.isEmpty { notes.append("\(disk.name): storage disk without saved games.") }
             }
         } else if !storage.isEmpty {
             notes.append("Open the program disk too, to view saved games.")
@@ -258,6 +285,24 @@ final class ViewerModel {
         }
     }
 
+    /// The program disk the saved games are read with: both sides if a
+    /// version has them (the lab's games need side B), else side A.
+    private func savedGamesDisks(_ sets: [DiskSet]) -> DiskSet? {
+        sets.first { $0.sideA != nil && $0.sideB != nil } ?? sets.first { $0.sideA != nil }
+    }
+
+    private func savedGames(on disk: DiskImage, _ set: DiskSet) -> WorldGroup {
+        WorldGroup(id: "save:\(disk.name)", title: "Saved games – \(disk.name)",
+                   worlds: WorldBuilder(disks: set).savedGames(on: disk), disks: set)
+    }
+
+    /// The storage disk the drive gets: save.dsk if loaded, else the first
+    /// one loaded; nil: the drive makes save.dsk once the game asks for it.
+    private var storageDisk: DiskImage? {
+        let storage = disks.filter { $0.role == .storage }
+        return storage.first { $0.name.lowercased() == DiskDrive.storageName } ?? storage.first
+    }
+
     // MARK: navigation
 
     func go(_ direction: Room.Direction) {
@@ -269,6 +314,7 @@ final class ViewerModel {
     // MARK: images
 
     func image(world: World, room: Int) -> CGImage? {
+        if let loaderImage { return loaderImage }
         if let live = liveImage(world: world, room: room) { return live }
         let key = "\(world.id)#\(room)#\(mode.rawValue)"
         if let cached = roomImage, cached.key == key { return cached.image }
@@ -404,12 +450,15 @@ final class ViewerModel {
 
     // MARK: running the game
 
-    /// Runs the world's main loop as in the game, paced by its CPU cycles at
-    /// 1.0205 MHz, plays its sounds and shows the selected room.  Runs as the
-    /// canvas's task: ends when the world or `restarts` changes.
-    func runGame(world: World) async {
+    /// Runs the selected world's main loop as in the game, paced by its CPU
+    /// cycles at 1.0205 MHz, plays its sounds and shows the selected room;
+    /// with a drive for the loader, which takes the game on to other worlds.
+    /// Runs as the canvas's task: ends when `session` changes.
+    func runGame() async {
         loop = nil
         liveFrame = nil
+        loaderImage = nil
+        worldsLoaded = 0
         liveSource = nil
         liveContents = nil
         contentsSource = nil
@@ -418,9 +467,13 @@ final class ViewerModel {
         soundPlayer.stop()
         thumbnails = [:]                            // the rooms as the world starts
         leftRooms = [:]
-        guard let game = gameScreen(world) else { return }
-        let loop = game.loop(room: viewedRoom(world))
+        guard let world = selectedWorld, let game = gameScreen(world) else { return }
+        let drive = groups.first { $0.worlds.contains { $0.id == world.id } }.map {
+            DiskDrive(program: $0.disks, storage: storageDisk, inserted: world.engine == .levels ? .sideA : .sideB)
+        }
+        let loop = game.loop(room: viewedRoom(world), drive: drive)
         self.loop = (world.id, loop)
+        driveDisk = drive?.inserted
         showLive()
         let clock = ContinuousClock()
         var last = clock.now
@@ -432,7 +485,7 @@ final class ViewerModel {
             // At most 0.1 s per step: a busy main thread slows the game down instead of skipping.
             let elapsed = min(clock.now - last, .milliseconds(100))
             last = clock.now
-            guard !paused, loop.exit == nil else {
+            guard !paused, !loop.halted else {
                 target = nil
                 continue
             }
@@ -444,16 +497,83 @@ final class ViewerModel {
                 stopGame(error)
                 return
             }
-            playSounds(loop)
-            showLive()
+            afterRun(loop)
         }
+    }
+
+    private func afterRun(_ loop: GameLoop) {
+        playSounds(loop)
+        followLoader(loop)
+        keepStorage(loop.drive)
+        showLive()
+    }
+
+    /// The loader started a world (`GameLoop.loadedWorld`): it becomes the
+    /// selected world, the game going on in it.
+    private func followLoader(_ loop: GameLoop) {
+        guard loop.worldsLoaded != worldsLoaded else { return }
+        worldsLoaded = loop.worldsLoaded
+        guard let def = loop.loadedWorld, let set = loop.drive?.program,
+              let world = groups.lazy.flatMap(\.worlds).first(where: { $0.id == "\(set.versionName)/\(def.id)" })
+        else { return }
+        self.loop = (world.id, loop)
+        followingLoader = true
+        selectedWorldID = world.id
+        followingLoader = false
+    }
+
+    /// What the game wrote on the storage disk: kept in the app's folder
+    /// (`StorageDisks`) in place of the disk loaded, and its saved games read again.
+    private func keepStorage(_ drive: DiskDrive?) {
+        guard let drive, let disk = drive.takeWritten() else { return }
+        do {
+            try StorageDisks.keep(disk)
+            ownCopies.insert(disk.name)
+        } catch {
+            messages.append("\(disk.name) could not be kept: \(error.localizedDescription)")
+        }
+        if let i = disks.firstIndex(where: { $0.role == .storage && $0.name == disk.name }) {
+            disks[i] = disk
+        } else {
+            disks.append(disk)
+        }
+        let group = savedGames(on: disk, drive.program)
+        for w in group.worlds {
+            gameScreens[w.id] = nil
+            maps[w.id] = nil
+        }
+        if group.worlds.contains(where: { $0.id == selectedWorldID }) { startThumbnails = nil }
+        if let i = groups.firstIndex(where: { $0.id == group.id }) {
+            groups[i] = group
+        } else {
+            groups.append(group)
+        }
+        messages.removeAll { $0 == "\(disk.name): storage disk without saved games." }
+    }
+
+    /// The disks the drive can take, by name (a storage disk not there yet: the one it makes).
+    var driveChoices: [(disk: DiskDrive.Disk, name: String)] {
+        guard let drive = loop?.loop.drive else { return [] }
+        return DiskDrive.Disk.allCases.compactMap { d in
+            let label = ["Side A", "Side B", "Storage"][d.rawValue]
+            if let name = drive.name(of: d) { return (d, "\(label) – \(name)") }
+            return d == .storage ? (d, "\(label) – new \(DiskDrive.storageName)") : nil
+        }
+    }
+
+    /// Puts `disk` in the drive (for the loader's prompts that take any disk:
+    /// chips from a storage disk).
+    func insert(_ disk: DiskDrive.Disk) {
+        guard let drive = loop?.loop.drive else { return }
+        drive.insert(disk)
+        driveDisk = drive.inserted
     }
 
     /// The sounds the loop played since the last call.
     private func playSounds(_ loop: GameLoop) {
         let sounds = loop.takeSounds()
         guard let latest = sounds.last else { return }
-        lastSound = latest.name ?? latest.parameters.description
+        lastSound = latest.name ?? latest.parameters?.description
         if sound { soundPlayer.play(sounds) }
     }
 
@@ -463,18 +583,18 @@ final class ViewerModel {
         do {
             // A tick is about 100,000 instructions; one that runs much longer waits for a key.
             try running.loop.runTick(maxSteps: 2_000_000)
-            playSounds(running.loop)
-            showLive()
+            afterRun(running.loop)
         } catch CPU6502.CPUError.tooManySteps {
-            showLive()
-            loopStatus = "Paused in tick \(running.loop.ticks): the game waits for a key"
+            afterRun(running.loop)
+            loopStatus = running.loop.inLoader ? "Paused: the loader waits for a key"
+                : "Paused in tick \(running.loop.ticks): the game waits for a key"
         } catch {
             stopGame(error)
         }
     }
 
     func restartGame() {
-        restarts += 1
+        session += 1
     }
 
     /// A key typed on the Apple's keyboard (Play): the game reads it at its next tick.
@@ -506,10 +626,24 @@ final class ViewerModel {
         let speed = loop.tickCycles == 0 ? "" : String(format: " · %.1f ticks/s", GameLoop.clock / Double(loop.tickCycles))
         var status = paused ? "Paused at tick \(loop.ticks)" : "Tick \(loop.ticks)" + speed
         if let lastSound { status += " · last sound \(lastSound)" }
-        if let exit = loop.exit {
-            status = "Tick \(loop.ticks): the world hands back to the loader, \(exit) – not emulated yet, Restart to play again"
+        if loop.halted, let exit = loop.exit {
+            status = "Tick \(loop.ticks): the world hands back to the loader, \(exit) – no program disk to boot, Restart to play again"
+        } else if loop.inLoader {
+            status = (paused ? "Paused · " : "") + (loop.exit.map { "The loader: \($0)" } ?? "The loader starts \(loop.loadedWorld?.name ?? "a world")")
         }
         if loopStatus != status { loopStatus = status }
+        if driveDisk != loop.drive?.inserted { driveDisk = loop.drive?.inserted }
+        if loop.inLoader {
+            // The loader's screen (and a world's start-up) in place of the room.
+            if liveFrame != nil { liveFrame = nil }
+            let screen = loop.screen()
+            let key = "loader#\(mode.rawValue)"
+            guard liveSource?.key != key || liveSource?.bytes != screen.bytes else { return }
+            liveSource = (key, screen.bytes)
+            loaderImage = HiresImage.make(screen, mode: mode)
+            return
+        }
+        if loaderImage != nil { loaderImage = nil }
         redrawLeftRooms(world, loop)
         if playing, let shown = loop.shownRoom, shown != selectedRoom {
             leftRooms[selectedRoom] = loop.ticks
@@ -607,5 +741,22 @@ enum Bookmarks {
         #else
         return []
         #endif
+    }
+}
+
+/// The storage disks the game wrote, kept by the app in its Application
+/// Support folder ("Storage Disks", in the app's container): loaded first at
+/// launch, they stand in for the disks of the same name they were made from
+/// (the bundled save.dsk, a disk opened), which stay as they were.
+enum StorageDisks {
+    static var folder: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appending(path: "Storage Disks", directoryHint: .isDirectory)
+    }
+
+    static func keep(_ disk: DiskImage) throws {
+        guard let folder else { throw CocoaError(.fileNoSuchFile) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data(disk.data).write(to: folder.appending(path: disk.name), options: .atomic)
     }
 }

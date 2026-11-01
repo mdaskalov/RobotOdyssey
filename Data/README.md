@@ -16,6 +16,7 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 ./native_check.sh "$A" "$B" [STORAGE.dsk]   # native Swift routines vs. the original code
 ./ro_sounds.sh [--wav DIR] "$A" "$B"   # the worlds' sound tables, every sound native vs. original (WAVs)
 ./ro_map.sh "$A" "$B"                # every world's map (WorldMap) as text: exits shown, islands, badges
+./loader_check.sh [--png DIR] "$A" "$B"   # the loader on the emulator: next levels, menu, save, restore, new storage disk
 python3 ro_title.py "$A" Extracted/v1.1 [--verify]   # title screens -> title_N.png/.bin
 python3 ro_icon.py "$STATE" ../RobotOddyssey/Assets.xcassets/AppIcon.appiconset   # app icon
 ```
@@ -36,6 +37,7 @@ python3 ro_icon.py "$STATE" ../RobotOddyssey/Assets.xcassets/AppIcon.appiconset 
 | `ro_chip_disasm.py` | Micah Dowty's chip disassembler (PC CHP/CSV files, same bytecode as the Apple II; MIT licence, ported to Python 3) |
 | `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, every world's main loop tick by tick (without input, and 300 ticks with the same keys, joystick moves and buttons fed to both), and direct calls on random robot states and on random objects, moves, walls, keys and joystick positions (memory byte for byte; registers and flags too for the object motion and input routines); fails too where a world's engine code doesn't match the symbols' fingerprints |
 | `ro_sounds.sh`, `ro_sounds.swift` | build the app's sources with a sound tool: every world's sound table by name against the sound map (`GameSounds`), every sound of the map run by the original PLAY_SOUNDS and by the native one (cycles and speaker clicks must match), with `--wav DIR` as WAV files rendered like the app (`SpeakerRenderer`); Docs/Sound.md |
+| `loader_check.sh`, `loader_check.swift` | build the app's sources with a checker that drives the original loader headless (`Loader`, `DiskDrive`, `GameLoop`) with keys: levels 1‑4's exit code and the next level arriving and running, Level 1 saved on a new storage disk (the slot read back must hold the world as it was), the menu and its five worlds (chosen with ↓), Esc in the menu (its tune one sound, Robotropolis then without its intro), the walls easter egg (Ctrl‑A Ctrl‑L T, then Ctrl‑E), the saved game restored from the menu (equal to `WorldBuilder`'s after one tick but for the loader's own bytes), a new storage disk made with *C*; `--png DIR` writes the screens on the way (Docs/Loader.md) |
 | `ro_map.sh`, `ro_map.swift` | build the app's sources with a map printer: for every world on the disks the map of the *Map* view (`WorldMap`) as text, with the player's room in brackets, how many exits it shows as rooms next door, the time it took, and the exits left as badges; paths must be absolute (the script runs in `Data/`) |
 | `cpu6502.py` | NMOS 6502 emulator with cycle counting (the Swift `CPU6502` mirrors it) |
 | `dis6502.py` | small disassembler: `dis6502.py FILE START END [BASE]` |

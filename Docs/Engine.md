@@ -111,8 +111,8 @@ skips it while FLAG_8ED8 is 0):
    moves once per tick, since the Apple repeats keys faster than the 4‑7
    ticks per second.
 5. LIMIT_MOVE ($ACF8, X = Y = $FF: no limit), then for the player (CURRENT_OBJECT
-   = 0): STOP_AT_WALLS ($AD40) unless WALLS_ON ($9C30) is 0, KEEP_ON_SCREEN
-   ($A934), MOVE_OBJECT ($9DB3).
+   = 0): STOP_AT_WALLS ($AD40) unless WALLS_ON ($9C30) is 0 (the easter egg
+   below), KEEP_ON_SCREEN ($A934), MOVE_OBJECT ($9DB3).
 
 Right after it the levels call PLAYER_WALK_SPRITE ($DFA3; v1.0 $DFA4): the
 larger part of the move picks two frames (up 0/1, down 2/3, right 4/5,
@@ -149,6 +149,86 @@ the worlds' code). Positions: x 0‑$85 (7 per tile), y 0‑$B0 from the bottom
   vertical move, bit 2 the horizontal one.
 * LIMIT_MOVE ($ACF8): at most X across, Y up or down (the worlds' code uses
   it for other objects).
+
+### Easter egg: walking through walls
+
+A key hidden by the menu lets the player walk through walls in Robotropolis.
+
+1. In the menu (“Press SPACE to choose — RETURN to load”) type **Ctrl‑A,
+   Ctrl‑L, T** (a capital T; nothing shows). MENU_READ_DEVICES ($619B) sets
+   WALLS_KEY ($03FF) to 1 on Ctrl‑A ($81, at $6209), adds 1 on Ctrl‑L ($8C,
+   $6210), and on T ($D4, $6216) makes it $85, Ctrl‑E, if it is 2. So the
+   three in this order, Ctrl‑L once.
+2. Choose Robotropolis (a new game, or O for a saved one).
+3. In a level, **Ctrl‑E** turns WALLS_ON ($9C30) off and on again: the key
+   commands of levels 1‑5 (Level 1's KEY_COMMANDS $0963 at $0979, Level 2
+   $0999, Level 3 $09A6, Level 4 $09AC, Level 5 $17CC) compare the key typed
+   with WALLS_KEY and toggle bit 0.
+
+With WALLS_ON 0 the player's move skips STOP_AT_WALLS (READ_INPUT at $A925,
+READ_DEVICE at $AA07): walls no longer stop the player, the screen's edges
+still do (KEEP_ON_SCREEN), and it walks into the room next door as always.
+Nothing else reads WALLS_ON, so robots and the other objects still stop at
+walls. Taking or putting down a tool (the grab code, GRAB_LOGIC: $BE54 and
+$BE72 as it sets TOOL_MODE) sets WALLS_ON to 1: the walls are back until the
+next Ctrl‑E.
+
+The title clears WALLS_KEY ($6023), the menu without the title ($6003)
+doesn't, and nothing else writes it (the loader, boot stage 2 and the
+worlds' code only read it): the key lasts until the game reboots (Esc in the
+menu, a cold start), across level changes, saving and restoring. It isn't
+saved with a game. Before the code is typed WALLS_KEY is $00, which no key
+gives (keys have bit 7 set).
+
+The other worlds: **Robot Anatomy** turns WALLS_ON off and on with Ctrl‑E
+without any code (its key commands at $0931 compare LAST_KEY with $85
+itself); the Innovation Lab and its tutorial only set it with their tools
+($17F2, $1810), as the kit engine does for Toolkit ($BE73, $BE91); none of
+them has a key for it.
+
+In the app: worlds started from the sidebar have WALLS_KEY $00, so go to the
+menu with *Play* on (Esc Esc in a level), type the code there, then choose
+Robotropolis. The app types Ctrl + letter as the control code.
+
+### Level 1: the Ampire Bot and the black crystal
+
+Object $04 in room $07 is a **black crystal**: the crystal sprite 57 (as the
+energy crystals $11 and $F6) in colour 4, black, on the room's black floor
+(colour 4 too). The engine draws it like any object, but every pixel stays
+black, so it can't be seen on the floor; the room view shows the same. Only
+over the walls, or in the viewer's inspector (colour 4 in grey), does it
+show. Nothing moves it at the start; the hint for it is on the *?* screen
+(room $01): “Black crystals foil Ampire Bots.”
+
+The **Ampire Bot** is no object: Level 1's code keeps it in $8F4B‑$8F57
+(L1_AMPIRE_STATE, _ROOM, _X, _Y, ...), moves it each tick (L1_AMPIRE_BOT $0CA8) and draws it in the
+current room (L1_DRAW_AMPIRE_BOT $0F93, 4 frames from $1212/$1216, blue).
+It waits in room $10 until the player or a target is there, comes down and
+patrols $10 → $0F → $21 → $15 → $12 → $11 → $10. L1_FIND_AMPIRE_TARGET ($0F50)
+tries L1_AMPIRE_TARGETS ($121A: $F6 $F0 $F2 $F4 $04) from the last, among the
+objects in its room: the black crystal first, then the robots $F4, $F2, $F0
+(battery not empty) and the energy crystal $F6 (not white). It goes for the
+target, follows it into another room at once, and after 20 ticks on it
+(sound 7) the target is drained: a robot loses 5 of its battery (floor 0),
+the energy crystal turns white (used), and then it rests ≈200 ticks
+(blinking orange, L1_AMPIRE_REST $8F51/$8F52), taking no target meanwhile.
+
+Drained the black crystal, it turns green (L1_AMPIRE_COLOUR 1) and goes to
+state 5, which L1_AMPIRE_BOT doesn't handle: it stays where it is for good and
+drains nothing again. The crystal itself doesn't change. Bringing the black
+crystal into the Ampire Bot's room is the way to get rid of it.
+
+A quirk: the black crystal shares robot $F4's branch in L1_FIND_AMPIRE_TARGET
+(the check is `$F6`, `$F0`, `$F2`, else robot 2's battery $8E19), so the
+Ampire Bot ignores it while robot $F4's battery is empty. Checked on the
+emulator with the crystal moved into room $10: the bot takes it at once,
+turns green after 20 ticks and stays; with $8E19 = 0 it never leaves state 0.
+
+Leaving the sewer (L1_LEAVE_SEWER $0AC9) parks the black crystal in room $3F
+as sprite 1, white, also when a robot holds it: the robot's grab state
+($8DB1‑$8DB3) is cleared and an object in its interior turned white —
+$E4 for $F4, $EF for $F2, and $EF again for $F0, where $D0 (the same
+object in $F0's interior) looks meant.
 
 ## Chips
 
@@ -309,9 +389,10 @@ writes differs. A room change shows the room at once, drawn on a copy of the
 machine at the start of the tick (`preview`). All eleven worlds (nine from
 the v1.1 disks, two saved games) run 100 ticks with the player standing
 still; v1.0 needs its own file lengths (`GameCatalog.lengthsV10`: its
-level engine is one byte longer, and that byte is code). The loop stops
-where the world hands back to the loader (`exit`, its `JMP ($03F2)`): the
-menu, the next level, saving – the loader is not emulated yet.
+level engine is one byte longer, and that byte is code). Where the world
+hands back to the loader (`exit`, its `JMP ($03F2)`: the menu, the next
+level, saving…) the loader runs as 6502 code until it starts a world, whose
+main loop the loop runs on (Loader.md); without a drive the loop stops there.
 
 ## Porting strategy
 

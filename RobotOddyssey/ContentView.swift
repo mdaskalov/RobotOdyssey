@@ -73,7 +73,8 @@ struct ContentView: View {
         ToolbarItemGroup {
             Group {
                 Toggle("Play", systemImage: "gamecontroller", isOn: $model.playing)
-                    .help("Play: the keyboard goes to the game (I J K M or the arrow keys, space, ?, Esc…) and the view follows the player")
+                    .help("Play: the keyboard goes to the game (I J K M or the arrow keys, space, ?, Esc…) and the loader, "
+                          + "and the view follows the player into the next level or the world chosen in the menu")
                 Button(model.paused ? "Run" : "Pause", systemImage: model.paused ? "play.fill" : "pause.fill") {
                     model.paused.toggle()
                 }
@@ -82,7 +83,7 @@ struct ContentView: View {
                     .disabled(!model.paused)
                     .help("Run one tick")
                 Button("Restart", systemImage: "arrow.counterclockwise") { model.restartGame() }
-                    .help("Start the main loop again from the world's start-up state")
+                    .help("Start the selected world again from its start-up state")
             }
             .disabled(model.selectedWorld == nil)
             Toggle("Mute", systemImage: "speaker.slash", isOn: Binding { !model.sound } set: { model.sound = !$0 })

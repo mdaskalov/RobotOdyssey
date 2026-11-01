@@ -9,8 +9,9 @@ import Foundation
 /// registers too where other code uses them (Data/native_check.swift).
 nonisolated final class Machine {
     /// The world's engine and version, where natives find their symbols; nil:
-    /// an unknown version, everything runs as 6502 code.
-    let variant: Variant?
+    /// an unknown version, everything runs as 6502 code.  Another world's
+    /// when the loader starts one (`load(variant:)`).
+    private(set) var variant: Variant?
     let cpu: CPU6502
     /// The $D000-$DFFF bank that is not mapped in; bank 1 (engine data) while
     /// the engine code in bank 2 runs.
@@ -26,6 +27,14 @@ nonisolated final class Machine {
     var devices = InputDevices()
     /// Native routines by entry point (always in bank 2 when in $D000-$DFFF).
     private var natives: [UInt16: (inout Engine) -> Bool] = [:]
+    /// Natives for the hardware outside the engine that the loader uses
+    /// (`Loader`), by address: run where the CPU gets there, before the
+    /// instruction; true: they set the CPU up to go on (PC and all), false:
+    /// the instruction runs.
+    private var hooks: [UInt16: (Machine) -> Bool] = [:]
+    /// The disk drive the loader reads and writes; nil: no loader, a world
+    /// that hands back to it stops (`GameLoop.halted`).
+    var drive: DiskDrive?
     /// Off: everything runs as 6502 code, for comparisons.
     var nativesEnabled = true
     private(set) var nativeCalls = 0
@@ -56,6 +65,8 @@ nonisolated final class Machine {
         m.shownPage = shownPage
         m.devices = devices
         m.natives = natives
+        m.hooks = hooks
+        m.drive = drive
         m.nativesEnabled = nativesEnabled
         let c = m.cpu
         c.traps = cpu.traps
@@ -106,8 +117,34 @@ nonisolated final class Machine {
         cpu.traps[Int(address)] = true
     }
 
+    /// Takes the natives out, for the engine of another world, in `variant`
+    /// (`install` puts in those its code check allows).
+    func load(variant: Variant?) {
+        for address in natives.keys where hooks[address] == nil {
+            cpu.traps[Int(address)] = false
+        }
+        natives = [:]
+        self.variant = variant
+    }
+
+    func hook(_ address: Int, _ run: @escaping (Machine) -> Bool) {
+        hooks[UInt16(address)] = run
+        cpu.traps[address] = true
+    }
+
+    /// The random generator (RANDOM, a shift register) never leaves 0, and
+    /// Level 4 waits for a usable number.  On the Apple the monitor's
+    /// keyboard wait has stirred these bytes by the time a world starts.
+    func stirRandom() {
+        if cpu.mem[\.randomLow] == 0 && cpu.mem[\.randomHigh] == 0 {
+            cpu.mem[\.randomLow] = 0x5A
+            cpu.mem[\.randomHigh] = 0xA5
+        }
+    }
+
     private func runNative(at pc: UInt16) -> Bool {
         if let onDrawSprite, Int(pc) == GameSymbols.address(\.drawSprite) { onDrawSprite(self) }
+        if let hook = hooks[pc], hook(self) { return true }
         guard nativesEnabled, !(0xD000 ..< 0xE000).contains(pc) || bank == 2,
               let run = natives[pc], call(run) else { return false }
         nativeCalls += 1
@@ -281,13 +318,7 @@ nonisolated final class GameScreen {
         guard let phase = DrawPhase(in: world.mem) else { throw Failure.noMainLoop }
         self.phase = phase
         let machine = Machine(memory: world.mem, bank1: world.bank1, variant: world.codeCheck?.variant)
-        // The random generator (RANDOM, a shift register) never leaves 0, and
-        // Level 4 waits for a usable number.  On the Apple the monitor's
-        // keyboard wait has stirred these bytes by the time a world starts.
-        if machine.cpu.mem[\.randomLow] == 0 && machine.cpu.mem[\.randomHigh] == 0 {
-            machine.cpu.mem[\.randomLow] = 0x5A
-            machine.cpu.mem[\.randomHigh] = 0xA5
-        }
+        machine.stirRandom()
         machine.cpu.sp = 0xFF
         let start = UInt16(GameSymbols.address(\.worldStart))
         try machine.cpu.call(start, stopAt: [UInt16(phase.loopStart)], maxSteps: 2_000_000)
@@ -303,10 +334,12 @@ nonisolated final class GameScreen {
         return (try phase.draw(room: room, on: machine), machine)
     }
 
-    /// The main loop, ready to run its first tick, drawing `room`.
-    func loop(room: Int?, nativesEnabled: Bool = true) -> GameLoop {
+    /// The main loop, ready to run its first tick, drawing `room`; with a
+    /// drive the loader runs when the world hands back to it (`Loader`).
+    func loop(room: Int?, nativesEnabled: Bool = true, drive: DiskDrive? = nil) -> GameLoop {
         let machine = started.copy()
         machine.nativesEnabled = nativesEnabled
+        if let drive { Loader.install(on: machine, drive: drive) }
         return GameLoop(machine: machine, phase: phase, room: room)
     }
 }

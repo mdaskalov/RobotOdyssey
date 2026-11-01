@@ -83,7 +83,7 @@ struct NativeCheck {
         errors.forEach { print("build error: \($0)") }
         var all = worlds
         for disk in storage {
-            all += builder.savedGames(on: disk, reference: worlds.filter { $0.kind == .level || $0.kind == .lab })
+            all += builder.savedGames(on: disk)
         }
         var rng = SplitMix(state: 1984)
         var frames = 0, ticks = 0, inputTicks = 0, calls = 0
@@ -260,7 +260,7 @@ struct NativeCheck {
     /// Fails for each sound played that is not in the sound map; returns how many were played.
     static func checkMapped(_ sounds: [Sound.Played], _ what: String) -> Int {
         for s in sounds where s.name == nil {
-            fail("\(what): a sound not in GameSounds: \(s.parameters)")
+            fail("\(what): a sound not in GameSounds: \(s.parameters?.description ?? "?")")
         }
         return sounds.count
     }

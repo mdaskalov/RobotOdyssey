@@ -55,11 +55,23 @@ nonisolated final class GameSymbols: Sendable {
     // MARK: between the worlds and the loader
 
     /// What a world asks of the loader when it hands back (`JMP (RESET_VECTOR)`):
-    /// 1 the menu, 2 the next level (NEXT_LEVEL), 4 save the game...
+    /// 0 start (title), 1 the menu, 2 the next level (NEXT_LEVEL), 3 start
+    /// again, 4 save the game, 5 load chip NEXT_LEVEL, 6 save it.
     let menuMode = Byte(0x02D0)
+    /// The level, or the chip, the request is for.
     let nextLevel = Byte(0x02D1)
+    /// The world as the loader counts them (GameCatalog.byWorldIndex): 0-4
+    /// levels 1-5 (set by each level), 5 the lab, 6-8 Robot Anatomy, Toolkit,
+    /// the lab tutorial; saved with a game.
     let worldIndex = Byte(0x02D2)
+    /// MENU_MODE EOR $A5, set with it: LOADER_START takes MENU_MODE only
+    /// when they match (and engine main is intact), else starts with the title.
+    let menuModeCheck = Byte(0x02CF)
     let resetVector = Word(0x03F2)
+    /// The key that turns WALLS_ON off and on in the levels (KEY_COMMANDS):
+    /// none ($00, the title clears it) unless Ctrl-A, Ctrl-L, T were typed in
+    /// the menu: then Ctrl-E ($85).
+    let wallsKey = Byte(0x03FF)
     /// Every world's code starts here (Level 1's: Level1Symbols).
     let worldStart = Routine(0x0803)
     /// Every world's: queues sound X of the world's sound table for room A

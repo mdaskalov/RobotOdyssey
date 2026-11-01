@@ -12,6 +12,7 @@ faithful Swift version.
 | [Robots.md](Robots.md) | robot drawing ($D2BC/$D72B): robot state, the three engine builds, the random generator, verification |
 | [Sound.md](Sound.md) | the sound player: the queue, tone and noise loops, every world's sounds, the native port and the speaker |
 | [CopyProtection.md](CopyProtection.md) | the copy protection: the E7 bitstream on track 1, the checks, the flag that turns off the soldering pen, the cracked dumps |
+| [Loader.md](Loader.md) | the loader in the app: boot stage 2, the loader and the menu as 6502 code with a native boot, RWTS and disk drive; the storage disk; following the game into the next world |
 | [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
@@ -26,8 +27,16 @@ faithful Swift version.
   speed (4‑7 ticks/s, paced by CPU cycles at 1.0205 MHz): robots, circuits
   and the worlds' own code animate. Any room can be watched. With *Play*
   the keyboard goes to the game (I J K M or the arrow keys, space, `?`,
-  Esc…) and the view follows the player; leaving a world (menu, next level,
-  saving) stops the loop, as the loader is not emulated yet.
+  Esc…) and the view follows the player.
+* **The loader runs** (Loader.md): where a world hands back to it, the
+  Apple boots again and boot stage 2, the loader and the menu run as 6502
+  code, with natives for the boot ROM, RWTS on a disk drive (the program
+  sides, a storage disk) and the copy checks. The next level, the menu and
+  its worlds, saving and restoring games, loading and saving chips work as
+  on the Apple, prompts included; the viewer follows the game into the
+  world the loader starts. Saved games go to `save.dsk` (or the first
+  storage disk loaded; made if there is none), kept in the app's
+  Application Support folder and loaded from there at launch.
 * **Input:** the Apple's keyboard, joystick (paddle timers by CPU cycles)
   and buttons are emulated in `Machine`; the viewer uses the keyboard.
 * **Hybrid engine:** level and room code always runs as original 6502 code;
@@ -57,13 +66,27 @@ faithful Swift version.
   v1.1 670 frames, 440 ticks, 3,300 ticks with input, 53,920 calls (1.45 M
   clicks); v1.0 542 frames, 360 ticks, 2,700 ticks with input, 43,680 calls
   (1.18 M clicks) – all identical.
+* **Saved games** are read as RESTORE_GAME restores them: the header is a
+  slot's last page (until 2026‑11‑01 the page before the slot was read),
+  the engine and the level code come from the program disk
+  (DiskLayout.md). `Data/loader_check.sh` checks the loader: next levels,
+  menu, save, restore (equal to `WorldBuilder`'s saved game after a tick),
+  a new storage disk; v1.0 and v1.1.
 * **Next:** porting the tick's engine routines one by one (grabbing, linked
   objects, robots, wires, gates, chips), each checked tick by tick against
-  the original; natives' cycle counts (pacing); the loader (level changes,
-  save/load).
+  the original; natives' cycle counts (pacing).
 
 ## What we know so far
 
+* **Easter egg:** Ctrl‑A, Ctrl‑L, T (capital) typed in the menu make Ctrl‑E
+  turn the walls off and on for the player in levels 1‑5 (taking or putting
+  down a tool turns them back on; Robot Anatomy has Ctrl‑E without the code).
+  Engine.md, *Easter egg: walking through walls*. It works in the app: with
+  *Play*, Esc Esc in a level, the code in the menu, then Robotropolis.
+* **Level 1's black crystal** (object $04, room $07) is black on the black
+  floor, so it can't be seen; brought to the Ampire Bot (Level 1's code, not
+  an object) it stops the bot for good, as the *?* hint says (“Black
+  crystals foil Ampire Bots”). Engine.md, *Level 1: the Ampire Bot*.
 * The disks have **no DOS**. A track‑1 loader ($4A20) loads files by
   (track, sector, address, length) from a table. All files and their load
   addresses are known for v1.0/v1.1, both sides.
@@ -168,16 +191,20 @@ chip is burned), so it comes in two stages:
 **Phase 4 – the game**
 - [x] keyboard (viewer *Play*)
 - [x] sound (Sound.md)
-- [ ] game controller as joystick, menu, level changes, save/load
+- [x] menu, level changes, save/load (the original loader, Loader.md)
+- [ ] game controller as joystick
 - [ ] optional extras: larger window, zoom, better colours, debugging tools
 
 ## The viewer app
 
 Open the side A and B images (or the folder) with *Open Disk Images…* or by
 dropping them on the window; storage disks with saved games can be added.
-The app remembers the disks (macOS). At launch it first loads every `.dsk` in
+The app remembers the disks (macOS). At launch it first loads the storage
+disks the game wrote (the app's copies, Loader.md), then every `.dsk` in
 `RobotOddyssey/Resources/` (bundled with the app, ignored by git – locally
-`diskA.dsk`/`diskB.dsk` = the 4am crack of v1.1, side A/B), then the remembered disks. Each
+`diskA.dsk`/`diskB.dsk` = the 4am crack of v1.1, side A/B, and `save.dsk`, a
+storage disk with two saved games), then the remembered disks; a storage disk
+of a name already loaded is left out. Each
 version keeps one side A and one side B: the first one loaded wins, later
 sides of the same version are ignored (listed under *Notes*). Without disks
 the window shows the game's title screen (`Data/ro_title.py`); the app icon is
@@ -252,8 +279,14 @@ Return, Esc, Tab; Delete is ←), so I J K M move, Ctrl‑I J K M move slowly,
 space picks up and drops, `?` gives hints and Esc asks to quit. The arrow keys
 move like I J K M, and with Shift slowly, as in the PC version (the Apple's
 own arrow keys send codes the game takes for other keys). When a world hands
-back to the loader (the menu, the next level, saving) the loop stops;
-*Restart* starts it again. *Step* stops inside a tick that waits for a key. *Sound* plays the game's sounds
+back to the loader (the menu, the next level, saving) the loader runs
+(Loader.md): the canvas shows its screens, the keys go to it (the menu:
+space or the arrow keys to choose, Return to load; the saving prompts; the
+arrow keys are the Apple's there), and when it starts a
+world the sidebar selects that world and the game goes on there; the
+inspector's *Drive* shows the disk in the drive and can insert another.
+*Restart* starts the selected world again from its start‑up state. *Step*
+stops inside a tick that waits for a key. *Sound* plays the game's sounds
 (the game stops while one plays, as on the Apple; Ctrl‑S is the game's own
 switch), and the status shows the last one. Code rooms, and rooms the
 world's code fails to draw, are drawn by `RoomRenderer` (tiles, texts,

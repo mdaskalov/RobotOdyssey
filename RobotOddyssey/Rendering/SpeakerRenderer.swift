@@ -5,7 +5,8 @@ import Foundation
 /// every click: here averaged over each sample, and with the DC taken out as
 /// the speaker's coupling does (a high pass at about 35 Hz), which lets the
 /// cone settle after the last click.  The clicks come from the native
-/// PLAY_SOUNDS (`Sound.Played`), to the cycle as the original makes them.
+/// PLAY_SOUNDS (`Sound.Played`), to the cycle as the original makes them,
+/// and from the loader's own code (`GameLoop.takeSounds`).
 nonisolated enum SpeakerRenderer {
     static let sampleRate = 44_100
     /// Time for the cone to settle after the last click.

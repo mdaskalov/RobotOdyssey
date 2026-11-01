@@ -163,6 +163,10 @@ nonisolated enum GameCatalog {
 
     static func world(_ id: String) -> WorldDefinition? { worlds.first { $0.id == id } }
 
+    /// The worlds by WORLD_INDEX ($02D2), as the loader counts them: the
+    /// levels set 0-4 themselves, the menu 5-8 (its choice + 4).
+    static let byWorldIndex = ["level1", "level2", "level3", "level4", "level5", "lab", "anatomy", "toolkit", "labtutorial"]
+
     /// File lengths of v1.0's loader table where they differ from v1.1's (the
     /// lengths above), by side and first page.  The level engine's last byte
     /// ($DFFE) is code in v1.0.

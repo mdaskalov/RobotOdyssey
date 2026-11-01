@@ -50,9 +50,10 @@ nonisolated struct Sound {
 
     /// A sound PLAY_SOUNDS played: its name (nil: not in the map), the CPU
     /// cycle it started at (PLAY_TONE's or PLAY_NOISE's entry), the cycles it
-    /// took up to its RTS, and its clicks by cycle from the start.
+    /// took up to its RTS, and its clicks by cycle from the start.  Without
+    /// parameters: clicks of other code (the loader's, `GameLoop.takeSounds`).
     struct Played {
-        let parameters: Parameters
+        let parameters: Parameters?
         let name: String?
         let start: UInt64
         let cycles: UInt64

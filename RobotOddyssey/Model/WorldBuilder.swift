@@ -11,6 +11,13 @@ nonisolated struct DiskSet {
 
     var versionName: String { version?.rawValue ?? "1.x" }
 
+    /// A file's bytes as the loader loads them (v1.0's lengths for v1.0);
+    /// nil if its side is missing.
+    func read(_ s: Segment) -> [UInt8]? {
+        let length = version == .v1_0 ? GameCatalog.lengthsV10[s.side]?[s.page] ?? s.length : s.length
+        return disk(s.side)?.read(page: s.page, length: length)
+    }
+
     var title: String {
         let names = [sideA?.name, sideB?.name].compactMap { $0 }.joined(separator: " + ")
         return "Robot Odyssey I v\(versionName) (\(names))"
@@ -26,9 +33,8 @@ nonisolated struct WorldBuilder {
 
     private func load(_ segments: [Segment], into mem: inout [UInt8]) throws {
         for s in segments {
-            guard let disk = disks.disk(s.side) else { throw DiskError.missingSide(s.side.rawValue) }
-            let length = disks.version == .v1_0 ? GameCatalog.lengthsV10[s.side]?[s.page] ?? s.length : s.length
-            mem.replaceSubrange(s.address ..< s.address + length, with: disk.read(page: s.page, length: length))
+            guard let bytes = disks.read(s) else { throw DiskError.missingSide(s.side.rawValue) }
+            mem.replaceSubrange(s.address ..< s.address + bytes.count, with: bytes)
         }
     }
 
@@ -74,13 +80,21 @@ nonisolated struct WorldBuilder {
         return bank1
     }
 
-    /// The copy protection: the loader's last step before it starts a world
-    /// (START_WORLD $4563, RESTORE_GAME $452D) is COPY_PROTECTION_OK = $03FE
-    /// AND $02CE, the results of the checks at boot and in the menu (bit 7 set:
-    /// passed).  The app runs neither, so it sets the flag as an original disk
-    /// leaves it.  On the disk the byte is $00, and with bit 7 clear every world
-    /// but Robot Anatomy skips the soldering pen (Docs/CopyProtection.md).
+    /// What boot stage 2 and the menu leave for the worlds: the reset vector
+    /// at the disk controller's boot ROM, where a world hands back to the
+    /// loader (BOOT2_ENTRY: $C600 and the power-up byte), and the copy
+    /// protection passed.  The loader's last step before it starts a world
+    /// (COPY_FLAG_START $4563, COPY_FLAG_RESTORE $452D) is COPY_PROTECTION_OK =
+    /// BOOT_CHECK_RESULT AND MENU_CHECK_RESULT, the results of the checks at
+    /// boot and in the menu (bit 7 set: passed).  The app starts its worlds
+    /// without either, so it sets all three as an original disk leaves them.
+    /// On the disk the flag is $00, and with bit 7 clear every world but Robot
+    /// Anatomy skips the soldering pen (Docs/CopyProtection.md).
     static func passCopyProtection(_ mem: inout [UInt8]) {
+        let reset = GameSymbols.address(\.resetVector)
+        mem.replaceSubrange(reset ..< reset + 3, with: [0x00, 0xC6, 0xC6 ^ 0xA5])
+        mem[LoaderSymbols.address(\.bootCheckResult)] = 0x80
+        mem[LoaderSymbols.address(\.menuCheckResult)] = 0x80
         mem[\.copyProtectionOK] = 0x80
     }
 
@@ -181,49 +195,47 @@ nonisolated struct WorldBuilder {
 
     // MARK: saved games
 
-    /// Saved games on a storage diskette.
+    /// Saved games on a storage diskette, each as RESTORE_GAME restores it.
     ///
-    /// The directory is at page 32 (16-character names); slot k occupies 107
-    /// pages from page 117 + 107k: $5E00 (1 page), $D000-$EFFF (32),
-    /// $6000-$94FF (53), $0B00-$1FFF (21).  Byte $44 of the $5E00 page is the
-    /// menu's world index ($02D2) but is not always right, so the level is
-    /// identified by comparing the room walls with the `reference` worlds.
-    func savedGames(on storage: DiskImage, reference: [World]) -> [World] {
-        guard let engine = disks.sideA ?? disks.sideB else { return [] }
+    /// The directory is page 32: an entry of 18 letters per slot.  Slot k
+    /// occupies 107 pages from page 118 + 107k (SAVE_GAME_WRITE): $D000-$EFFF
+    /// (32, language card bank 1, then $E000), $6000-$94FF (53), $0B00-$1FFF
+    /// (21) and the header page $5E00: the chip table, four engine variables,
+    /// WORLD_INDEX at $44 (Docs/DiskLayout.md).  Restoring loads these, then
+    /// the engine from the program disk (but the levels' $1A50 piece, saved
+    /// with $0B00-$1FFF), puts back the header's values and loads the world's
+    /// code at $0803 (RESTORE_LOAD_CODE).
+    func savedGames(on storage: DiskImage) -> [World] {
         let directory = storage.read(page: 32, length: 256)
         var games: [World] = []
         for slot in 0 ..< 4 {
-            let first = 117 + 107 * slot
-            guard first + 107 <= 560, storage.hasWorld(atPage: first + 33) else { continue }
-            let nameBytes = directory[slot * 16 ..< slot * 16 + 16].map { $0 & 0x7F }
+            let first = 118 + 107 * slot
+            guard storage.hasWorld(atPage: first + 32) else { continue }
+            let header = storage.read(page: first + 106, length: 256)
+            let index = Int(header[0x44])
+            guard index < GameCatalog.byWorldIndex.count, let def = GameCatalog.world(GameCatalog.byWorldIndex[index]),
+                  let engineMain = disks.read(GameCatalog.engineMain) else { continue }
+            let nameBytes = directory[slot * 18 ..< slot * 18 + 18].map { $0 & 0x7F }
             let name = String(decoding: nameBytes, as: UTF8.self).trimmingCharacters(in: .whitespaces)
             var mem = [UInt8](repeating: 0, count: 0x10000)
-            let s = GameCatalog.engineMain
-            mem.replaceSubrange(s.address ..< s.address + s.length, with: engine.read(page: s.page, length: s.length))
-            let header = storage.read(page: first, length: 256)
+            mem.replaceSubrange(0xD000 ..< 0xF000, with: storage.read(page: first, length: 32 * 256))
+            mem.replaceSubrange(0x6000 ..< 0x9500, with: storage.read(page: first + 32, length: 53 * 256))
+            mem.replaceSubrange(0x0B00 ..< 0x2000, with: storage.read(page: first + 85, length: 21 * 256))
             mem.replaceSubrange(0x5E00 ..< 0x5F00, with: header)
-            mem.replaceSubrange(0xD000 ..< 0xF000, with: storage.read(page: first + 1, length: 32 * 256))
-            mem.replaceSubrange(0x6000 ..< 0x9500, with: storage.read(page: first + 33, length: 53 * 256))
-            mem.replaceSubrange(0x0B00 ..< 0x2000, with: storage.read(page: first + 86, length: 21 * 256))
-            let wallBytes = GameSymbols.address(\.roomWalls) ..< GameSymbols.address(\.roomWalls) + World.roomCount * 30
-            let walls = mem[wallBytes]
-            let match = reference.max { a, b in
-                zip(a.mem[wallBytes], walls).count { $0 == $1 } < zip(b.mem[wallBytes], walls).count { $0 == $1 }
-            }
-            let level = match.map { $0.name.components(separatedBy: " – ").first ?? $0.name } ?? "?"
-            // The save holds language card bank 1 at $D000.  Restoring reloads the
-            // engine and the level code from the program disk; take them from the
-            // matching world (the saved $0B00-$1FFF stays).
             let bank1 = Array(mem[0xD000 ..< 0xE000])
-            if let match {
-                for r in [0x0803 ..< 0x0B00, 0xB8E0 ..< 0xC000, 0xD000 ..< 0xE000, 0xF000 ..< 0x10000] {
-                    mem.replaceSubrange(r, with: match.mem[r])
-                }
+            let s = GameCatalog.engineMain
+            mem.replaceSubrange(s.address ..< s.address + engineMain.count, with: engineMain)
+            do {
+                try load(GameCatalog.segments(of: def.engine).filter { $0.address > 0x2000 }, into: &mem)
+                try load(def.code.filter { $0.address == GameSymbols.address(\.worldStart) }, into: &mem)
+            } catch {
+                continue
             }
-            // RESTORE_GAME ($450C) puts back the chip table and four engine variables,
-            // HELD_OBJECT first.  Some saves have an empty header (not written by the
-            // v1.0/v1.1 save code); restored, the player would hold itself (object 0)
-            // and the main loop hang, so they keep the program disk's values.
+            // RESTORE_GAME ($450C) puts back the chip table and four engine
+            // variables, HELD_OBJECT first.  A header of zeros (the save code
+            // never writes one: HELD_OBJECT is $FF when nothing is held) would
+            // have the player hold itself (object 0) and the main loop hang, so
+            // such a header leaves the program disk's values.
             if header[0 ..< 0x44].contains(where: { $0 != 0 }) {
                 let chipPins = GameSymbols.address(\.chipPins)
                 mem.replaceSubrange(chipPins ..< chipPins + 0x40, with: header[0 ..< 0x40])
@@ -232,19 +244,12 @@ nonisolated struct WorldBuilder {
                     mem[variable] = header[0x40 + i]
                 }
             }
+            mem[\.worldIndex] = UInt8(index)
             WorldBuilder.passCopyProtection(&mem)
-            // Code below $0B00 is not saved (Level 5 calls its code rooms from $08DA),
-            // so take the matching world's code rooms whose bytes are unchanged.
-            var codeRooms = World.findCodeRooms(in: mem)
-            for (r, code) in match?.codeRooms ?? [:] where codeRooms[r] == nil {
-                let w = wallBytes.lowerBound + r * 30 ..< wallBytes.lowerBound + r * 30 + 30
-                if mem[w] == match?.mem[w] { codeRooms[r] = code }
-            }
-            let engine = match?.engine ?? .levels
+            let level = def.name.components(separatedBy: " – ").first ?? def.name
             games.append(World(id: "\(storage.name)#\(slot)",
                                name: "\(name.isEmpty ? "Slot \(slot + 1)" : name) (\(level))",
-                               kind: .savedGame, mem: mem, bank1: bank1, codeRooms: codeRooms,
-                               engine: engine, codeCheck: check(mem, engine)))
+                               kind: .savedGame, mem: mem, bank1: bank1, engine: def.engine, codeCheck: check(mem, def.engine)))
         }
         return games
     }

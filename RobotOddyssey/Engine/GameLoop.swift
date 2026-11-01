@@ -5,8 +5,10 @@ import Foundation
 /// start-up code (`GameScreen.loop`).  Everything runs: the player by the
 /// keys typed (`devices`), robots, circuits and the world's own code.  Run it
 /// by CPU cycles (`run(until:)`) and show the page on screen, like the
-/// Apple II: a tick takes as long as its work.  It stops where the world
-/// hands back to the loader (`exit`): the menu, the next level, saving.
+/// Apple II: a tick takes as long as its work.  Where the world hands back to
+/// the loader (`exit`: the menu, the next level, saving...) the loader runs,
+/// with a drive (`Machine.drive`, `Loader`), until it starts a world, whose
+/// main loop runs on (`loadedWorld`); without one the loop stops there.
 ///
 /// The viewer may look at any room: on arriving at the draw phase, `room`
 /// replaces the room the loop chose (the player's), and the loop's room goes
@@ -18,7 +20,8 @@ nonisolated final class GameLoop {
     /// Apple IIe CPU clock in Hz (Data/ro_timing.py).
     static let clock = 1_020_484.0
 
-    let phase: DrawPhase
+    /// The running world's draw phase; nil while the loader runs (`inLoader`).
+    private(set) var phase: DrawPhase?
     private let machine: Machine
     /// The room to draw; nil draws the loop's own room, the player's view.
     var room: Int?
@@ -41,9 +44,22 @@ nonisolated final class GameLoop {
     /// The loop's own CURRENT_ROOM while the draw phase draws `room`.
     private var loopRoom: UInt8?
     /// The world's `JMP (RESET_VECTOR)`, back to the loader.
-    private let exitJump: Int?
-    /// Where the loop stopped, handing back to the loader.
+    private var exitJump: Int?
+    /// What the world asked the loader for, from its exit until the loader
+    /// starts a world.
     private(set) var exit: Exit?
+    /// The world handed back to the loader and there is none to run (no
+    /// drive, or no program disk in it): the loop stops.
+    private(set) var halted = false
+    /// The world the loader started last (nil: still the loop's first), and
+    /// how many it started.
+    private(set) var loadedWorld: WorldDefinition?
+    private(set) var worldsLoaded = 0
+    /// The draw phase and natives of the world the loader started, from when
+    /// it arrives at its main loop (`GameScreen` too puts the natives in there).
+    private var nextWorld: (phase: DrawPhase, natives: [Native])?
+    /// START_WORLD ran: its jump to WORLD_START starts a world.
+    private var startingWorld = false
 
     /// The world's request to the loader.
     struct Exit: CustomStringConvertible {
@@ -56,10 +72,18 @@ nonisolated final class GameLoop {
             switch request {
             case 1: "back to the menu"
             case 2: "on to the next level (NEXT_LEVEL = \(level))"
+            case 3: "to start again"
             case 4: "to save the game"
+            case 5: "to load chip \(level)"
+            case 6: "to save chip \(level)"
             default: "to the loader (MENU_MODE = \(request), NEXT_LEVEL = \(level))"
             }
         }
+    }
+
+    enum Failure: LocalizedError {
+        case inLoader
+        var errorDescription: String? { "The loader runs: no world to draw." }
     }
 
     init(machine: Machine, phase: DrawPhase, room: Int?) {
@@ -68,10 +92,23 @@ nonisolated final class GameLoop {
         self.room = room
         machine.cpu.pc = UInt16(phase.loopStart)
         tickStart = machine.copy()
-        exitJump = WorldBuilder.find(WorldBuilder.instruction(0x6C, \.resetVector), in: machine.cpu.mem, from: 0x0803, to: 0x2000)
+        exitJump = GameLoop.exitJump(in: machine.cpu.mem)
+    }
+
+    private static let startWorldEntry = LoaderSymbols.address(\.startWorld)
+    private static let worldStartEntry = GameSymbols.address(\.worldStart)
+
+    private static func exitJump(in mem: [UInt8]) -> Int? {
+        WorldBuilder.find(WorldBuilder.instruction(0x6C, \.resetVector), in: mem, from: 0x0803, to: 0x2000)
     }
 
     var cycles: UInt64 { machine.cpu.cycles }
+
+    /// Between a world's exit and the next world's start.
+    var inLoader: Bool { phase == nil }
+
+    /// The loader's disk drive.
+    var drive: DiskDrive? { machine.drive }
 
     /// The keyboard, joystick and buttons the game reads.
     var devices: InputDevices {
@@ -89,23 +126,41 @@ nonisolated final class GameLoop {
     /// The hi-res page on screen.
     func screen() -> HiresScreen { machine.shownScreen() }
 
-    /// The sounds the game played since the last call (the native PLAY_SOUNDS).
-    func takeSounds() -> [Sound.Played] { machine.takeSounds() }
+    /// The cycles without a click that end a sound of the loader's (`takeSounds`).
+    private static let loaderPause: UInt64 = 50_000
 
-    /// Runs until the cycle counter reaches `cycles` (or the world exits).
-    func run(until cycles: UInt64) throws {
-        while exit == nil && machine.cpu.cycles < cycles { try step() }
+    /// The sounds the game played since the last call (the native
+    /// PLAY_SOUNDS); while the loader runs also the clicks of its own code
+    /// (CHAR_OUT's bell, the menu's tunes), a sound from a click to a pause
+    /// of `loaderPause`: the speaker renders a sound at a time, and a tune
+    /// taken in pieces would play broken up.
+    func takeSounds() -> [Sound.Played] {
+        var sounds = machine.takeSounds()
+        guard let clicks = machine.clicks else { return sounds }
+        if let first = clicks.first, let last = clicks.last, !inLoader || machine.cpu.cycles - last >= GameLoop.loaderPause {
+            sounds.append(Sound.Played(parameters: nil, name: "loader", start: first, cycles: last - first + 1,
+                                       clicks: clicks.map { UInt32($0 - first) }))
+            machine.clicks = []
+        }
+        if !inLoader, machine.clicks?.isEmpty == true { machine.clicks = nil }
+        return sounds
     }
 
-    /// Runs to the start of the next tick (or the world's exit).  A tick
-    /// waiting for a key (a world's message) fails after `maxSteps`
-    /// instructions (`CPUError.tooManySteps`) and can go on later.
+    /// Runs until the cycle counter reaches `cycles` (or the loop halts).
+    func run(until cycles: UInt64) throws {
+        while !halted && machine.cpu.cycles < cycles { try step() }
+    }
+
+    /// Runs to the start of the next tick (or the world's exit without a
+    /// loader).  A tick waiting for a key (a world's message, the loader)
+    /// fails after `maxSteps` instructions (`CPUError.tooManySteps`) and can
+    /// go on later.
     func runTick(maxSteps: Int = 20_000_000) throws {
-        let t = ticks
+        let (t, w) = (ticks, worldsLoaded)
         for _ in 0 ..< maxSteps {
-            guard exit == nil else { return }
+            guard !halted else { return }
             try step()
-            if ticks != t { return }
+            if ticks != t || worldsLoaded != w { return }
         }
         throw CPU6502.CPUError.tooManySteps(pc: machine.cpu.pc)
     }
@@ -113,7 +168,8 @@ nonisolated final class GameLoop {
     /// `room` drawn by the draw phase from the state at the start of the
     /// current tick, on a copy: what the loop shows once it gets there.
     func preview(room: Int) throws -> HiresScreen {
-        try phase.draw(room: room, on: tickStart.copy())
+        guard let phase else { throw Failure.inLoader }
+        return try phase.draw(room: room, on: tickStart.copy())
     }
 
     /// Where the draw phase starts drawing `room`: the draw of the page on
@@ -130,7 +186,8 @@ nonisolated final class GameLoop {
 
     /// Every sprite the draw phase draws of `room` from there (`DrawPhase.sprites`).
     func sprites(room: Int) throws -> [DrawnSprite] {
-        try phase.sprites(room: room, on: drawStart(room: room).copy())
+        guard let phase else { throw Failure.inLoader }
+        return try phase.sprites(room: room, on: drawStart(room: room).copy())
     }
 
     private func step() throws {
@@ -141,11 +198,27 @@ nonisolated final class GameLoop {
             shownDrawStart = drawStart
             flips += 1
         }
-        if Int(machine.cpu.pc) == exitJump {
-            exit = Exit(request: machine.cpu.mem[\.menuMode], level: machine.cpu.mem[\.nextLevel])
+        let pc = Int(machine.cpu.pc)
+        guard let phase else {
+            if let next = nextWorld, pc == next.phase.loopStart {
+                arrive(next)
+            } else if pc == GameLoop.startWorldEntry {
+                startingWorld = true
+            } else if startingWorld, pc == GameLoop.worldStartEntry {
+                startWorld()
+            }
             return
         }
-        switch Int(machine.cpu.pc) {
+        if pc == exitJump {
+            exit = Exit(request: machine.cpu.mem[\.menuMode], level: machine.cpu.mem[\.nextLevel])
+            if machine.drive?.trackZero != nil {
+                leaveWorld()
+            } else {
+                halted = true
+            }
+            return
+        }
+        switch pc {
         case phase.loopStart:
             restoreRoom()                           // in case the draw phase was left early
             ticks += 1
@@ -169,5 +242,47 @@ nonisolated final class GameLoop {
         guard let r = loopRoom else { return }
         machine.cpu.mem[\.currentRoom] = r
         loopRoom = nil
+    }
+
+    /// The world jumps to the loader (`exit`): from here on the loader runs,
+    /// until it starts a world.
+    private func leaveWorld() {
+        restoreRoom()
+        machine.clicks = []
+        phase = nil
+        exitJump = nil
+        drawing = nil
+        drawStart = nil
+        shownRoom = nil
+        shownDrawStart = nil
+    }
+
+    /// The loader jumps to WORLD_START: the world it loaded starts, its
+    /// engine checked as the loader's `CodeCheck` does.  Its start-up code
+    /// runs as the loader does, its main loop from `arrive`; a world whose
+    /// main loop isn't found runs on that way.
+    private func startWorld() {
+        startingWorld = false
+        guard let drive = machine.drive else { return }
+        let mem = machine.cpu.mem
+        let world = Loader.world(in: mem, disks: drive.program)
+        let variant = world.flatMap { w in drive.program.version.map { Variant(engine: w.engine, version: $0) } }
+        machine.load(variant: variant)
+        machine.stirRandom()
+        nextWorld = DrawPhase(in: mem).map { ($0, variant.map { CodeCheck(mem, $0).natives } ?? []) }
+        exitJump = GameLoop.exitJump(in: mem)
+        exit = nil
+        loadedWorld = world
+        worldsLoaded += 1
+        ticks = 0
+        tickCycles = 0
+    }
+
+    /// The world the loader started arrives at its main loop.
+    private func arrive(_ world: (phase: DrawPhase, natives: [Native])) {
+        nextWorld = nil
+        phase = world.phase
+        machine.install(world.natives)
+        tickStart = machine.copy()
     }
 }

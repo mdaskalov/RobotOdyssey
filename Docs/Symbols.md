@@ -44,8 +44,10 @@ checked as it comes from the disk.
 
 * `GameSymbols` – the game's memory: zero page, the world image
   ($6000‑$94FF), engine main, the three builds' pieces.
-* `LoaderSymbols` – the loader (RobotOdysseyLoader.sym), and how its file
-  table tells the version.
+* `LoaderSymbols` – the loader (RobotOdysseyLoader.sym): boot stage 2, the
+  loader's requests, saving and restoring, its prompts and the addresses of
+  the app's loader natives (Loader.md); and how its file table tells the
+  version.
 * `Level1Symbols` – Level 1's own code, for the debugger (`L1_` names).
 * `GameSounds` – the sounds the worlds play, by name, each with its
   parameters (tone or noise, length, sweep, pitch; several pitches where the
