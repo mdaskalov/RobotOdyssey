@@ -18,7 +18,7 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 ./ro_map.sh "$A" "$B"                # every world's map (WorldMap) as text: exits shown, islands, badges
 ./loader_check.sh [--png DIR] "$A" "$B"   # the loader on the emulator: next levels, menu, save, restore, new storage disk
 python3 ro_title.py "$A" Extracted/v1.1 [--verify]   # title screens -> title_N.png/.bin
-python3 ro_icon.py "$STATE" ../RobotOddyssey/Assets.xcassets/AppIcon.appiconset   # app icon
+python3 ro_icon.py "$STATE" ../RobotOdyssey/Assets.xcassets/AppIcon.appiconset   # app icon
 ```
 
 ## Scripts
@@ -32,7 +32,7 @@ python3 ro_icon.py "$STATE" ../RobotOddyssey/Assets.xcassets/AppIcon.appiconset 
 | `ro_extract.py` | extract everything (see below) |
 | `ro_verify.py` | run the original drawing routines on the emulator and compare with `ro_render` |
 | `ro_timing.py` | run the main loop of a save state on the emulator and measure cycles per tick |
-| `ro_symbols.sh`, `ro_symbols.swift` | build the app's symbol maps (`RobotOddyssey/Symbols`, Docs/Symbols.md) with a writer: the Mariani/AppleWin symbol files, or with `--code` the MD5 of every mapped routine's code in every world on the given disks (to map a new routine) |
+| `ro_symbols.sh`, `ro_symbols.swift` | build the app's symbol maps (`RobotOdyssey/Symbols`, Docs/Symbols.md) with a writer: the Mariani/AppleWin symbol files, or with `--code` the MD5 of every mapped routine's code in every world on the given disks (to map a new routine) |
 | `ro_chips.py` | find the chips (program disks: the loaders' set‑up; save state; storage disk: every saved game) and disassemble them |
 | `ro_chip_disasm.py` | Micah Dowty's chip disassembler (PC CHP/CSV files, same bytecode as the Apple II; MIT licence, ported to Python 3) |
 | `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, every world's main loop tick by tick (without input, and 300 ticks with the same keys, joystick moves and buttons fed to both), and direct calls on random robot states and on random objects, moves, walls, keys and joystick positions (memory byte for byte; registers and flags too for the object motion and input routines); fails too where a world's engine code doesn't match the symbols' fingerprints |
@@ -81,5 +81,5 @@ $D000 routines a few bytes later). `RobotOdysseyKit.sym`,
 `RobotOdysseyLoader.sym` – boot loader, file loader (`LOAD_FILES` $4A20),
 menu and save/restore at $4000‑$5DFF. Keep it separate: during play that
 area is hi‑res page 2, and loader names there would mislabel screen writes.
-Names ending in `_Q` are guesses. Add names to `RobotOddyssey/Symbols` and
+Names ending in `_Q` are guesses. Add names to `RobotOdyssey/Symbols` and
 rerun `ro_symbols.sh`.

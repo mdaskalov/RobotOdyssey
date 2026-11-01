@@ -3,7 +3,7 @@
 # Usage: ./native_check.sh DISK.dsk...   (program sides A and B, storage disks)
 set -e
 cd "$(dirname "$0")"
-APP=../RobotOddyssey
+APP=../RobotOdyssey
 OUT="${TMPDIR:-/tmp}/ro_native_check"
 swiftc -O -wmo -parse-as-library -o "$OUT" native_check.swift \
     $APP/Emulation/CPU6502.swift $APP/Engine/*.swift $APP/Symbols/*.swift $APP/Rendering/RoomRenderer.swift \

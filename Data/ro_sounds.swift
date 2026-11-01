@@ -1,5 +1,5 @@
 // The game's sounds: the worlds' sound tables against the sound map
-// (RobotOddyssey/Symbols/GameSounds.swift), every sound of the map as the
+// (RobotOdyssey/Symbols/GameSounds.swift), every sound of the map as the
 // original code plays it and as the native PLAY_SOUNDS does, and, to listen
 // to, as WAV files.
 //

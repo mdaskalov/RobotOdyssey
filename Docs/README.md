@@ -52,7 +52,7 @@ faithful Swift version.
   pen unless the loader's flag says the disk passed the check; the app
   loads every world with the flag set, as an original disk does.
 * **Symbol maps** (Symbols.md): every address the Swift code uses, with its
-  place in each engine build and version, is in `RobotOddyssey/Symbols`
+  place in each engine build and version, is in `RobotOdyssey/Symbols`
   (game, loader, Level 1's code); the native routines use the names
   (`m.robotX = m.objX[body]`) and the Mariani `.sym` files are written from
   the maps. The loader tells the version by its file table and, loading a
@@ -201,7 +201,7 @@ Open the side A and B images (or the folder) with *Open Disk Images…* or by
 dropping them on the window; storage disks with saved games can be added.
 The app remembers the disks (macOS). At launch it first loads the storage
 disks the game wrote (the app's copies, Loader.md), then every `.dsk` in
-`RobotOddyssey/Resources/` (bundled with the app, ignored by git – locally
+`RobotOdyssey/Resources/` (bundled with the app, ignored by git – locally
 `diskA.dsk`/`diskB.dsk` = the 4am crack of v1.1, side A/B, and `save.dsk`, a
 storage disk with two saved games), then the remembered disks; a storage disk
 of a name already loaded is left out. Each

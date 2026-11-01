@@ -66,7 +66,7 @@ Each world has its sound table in its own code: four tables of 12‑18 bytes
 routine (Level 1: L1_QUEUE_TABLE_SOUND $0944, tables at $18B2). Numbers 0‑8
 are the same in every world and are the engine's; the engine queues them with
 `LDX #n / LDA room / JSR WORLD_SOUND`. The map of the sounds is
-`GameSounds` (RobotOddyssey/Symbols/GameSounds.swift); a name with `?` below
+`GameSounds` (RobotOdyssey/Symbols/GameSounds.swift); a name with `?` below
 is a guess there (`guess: true`). The engine's addresses are the levels'.
 
 | # | Name | Parameters | Who | |

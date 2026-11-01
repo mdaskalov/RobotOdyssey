@@ -1,4 +1,4 @@
-// The app's symbol maps (RobotOddyssey/Symbols) as Mariani/AppleWin symbol
+// The app's symbol maps (RobotOdyssey/Symbols) as Mariani/AppleWin symbol
 // files, and the fingerprints of their routines on the disks.
 //
 // Build and run with ro_symbols.sh (compiles this file together with the
@@ -41,7 +41,7 @@ struct SymbolTool {
                 .sorted { $0.0 < $1.0 }
                 .map { name, a in String(format: a < 0x100 ? "%4X %@" : "%04X %@", a, name) }
             let header = ["; Robot Odyssey \(title)",
-                          "; Robot Odyssey I (Apple II) - written by Data/ro_symbols.sh from RobotOddyssey/Symbols",
+                          "; Robot Odyssey I (Apple II) - written by Data/ro_symbols.sh from RobotOdyssey/Symbols",
                           "; Names ending in _Q are guesses; L1_ names apply to Level 1 code only.", ""]
             let text = (header + lines).joined(separator: "\r\n") + "\r\n"
             try Data(text.utf8).write(to: dir.appendingPathComponent(file))

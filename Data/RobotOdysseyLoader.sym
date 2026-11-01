@@ -1,5 +1,5 @@
 ; Robot Odyssey boot/menu loader symbols, v1.0 and v1.1
-; Robot Odyssey I (Apple II) - written by Data/ro_symbols.sh from RobotOddyssey/Symbols
+; Robot Odyssey I (Apple II) - written by Data/ro_symbols.sh from RobotOdyssey/Symbols
 ; Names ending in _Q are guesses; L1_ names apply to Level 1 code only.
 
 4BB7 ASK_SIDE

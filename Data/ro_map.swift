@@ -1,4 +1,4 @@
-// The world maps (RobotOddyssey/Model/WorldMap.swift) as text: for every
+// The world maps (RobotOdyssey/Model/WorldMap.swift) as text: for every
 // world on the disks, how many of its exits the map shows as rooms next to
 // each other, the time it took, its islands with the room numbers (the
 // player's room in brackets) and the exits left as badges.

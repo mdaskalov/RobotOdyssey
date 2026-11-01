@@ -1,7 +1,7 @@
 # Robot Odyssey I (Apple II) – Symbols
 
 Every address the Swift code knows is in one place, the symbol maps in
-`RobotOddyssey/Symbols`: each variable, table, sprite and routine by name,
+`RobotOdyssey/Symbols`: each variable, table, sprite and routine by name,
 with its address in every engine build and version, and for each routine a
 native replaces, the fingerprint of its code. The native routines use the
 names, the loader checks the fingerprints when it loads a world, and the
