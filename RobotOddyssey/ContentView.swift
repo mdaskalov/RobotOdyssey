@@ -3,7 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @State private var model = ViewerModel()
     @State private var importing = false
-    @State private var showInspector = true
 
     var body: some View {
         NavigationSplitView {
@@ -17,39 +16,32 @@ struct ContentView: View {
         } detail: {
             if let world = model.selectedWorld {
                 WorldView(model: model, world: world)
-                    .inspector(isPresented: $showInspector) {
+                    .inspector(isPresented: $model.showInspector) {
                         RoomInspector(model: model, world: world)
                             .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
                     }
                     .toolbar {
                         ToolbarItemGroup {
-                            Picker("Renderer", selection: $model.renderer) {
-                                ForEach(ViewerModel.Renderer.allCases) { Text($0.rawValue).tag($0) }
+                            Toggle("Play", systemImage: "gamecontroller", isOn: $model.playing)
+                                .help("Play: the keyboard goes to the game (I J K M or the arrow keys, space, ?, Esc…) and the view follows the player")
+                            Button(model.paused ? "Run" : "Pause", systemImage: model.paused ? "play.fill" : "pause.fill") {
+                                model.paused.toggle()
                             }
-                            .pickerStyle(.segmented)
-                            .help("Game: the world's main loop running on the 6502 emulator. Static: tiles, texts, objects and wires only.")
-                            if model.renderer == .game {
-                                Toggle("Play", systemImage: "gamecontroller", isOn: $model.playing)
-                                    .help("Play: the keyboard goes to the game (I J K M or the arrow keys, space, ?, Esc…) and the view follows the player")
-                                Button(model.paused ? "Run" : "Pause", systemImage: model.paused ? "play.fill" : "pause.fill") {
-                                    model.paused.toggle()
-                                }
-                                .help(model.paused ? "Run the world's main loop" : "Pause the world's main loop")
-                                Button("Step", systemImage: "forward.frame.fill") { model.stepTick() }
-                                    .disabled(!model.paused)
-                                    .help("Run one tick")
-                                Button("Restart", systemImage: "arrow.counterclockwise") { model.restartGame() }
-                                    .help("Start the main loop again from the world's start-up state")
-                                Toggle("Sound", systemImage: model.sound ? "speaker.wave.2" : "speaker.slash", isOn: $model.sound)
-                                    .help("The game's sounds (in the game, Ctrl-S turns them off and on)")
-                            }
+                            .help(model.paused ? "Run the world's main loop" : "Pause the world's main loop")
+                            Button("Step", systemImage: "forward.frame.fill") { model.stepTick() }
+                                .disabled(!model.paused)
+                                .help("Run one tick")
+                            Button("Restart", systemImage: "arrow.counterclockwise") { model.restartGame() }
+                                .help("Start the main loop again from the world's start-up state")
+                            Toggle("Sound", systemImage: model.sound ? "speaker.wave.2" : "speaker.slash", isOn: $model.sound)
+                                .help("The game's sounds (in the game, Ctrl-S turns them off and on)")
                             Picker("Display", selection: $model.mode) {
                                 ForEach(HiresImage.Mode.allCases) { Text($0.rawValue).tag($0) }
                             }
                             .pickerStyle(.segmented)
                             Toggle("Tile Grid", systemImage: "grid", isOn: $model.showGrid)
                             Toggle("Empty Rooms", systemImage: "square.dashed", isOn: $model.showEmptyRooms)
-                            Button("Inspector", systemImage: "sidebar.trailing") { showInspector.toggle() }
+                            Button("Inspector", systemImage: "sidebar.trailing") { model.showInspector.toggle() }
                         }
                     }
             } else {

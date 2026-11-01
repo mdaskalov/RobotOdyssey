@@ -40,9 +40,17 @@ nonisolated struct RoomText: Identifiable {
     }
 }
 
-/// A wire drawn from (ax, ay) to (bx, by); `to` is the object at the other end.
+/// A wire drawn from (ax, ay) to (bx, by) in `colour`, its object's (where
+/// it starts); `to` is the object at the other end, which takes the colour
+/// each tick (WIRES_PROPAGATE).
 nonisolated struct Wire {
-    let to, ax, ay, bx, by: Int
+    /// The colour of a wire or pin that carries a signal, orange: the only
+    /// one the gates and thrusters take for on (they set 5 or 7, white, for off).
+    static let hotColour = 5
+
+    let to, ax, ay, bx, by, colour: Int
+
+    var hot: Bool { colour == Wire.hotColour }
 }
 
 /// 6502 code in the wall bytes of an unused room: part of the routine at `entry`,
@@ -87,6 +95,11 @@ nonisolated struct World: Identifiable {
         self.codeRooms = codeRooms ?? World.findCodeRooms(in: mem)
         self.engine = engine
         self.codeCheck = codeCheck
+    }
+
+    /// The same world in another state: memory and bank 1 as the running game has them.
+    func with(mem: [UInt8], bank1: [UInt8]) -> World {
+        World(id: id, name: name, kind: kind, mem: mem, bank1: bank1, codeRooms: codeRooms, engine: engine, codeCheck: codeCheck)
     }
 
     @inline(__always) private func m(_ table: KeyPath<GameSymbols, Table>, _ i: Int) -> Int { Int(mem[table, i]) }
@@ -141,7 +154,7 @@ nonisolated struct World: Identifiable {
         guard mem[wireTable(\.wireTo) + o] != 0 else { return nil }
         return Wire(to: Int(mem[wireTable(\.wireTo) + o]), ax: Int(mem[wireTable(\.wireAX) + o]),
                     ay: Int(mem[wireTable(\.wireAY) + o]), bx: Int(mem[wireTable(\.wireBX) + o]),
-                    by: Int(mem[wireTable(\.wireBY) + o]))
+                    by: Int(mem[wireTable(\.wireBY) + o]), colour: m(\.objColour, o))
     }
 
     /// Wire of a loose wire object $D1-$DF (PIN_LINE... in the levels).

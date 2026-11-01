@@ -17,7 +17,7 @@ final class ViewerModel {
         didSet {
             if oldValue != selectedWorldID {
                 thumbnails = [:]
-                selectedObject = nil
+                selection = nil
                 if let w = selectedWorld, !w.isRoomUsed(selectedRoom) {
                     selectedRoom = (0 ..< World.roomCount).first { w.isRoomUsed($0) } ?? 0
                 }
@@ -27,25 +27,34 @@ final class ViewerModel {
     var selectedRoom = 0 {
         didSet {
             if oldValue != selectedRoom {
-                selectedObject = nil
+                selection = nil
                 showLive()
             }
         }
     }
-    var selectedObject: Int?
+    /// An object, another sprite drawn or a wire of the selected room (`contents`).
+    var selection: RoomItem?
     var mode: HiresImage.Mode = .color {
         didSet {
             thumbnails = [:]
             showLive()
         }
     }
-    var renderer: Renderer = .game {
-        didSet { thumbnails = [:] }
-    }
     var showEmptyRooms = false
     var showGrid = false
+    var showInspector = true {
+        didSet { showLive() }
+    }
+    /// The inspector's other sprites drawn are open: while the inspector is
+    /// shown, the selected room's sprites are recorded (`updateContents`).
+    var showSprites = UserDefaults.standard.bool(forKey: "showSprites") {
+        didSet {
+            UserDefaults.standard.set(showSprites, forKey: "showSprites")
+            showLive()
+        }
+    }
 
-    /// The Game renderer runs the selected world's main loop (`runGame`).
+    /// Pauses the selected world's main loop (`runGame`).
     var paused = false {
         didSet { showLive() }
     }
@@ -76,6 +85,8 @@ final class ViewerModel {
     }
     /// Tick count and speed of the running loop.
     private(set) var loopStatus = ""
+    /// The selected room as the loop last drew it (`updateContents`).
+    private var liveContents: RoomContents?
 
     /// The selected world's rooms as it starts, for the thumbnails, and the
     /// maps: made off the main thread (`prepareRooms`), `roomsKey` says for what.
@@ -96,15 +107,9 @@ final class ViewerModel {
     @ObservationIgnored private var leftRooms: [Int: Int] = [:]
     /// Source of `liveFrame`: room, display mode, on screen or preview; and the page shown.
     @ObservationIgnored private var liveSource: (key: String, bytes: [UInt8])?
+    /// Source of `liveContents`: room and the draw on screen, or the preview.
+    @ObservationIgnored private var contentsSource: String?
     @ObservationIgnored private var renderErrors: [String: String] = [:]
-
-    enum Renderer: String, CaseIterable, Identifiable {
-        /// The world's own draw phase on the 6502 emulator, with the native engine routines.
-        case game = "Game"
-        /// RoomRenderer: tiles, texts, objects and wires only.
-        case staticRooms = "Static"
-        var id: String { rawValue }
-    }
 
     static let diskTypes: [UTType] = [.folder, UTType(filenameExtension: "dsk") ?? .data, .data]
 
@@ -252,7 +257,7 @@ final class ViewerModel {
 
     func image(world: World, room: Int) -> CGImage? {
         if let live = liveImage(world: world, room: room) { return live }
-        let key = "\(world.id)#\(room)#\(mode.rawValue)#\(renderer.rawValue)"
+        let key = "\(world.id)#\(room)#\(mode.rawValue)"
         if let cached = roomImage, cached.key == key { return cached.image }
         let image = HiresImage.make(screen(world: world, room: room), mode: mode)
         roomImage = (key, image)
@@ -261,7 +266,7 @@ final class ViewerModel {
 
     /// The room as the running loop shows it, if it is the one on screen.
     func liveImage(world: World, room: Int) -> CGImage? {
-        guard renderer == .game, let live = liveFrame, live.world == world.id, live.room == room else { return nil }
+        guard let live = liveFrame, live.world == world.id, live.room == room else { return nil }
         return live.image
     }
 
@@ -270,15 +275,21 @@ final class ViewerModel {
         thumbnails[room] ?? (thumbnailsReady ? startThumbnails?.images[room] : nil)
     }
 
-    /// The room as the chosen renderer draws it; the game's code falls back to the static renderer.
+    /// The selected room as the loop last drew it, else as the world starts.
+    func contents(_ world: World) -> RoomContents {
+        if let live = liveContents, live.world.id == world.id, live.room == selectedRoom { return live }
+        return RoomContents(world: world, room: selectedRoom)
+    }
+
+    /// The room as the game draws it, else the static renderer (`Self.screen`).
     private func screen(world: World, room: Int) -> HiresScreen {
-        let (screen, error) = Self.screen(world: world, room: room, game: renderer == .game ? gameScreen(world) : nil)
+        let (screen, error) = Self.screen(world: world, room: room, game: gameScreen(world))
         if let error { renderErrors["\(world.id)#\(room)"] = error }
         return screen
     }
 
-    /// The room as `game` draws it, else, or if its code fails (the error),
-    /// as the static renderer does.
+    /// The room as `game` draws it, else (code rooms, no main loop), or if
+    /// its code fails (the error), as the static renderer does.
     private nonisolated static func screen(world: World, room: Int, game: GameScreen?) -> (HiresScreen, error: String?) {
         if world.codeRooms[room] == nil, let game {
             do {
@@ -312,7 +323,7 @@ final class ViewerModel {
 
     /// What the thumbnails as the world starts depend on.
     private var roomsKey: String? {
-        selectedWorldID.map { "\($0)#\(mode.rawValue)#\(renderer.rawValue)" }
+        selectedWorldID.map { "\($0)#\(mode.rawValue)" }
     }
 
     /// The thumbnails of the selected world as it starts are drawn.
@@ -328,7 +339,7 @@ final class ViewerModel {
         guard world.id == selectedWorldID, let key = roomsKey else { return }
         let draw = !thumbnailsReady, layOut = withMap && maps[world.id] == nil
         guard draw || layOut,
-              let prepared = await Self.prepare(world, mode: mode, game: renderer == .game, draw: draw, layOut: layOut),
+              let prepared = await Self.prepare(world, mode: mode, draw: draw, layOut: layOut),
               !Task.isCancelled else { return }
         renderErrors.merge(prepared.errors) { $1 }
         if let images = prepared.thumbnails { startThumbnails = (key, images) }
@@ -338,18 +349,16 @@ final class ViewerModel {
     /// Every room's thumbnail but the code rooms', as `screen` draws it, and
     /// the map; nil when cancelled.
     @concurrent
-    private nonisolated static func prepare(_ world: World, mode: HiresImage.Mode, game: Bool, draw: Bool, layOut: Bool) async
+    private nonisolated static func prepare(_ world: World, mode: HiresImage.Mode, draw: Bool, layOut: Bool) async
         -> (thumbnails: [Int: CGImage]?, map: WorldMap?, errors: [String: String])? {
         var errors: [String: String] = [:]
         var thumbnails: [Int: CGImage]?
         if draw {
             var gameScreen: GameScreen?
-            if game {
-                do {
-                    gameScreen = try GameScreen(world: world)
-                } catch {
-                    errors[world.id] = error.localizedDescription
-                }
+            do {
+                gameScreen = try GameScreen(world: world)
+            } catch {
+                errors[world.id] = error.localizedDescription
             }
             var images: [Int: CGImage] = [:]
             for room in 0 ..< World.roomCount where world.codeRooms[room] == nil {
@@ -366,7 +375,6 @@ final class ViewerModel {
 
     /// How the room in the canvas was drawn.
     func renderNote(world: World, room: Int) -> String {
-        guard renderer == .game else { return "Static renderer: tiles, texts, objects and wires" }
         if world.codeRooms[room] != nil { return "Code room – drawn as walls by the static renderer" }
         if let e = renderErrors["\(world.id)#\(room)"] ?? renderErrors[world.id] {
             return "The game's code could not draw this room (\(e)) – static renderer"
@@ -378,25 +386,26 @@ final class ViewerModel {
 
     /// The native routines the game runs in place of the original code (`CodeCheck`).
     func natives(world: World) -> [(name: String, entry: UInt16)] {
-        guard renderer == .game else { return [] }
-        return gameScreen(world)?.natives ?? []
+        gameScreen(world)?.natives ?? []
     }
 
     // MARK: running the game
 
     /// Runs the world's main loop as in the game, paced by its CPU cycles at
     /// 1.0205 MHz, plays its sounds and shows the selected room.  Runs as the
-    /// canvas's task: ends when the world, the renderer or `restarts` changes.
+    /// canvas's task: ends when the world or `restarts` changes.
     func runGame(world: World) async {
         loop = nil
         liveFrame = nil
         liveSource = nil
+        liveContents = nil
+        contentsSource = nil
         loopStatus = ""
         lastSound = nil
         soundPlayer.stop()
         thumbnails = [:]                            // the rooms as the world starts
         leftRooms = [:]
-        guard renderer == .game, let game = gameScreen(world) else { return }
+        guard let game = gameScreen(world) else { return }
         let loop = game.loop(room: viewedRoom(world))
         self.loop = (world.id, loop)
         showLive()
@@ -500,6 +509,7 @@ final class ViewerModel {
             return
         }
         let shown = loop.shownRoom == room
+        updateContents(world, loop, room: room, shown: shown)
         let key = "\(room)#\(mode.rawValue)#\(shown)"
         let screen: HiresScreen
         if shown {
@@ -519,6 +529,23 @@ final class ViewerModel {
         if let image = HiresImage.make(screen, mode: mode) {
             liveFrame = (world.id, room, image)
         }
+    }
+
+    /// Makes `liveContents` what `liveFrame` shows: the draw of the page on
+    /// screen once the loop has drawn `room` (again with every new page),
+    /// until then the preview.  Records the sprites only while the inspector
+    /// shows them (`showSprites`): that draws the room once more as 6502 code
+    /// (about 1 ms per tick in a Release build, 10 in a Debug one).
+    private func updateContents(_ world: World, _ loop: GameLoop, room: Int, shown: Bool) {
+        let record = showInspector && showSprites
+        let source = (shown ? "\(room)#\(loop.flips)" : "\(room)#preview") + (record ? "#sprites" : "")
+        guard source != contentsSource else { return }
+        contentsSource = source
+        let start = loop.memory(drawing: room)
+        let live = world.with(mem: start.memory, bank1: start.bank1)
+        // A draw that fails leaves the objects without their sprites.
+        let sprites = record ? (try? loop.sprites(room: room)) : nil
+        liveContents = RoomContents(world: live, room: room, live: true, sprites: sprites)
     }
 
     /// The thumbnails of the rooms the player left in an earlier tick, drawn

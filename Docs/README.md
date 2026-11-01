@@ -21,7 +21,7 @@ faithful Swift version.
   disks, shows all nine worlds and the saved games room by room, with
   inspector, hover read‑out and exits; the rooms in an 8×8 grid or on a map
   of how they connect.
-* **The game runs and can be played.** In *Game* mode each world's main loop
+* **The game runs and can be played.** Each world's main loop
   runs on the 6502 emulator as in the game, tick after tick at the original
   speed (4‑7 ticks/s, paced by CPU cycles at 1.0205 MHz): robots, circuits
   and the worlds' own code animate. Any room can be watched. With *Play*
@@ -200,10 +200,26 @@ shows (v1.1: Level 1 64 of 72, Level 2 137/173, Level 3 88/121, Level 4
 175/220, Level 5 76/93; growing breadth first from the player's room showed
 60, 132, 80, 155, 70). The map keeps
 the selected room in view, so when playing it follows the player. Arrow keys
-follow exits. Hover shows object coordinates. Click an object to select it in the
-inspector, and the inspector lists all objects, wires and texts.
+follow exits. Hover shows object coordinates and the sprite or wire under
+the pointer. Click a sprite or a wire to select it in the inspector (the
+canvas outlines it in yellow). The inspector shows the room's properties,
+the game, then the room's contents as the loop last drew the room: the
+world's state where the draw phase of the page on screen started
+(`GameLoop.memory`), so objects the code moves or turns into other sprites
+(Level 1's room $0E rewrites sprites $29 and $2C into a robot in its first
+tick) show as they are drawn, and wires as hot (orange, colour 5: the only
+colour the gates and thrusters take for on) or off. *Objects*, *Other
+sprites drawn*, *Wires* and *Texts* are folded like the native routines.
+While *Other sprites drawn* is open (and
+the inspector shown) the draw phase runs once more each tick, as 6502 code
+only, and every DRAW_SPRITE is recorded with the routine of the main loop
+that drew it (`GameLoop.sprites`): objects (DRAW_ROOM_OBJECTS), robots
+(DRAW_ROBOTS, DRAW_ROBOT_INTERIOR) and the world's own code (by address);
+the texts' letters are left out. That takes about 1 ms per tick (10 ms in a
+Debug build); then hover and click work on every sprite, otherwise on the
+objects. Code rooms, which the loop doesn't draw, list the world as it starts.
 
-The *Game* renderer runs the world's main loop on the emulator (with the
+The world's main loop runs on the emulator (with the
 native routines) as in the game: each tick takes the CPU cycles it takes at
 1.0205 MHz, so every room runs at its original speed, and the canvas shows
 the hi‑res page on screen. The selected room is drawn by the world's draw
@@ -218,8 +234,8 @@ start‑up code; the selected room is shown live, and a room keeps its last
 live frame once you leave it, so the map shows the rooms as last seen. A room
 the player walks out of while playing is drawn again a tick later, without
 the player.
-The thumbnails and the map are made off the main thread when a world, the
-display mode or the renderer changes (`ViewerModel.prepareRooms`; in a Debug
+The thumbnails and the map are made off the main thread when the world or the
+display mode changes (`ViewerModel.prepareRooms`; in a Debug
 build the 6502 takes 1–2 s to draw all rooms and the map up to 1 s), with a
 progress indicator in their place meanwhile. For that the engine, symbol,
 rendering and model types are `nonisolated` (the app target's default
@@ -234,8 +250,9 @@ own arrow keys send codes the game takes for other keys). When a world hands
 back to the loader (the menu, the next level, saving) the loop stops;
 *Restart* starts it again. *Step* stops inside a tick that waits for a key. *Sound* plays the game's sounds
 (the game stops while one plays, as on the Apple; Ctrl‑S is the game's own
-switch), and the status shows the last one. *Static* uses `RoomRenderer`
-(tiles, texts, objects, wires).
+switch), and the status shows the last one. Code rooms, and rooms the
+world's code fails to draw, are drawn by `RoomRenderer` (tiles, texts,
+objects, wires).
 
 In Debug builds `-openDisks <path>…` opens disks at launch (needs
 `ENABLE_APP_SANDBOX=NO`).

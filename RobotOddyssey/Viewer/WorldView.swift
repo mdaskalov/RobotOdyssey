@@ -43,7 +43,7 @@ struct WorldView: View {
                     }
                     return .handled
                 }
-                .task(id: "\(world.id)#\(model.renderer.rawValue)#\(model.restarts)") {
+                .task(id: "\(world.id)#\(model.restarts)") {
                     await model.runGame(world: world)
                 }
             HStack(spacing: 12) {
@@ -74,7 +74,7 @@ struct WorldView: View {
                 loading("Laying out the map…")
             }
         }
-        .task(id: "\(world.id)#\(model.mode.rawValue)#\(model.renderer.rawValue)#\(layout.rawValue)") {
+        .task(id: "\(world.id)#\(model.mode.rawValue)#\(layout.rawValue)") {
             await model.prepareRooms(world: world, withMap: layout == .map)
         }
         .navigationTitle(world.name)
@@ -117,7 +117,8 @@ private struct RoomHeader: View {
     }
 }
 
-/// The room at 560x384 (scaled to fit), with hover read-out, object selection and tile grid.
+/// The room at 560x384 (scaled to fit), with hover read-out, selection of
+/// sprites and wires, and tile grid.
 struct RoomCanvas: View {
     var model: ViewerModel
     let world: World
@@ -125,7 +126,7 @@ struct RoomCanvas: View {
     @State private var hover: (x: Int, y: Int)?
 
     var body: some View {
-        let objects = world.objectsInRoom(model.selectedRoom)
+        let contents = model.contents(world)
         VStack(alignment: .leading, spacing: 4) {
             GeometryReader { geo in
                 let k = geo.size.width / 560          // view points per image pixel
@@ -137,12 +138,19 @@ struct RoomCanvas: View {
                             .frame(width: geo.size.width, height: geo.size.height)
                     }
                     if model.showGrid { TileGrid(k: k) }
-                    if let o = model.selectedObject {
-                        let ob = world.object(o)
+                    if let s = model.selection.flatMap(contents.sprite) {
                         Rectangle()
                             .stroke(.yellow, lineWidth: 2)
                             .frame(width: 28 * k + 4, height: 32 * k + 4)
-                            .offset(x: CGFloat(ob.x * 4) * k - 2, y: CGFloat((191 - ob.y - 15) * 2) * k - 2)
+                            .offset(x: CGFloat(s.x * 4) * k - 2, y: CGFloat((191 - s.y - 15) * 2) * k - 2)
+                    }
+                    if let w = model.selection.flatMap(contents.wire) {
+                        // Through the middle of each unit: 4 x 2 image pixels.
+                        Path { path in
+                            path.addLines(w.points.map { CGPoint(x: CGFloat($0.x * 4 + 2) * k, y: CGFloat((191 - $0.y) * 2 + 1) * k) })
+                        }
+                        .stroke(.yellow, style: StrokeStyle(lineWidth: 3, lineCap: .square))
+                        .allowsHitTesting(false)
                     }
                 }
                 .contentShape(Rectangle())
@@ -151,12 +159,12 @@ struct RoomCanvas: View {
                 }
                 .onTapGesture { p in
                     let (x, y) = logical(p, k: k)
-                    model.selectedObject = objectAt(x, y, objects: objects)
+                    model.selection = contents.item(atX: x, y: y)
                 }
             }
             .aspectRatio(560.0 / 384.0, contentMode: .fit)
             .frame(maxWidth: 1120)
-            Text(hoverText(objects: objects))
+            Text(hoverText(contents))
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
         }
@@ -166,25 +174,23 @@ struct RoomCanvas: View {
         (Int(p.x / k / 4), 191 - Int(p.y / k / 2))
     }
 
-    /// Topmost object whose 7x16 sprite box contains (x, y).
-    private func objectAt(_ x: Int, _ y: Int, objects: [Int]) -> Int? {
-        objects.reversed().first { o in
-            let ob = world.object(o)
-            return (ob.x ..< ob.x + 7).contains(x) && (ob.y ..< ob.y + 16).contains(y)
-        }
-    }
-
-    private func hoverText(objects: [Int]) -> String {
+    private func hoverText(_ contents: RoomContents) -> String {
         guard let (x, y) = hover, (0 ..< 140).contains(x), (0 ..< 192).contains(y) else {
             if model.playing {
                 return "Playing: I J K M or the arrow keys move (Ctrl or Shift: slowly) · space picks up and drops · ? hints · Esc quits"
             }
-            return "Hover for coordinates · click an object to select it · arrow keys follow exits · space pauses"
+            return "Hover for coordinates · click a sprite or a wire to select it · arrow keys follow exits · space pauses"
         }
         var s = String(format: "x=$%02X y=$%02X   tile column %d row %d", x, y, x * 2 / 14, (191 - y) / 16)
-        if let o = objectAt(x, y, objects: objects) {
-            let ob = world.object(o)
-            s += String(format: "   object $%02X: sprite $%02X at ($%02X,$%02X)", o, ob.sprite, ob.x, ob.y)
+        if let sprite = contents.sprite(atX: x, y: y) {
+            let name = sprite.spriteName(in: contents.world)
+            if case .object(let o) = sprite.id {
+                s += String(format: "   object $%02X: %@ at ($%02X,$%02X)", o, name, sprite.x, sprite.y)
+            } else {
+                s += String(format: "   %@ at ($%02X,$%02X) by %@", name, sprite.x, sprite.y, sprite.drawnBy(in: contents.world) ?? "?")
+            }
+        } else if let w = contents.wire(atX: x, y: y) {
+            s += String(format: "   wire $%02X → $%02X %@", w.object, w.wire.to, w.wire.hot ? "hot" : "off")
         }
         return s
     }

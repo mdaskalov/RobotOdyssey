@@ -187,7 +187,6 @@ bytes as the Python renderer for all 1152 rooms of v1.0 and v1.1.
 robot exteriors and interiors ($D2BC/$D72B, see Robots.md), sprites drawn by
 the world's own code (e.g. Robot Anatomy's $09CD with its table at $09BB: the
 INPUT pin in room $1A, the OUTPUT pin in $1B, the lock in $06; Level 5's
-transporter in its code rooms) and the remote control. The viewer's *Game*
-renderer draws all of it by running the world's draw phase on the emulator
-(Engine.md); `RoomRenderer` (the *Static*
-renderer) draws only the four steps above.
+transporter in its code rooms) and the remote control. The viewer draws all
+of it by running the world's draw phase on the emulator (Engine.md);
+`RoomRenderer`, its fallback for code rooms, draws only the four steps above.

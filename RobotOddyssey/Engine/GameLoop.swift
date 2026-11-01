@@ -28,10 +28,16 @@ nonisolated final class GameLoop {
     private(set) var tickCycles: UInt64 = 0
     /// The room on the page on screen (nil until the first flip).
     private(set) var shownRoom: Int?
+    /// Page flips so far: a new page on screen.
+    private(set) var flips = 0
     /// The machine at the start of the current tick.
     private var tickStart: Machine
     /// The room the draw phase is drawing.
     private var drawing: Int?
+    /// The machine where the draw phase started drawing, and where the draw
+    /// of the page on screen started.
+    private var drawStart: Machine?
+    private var shownDrawStart: Machine?
     /// The loop's own CURRENT_ROOM while the draw phase draws `room`.
     private var loopRoom: UInt8?
     /// The world's `JMP (RESET_VECTOR)`, back to the loader.
@@ -110,10 +116,31 @@ nonisolated final class GameLoop {
         try phase.draw(room: room, on: tickStart.copy())
     }
 
+    /// Where the draw phase starts drawing `room`: the draw of the page on
+    /// screen if that shows `room`, else the start of the current tick (as `preview`).
+    private func drawStart(room: Int) -> Machine {
+        (room == shownRoom ? shownDrawStart : nil) ?? tickStart
+    }
+
+    /// Memory and bank 1 as the draw phase finds them when it draws `room` (`drawStart`).
+    func memory(drawing room: Int) -> (memory: [UInt8], bank1: [UInt8]) {
+        let machine = drawStart(room: room)
+        return (machine.cpu.mem, machine.bank1)
+    }
+
+    /// Every sprite the draw phase draws of `room` from there (`DrawPhase.sprites`).
+    func sprites(room: Int) throws -> [DrawnSprite] {
+        try phase.sprites(room: room, on: drawStart(room: room).copy())
+    }
+
     private func step() throws {
         let page = machine.shownPage
         try machine.cpu.step()
-        if machine.shownPage != page { shownRoom = drawing }
+        if machine.shownPage != page {
+            shownRoom = drawing
+            shownDrawStart = drawStart
+            flips += 1
+        }
         if Int(machine.cpu.pc) == exitJump {
             exit = Exit(request: machine.cpu.mem[\.menuMode], level: machine.cpu.mem[\.nextLevel])
             return
@@ -130,6 +157,7 @@ nonisolated final class GameLoop {
                 machine.cpu.mem[\.currentRoom] = UInt8(room)
             }
             drawing = Int(machine.cpu.mem[\.currentRoom])
+            drawStart = machine.copy()
         case phase.end:
             restoreRoom()
         default:

@@ -29,6 +29,12 @@ nonisolated final class Machine {
     /// Off: everything runs as 6502 code, for comparisons.
     var nativesEnabled = true
     private(set) var nativeCalls = 0
+    /// Called where DRAW_SPRITE starts, with the machine there, when set
+    /// (`DrawPhase.sprites`).  The natives draw without it: it sees every
+    /// sprite only with them off.
+    var onDrawSprite: ((Machine) -> Void)? {
+        didSet { cpu.traps[GameSymbols.address(\.drawSprite)] = true }
+    }
 
     init(memory: [UInt8], bank1: [UInt8], variant: Variant?) {
         self.variant = variant
@@ -101,6 +107,7 @@ nonisolated final class Machine {
     }
 
     private func runNative(at pc: UInt16) -> Bool {
+        if let onDrawSprite, Int(pc) == GameSymbols.address(\.drawSprite) { onDrawSprite(self) }
         guard nativesEnabled, !(0xD000 ..< 0xE000).contains(pc) || bank == 2,
               let run = natives[pc], call(run) else { return false }
         nativeCalls += 1
@@ -187,15 +194,69 @@ nonisolated struct DrawPhase {
         loopStart = Int(mem[jmp + 1]) | Int(mem[jmp + 2]) << 8
     }
 
+    /// The stack pointer the draw phase runs with (`draw`).
+    private static let stack = 0xF0
+
     /// Runs the draw phase for `room` on `machine`, a world between two ticks,
     /// and returns the page drawn.
     func draw(room: Int, on machine: Machine) throws -> HiresScreen {
         machine.cpu.mem[\.currentRoom] = UInt8(room)
-        machine.cpu.sp = 0xF0
+        machine.cpu.sp = UInt8(DrawPhase.stack)
         // A world's own loop (e.g. Level 5's transporter) may flip pages itself: stop there too.
         let flipPage = UInt16(GameSymbols.address(\.flipPage))
         try machine.cpu.call(UInt16(start), stopAt: [UInt16(end), flipPage], maxSteps: 3_000_000)
         return machine.drawnScreen()
+    }
+
+    /// Runs the draw phase for `room` like `draw`, all as 6502 code (the
+    /// natives leave memory as it does, so it draws the same), and returns
+    /// every sprite DRAW_SPRITE drew, in order.
+    func sprites(room: Int, on machine: Machine) throws -> [DrawnSprite] {
+        machine.nativesEnabled = false
+        var sprites: [DrawnSprite] = []
+        // `draw` calls the draw phase like JSR (the sentinel takes 2 bytes),
+        // so the return address of each of its JSRs is at the bottom.
+        let frame = 0x100 + DrawPhase.stack - 3
+        machine.onDrawSprite = { [start, end] m in
+            let mem = m.cpu.mem
+            let jsr = (Int(mem[frame]) | Int(mem[frame + 1]) << 8) - 2
+            let routine = (start ..< end).contains(jsr) && mem[jsr] == 0x20 ? Int(mem[jsr + 1]) | Int(mem[jsr + 2]) << 8 : nil
+            sprites.append(DrawnSprite(mem, routine: routine))
+        }
+        defer { machine.onDrawSprite = nil }
+        _ = try draw(room: room, on: machine)
+        return sprites
+    }
+}
+
+/// A sprite the draw phase drew: DRAW_SPRITE's parameters where it starts.
+nonisolated struct DrawnSprite {
+    /// SPRITE_POINTER, and the 16 rows there as drawn (row 0 at the bottom).
+    let address: Int
+    let rows: [UInt8]
+    /// DRAW_X and DRAW_Y, in object coordinates (y from the bottom).
+    let x, y: Int
+    /// PATTERN_EVEN and PATTERN_ODD.
+    let patterns: (even: UInt8, odd: UInt8)
+    /// The colour with these patterns (COLOUR_PATTERN0/1), if one has them.
+    let colour: Int?
+    /// The draw phase's routine that drew it (the main loop calls them one
+    /// after the other); nil if not found on the stack.
+    let routine: Int?
+    /// The object DRAW_ROOM_OBJECTS drew (CURRENT_OBJECT); nil for the others.
+    let object: Int?
+
+    init(_ mem: [UInt8], routine: Int?) {
+        let address = mem[\.spritePointer]
+        self.address = address
+        rows = (0 ..< 16).map { mem[(address + $0) & 0xFFFF] }
+        x = Int(mem[\.drawX])
+        y = Int(mem[\.drawY])
+        let patterns = (even: mem[\.patternEven], odd: mem[\.patternOdd])
+        self.patterns = patterns
+        colour = (0 ..< 0x20).first { mem[\.colourPattern0, $0] == patterns.even && mem[\.colourPattern1, $0] == patterns.odd }
+        self.routine = routine
+        object = routine == GameSymbols.address(\.drawRoomObjects) ? Int(mem[\.currentObject]) : nil
     }
 }
 

@@ -507,4 +507,13 @@ nonisolated extension GameSymbols {
         let address = map[keyPath: routine].address
         return named.first { ($0.symbol as? Routine)?.address == address }?.name ?? "?"
     }
+
+    /// The .sym name of the `kind` of symbol (a routine, a sprite...) at
+    /// `address` in `variant`; with none (a version the loader doesn't know)
+    /// only symbols at the same place everywhere count.
+    static func name<S: Symbol>(_ kind: S.Type, at address: Int, in variant: Variant?) -> String? {
+        named.first { n in
+            n.symbol is S && (variant.map { n.symbol.address($0) } ?? n.symbol.address.everywhere) == address
+        }?.name
+    }
 }
