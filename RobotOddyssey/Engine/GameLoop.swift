@@ -83,6 +83,9 @@ final class GameLoop {
     /// The hi-res page on screen.
     func screen() -> HiresScreen { machine.shownScreen() }
 
+    /// The sounds the game played since the last call (the native PLAY_SOUNDS).
+    func takeSounds() -> [Sound.Played] { machine.takeSounds() }
+
     /// Runs until the cycle counter reaches `cycles` (or the world exits).
     func run(until cycles: UInt64) throws {
         while exit == nil && machine.cpu.cycles < cycles { try step() }

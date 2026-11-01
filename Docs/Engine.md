@@ -48,7 +48,7 @@ $9D18 DRAW_ROOM_OBJECTS   $101A (level)  $D2BC DRAW_ROBOTS  $D72B DRAW_ROBOT_INT
 $187C $0C06 $8F69 $0F93 (level)  $DDD0  $1E3B
 $F7BE/$F5C2 (if $8DAA = $FD)    $FC62 DRAW_WIRES  $F44D SENSORS_Q  $DA44
 $A6AD (if $8DAA = 0 and $8E95 = $FF)   $AEED FLIP_PAGE
-$9F3C (sound toggle) with the player's room swapped in
+$9F3C PLAY_SOUNDS with the player's room swapped in (Sound.md)
 ```
 
 The circuit is evaluated once per tick: wires copy the colour (signal) of
@@ -280,12 +280,15 @@ routines become Swift one at a time. Ported so far (methods of `Engine`):
 | READ_INPUT $A90C | `PlayerInput` | all |
 | MOVE_OBJECT $9DB3, MOVE_OBJECT_XY $9DB9, SET_OBJECT_ROOM $9E07, ROOM_WALLS_POINTER $9D56, WALL_AT $B40B, STOP_AT_WALLS $AD40, KEEP_ON_SCREEN $A934, LIMIT_MOVE $ACF8 (registers exact) | `ObjectMotion` | all |
 | PLAYER_WALK_SPRITE $DFA3 (v1.0 $DFA4), GRAB_BUTTON $BEBC, KEEP_MOVE $FE18 | `PlayerInput` | levels |
+| PLAY_SOUNDS $9F3C with PLAY_TONE $9EBB, PLAY_NOISE $9E7A (registers, cycles and clicks exact; Sound.md) | `Speaker` | all |
 
-A native routine takes no CPU cycles, so a tick with natives is shorter than
-the original's (READ_INPUT's paddle loop alone is about 3,000 cycles): the
-tick's work is identical, but the *Authentic* pacing runs a little fast
-where natives run. To be fixed by giving natives the original's cycle
-count.
+A native routine takes no CPU cycles unless it reports them
+(`Engine.elapsed`, added to the CPU's when it returns). PLAY_SOUNDS does, to
+the cycle, as a sound stops the game for up to 2 s; the others don't yet, so a
+tick with natives is shorter than the original's (READ_INPUT's paddle loop
+alone is about 3,000 cycles): the tick's work is identical, but the
+*Authentic* pacing runs a little fast where natives run. To be fixed by
+giving natives the original's cycle count.
 
 `GameScreen` uses this for the viewer: it runs the world's start‑up code
 ($0803 up to the main loop) once, then for any room sets $9C2D and runs the

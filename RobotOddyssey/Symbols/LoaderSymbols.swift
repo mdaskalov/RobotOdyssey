@@ -77,12 +77,13 @@ final class LoaderSymbols: Sendable {
 final class Level1Symbols: Sendable {
     static let map = Level1Symbols()
 
-    let sound = Routine(0x0806, guess: true)
     let initialise = Routine(0x0816)
     /// One iteration per tick.
     let mainLoop = Routine(0x0841)
     let mainLoopEnd = Routine(0x091C)
     let heldChanged = Routine(0x0920, guess: true)
+    /// Queues sound X of the sound table for room A (WORLD_SOUND jumps here).
+    let queueTableSound = Routine(0x0944)
     let keyCommands = Routine(0x0963)
     let showTextRoom = Routine(0x0A07)
     let waitKey = Routine(0x0A77)
@@ -99,12 +100,17 @@ final class Level1Symbols: Sendable {
     let tick0C06 = Routine(0x0C06)
     let tick0CA8 = Routine(0x0CA8)
     let tick0F93 = Routine(0x0F93)
-    /// Room $2A's code (a guess).
+    /// Room $2A's code: the way out of the sewer, with its falling tones (GameSounds.exitTones).
     let tick101A = Routine(0x101A)
     let welcomeRoom = Routine(0x10F8, guess: true)
     let tick1305 = Routine(0x1305)
     let tick1740 = Routine(0x1740)
     /// Rooms $03 and $1F (a guess).
     let tick187C = Routine(0x187C)
+    /// The sound table, 12 sounds (GameSounds): flags, length, sweep, pitch.
+    let soundTableFlags = Table(0x18B2)
+    let soundTableLengths = Table(0x18BE)
+    let soundTableSweeps = Table(0x18CA)
+    let soundTablePitches = Table(0x18D6)
     let animateCreatures = Routine(0x8F69)
 }

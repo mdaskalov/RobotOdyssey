@@ -18,7 +18,10 @@ final class Machine {
     private(set) var bank = 2
     /// Hi-res page on screen, 1 or 2 ($C054/$C055).
     private(set) var shownPage = 1
-    private(set) var speakerClicks = 0
+    /// The CPU cycle of every speaker click ($C030), when not nil (Data/ro_sounds.sh).
+    var clicks: [UInt64]?
+    /// The sounds the native PLAY_SOUNDS played and nobody has taken yet.
+    private var sounds: [Sound.Played] = []
     /// Keyboard, joystick and buttons.
     var devices = InputDevices()
     /// Native routines by entry point (always in bank 2 when in $D000-$DFFF).
@@ -58,7 +61,7 @@ final class Machine {
         switch a {
         case 0xC000: return devices.key
         case 0xC010: devices.key &= 0x7F
-        case 0xC030: speakerClicks += 1
+        case 0xC030: clicks?.append(cpu.cycles)
         case 0xC054, 0xC055: shownPage = Int(a - 0xC054) + 1
         case 0xC061, 0xC062: return devices.buttons[Int(a - 0xC061)] ? 0x80 : 0
         case 0xC064 ... 0xC067: return devices.paddleRunning(Int(a - 0xC064), after: cpu.cycles &- devices.strobe) ? 0x80 : 0
@@ -106,20 +109,29 @@ final class Machine {
     }
 
     /// Runs a native routine on the machine as it is: its memory (the CPU's
-    /// own), registers and devices.  False if the routine declined.
+    /// own), registers and devices, and takes the time it reports.  False if
+    /// the routine declined.
     @discardableResult
     func call(_ run: (inout Engine) -> Bool) -> Bool {
         guard let variant else { return false }
         let registers = Registers(a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p)
         let (devices, cycles) = (devices, cpu.cycles)
-        let result = cpu.mem.withUnsafeMutableBufferPointer { bytes -> (registers: Registers, devices: InputDevices)? in
+        let result = cpu.mem.withUnsafeMutableBufferPointer { bytes -> Engine? in
             var engine = Engine(m: RAM(bytes.baseAddress!, variant), r: registers, devices: devices, cycles: cycles)
-            return run(&engine) ? (engine.r, engine.devices) : nil
+            return run(&engine) ? engine : nil
         }
         guard let result else { return false }
-        (cpu.a, cpu.x, cpu.y, cpu.p) = (result.registers.a, result.registers.x, result.registers.y, result.registers.p)
+        (cpu.a, cpu.x, cpu.y, cpu.p) = (result.r.a, result.r.x, result.r.y, result.r.p)
         self.devices = result.devices
+        cpu.cycles += result.elapsed
+        sounds += result.sounds
         return true
+    }
+
+    /// The sounds played since the last call, in order.
+    func takeSounds() -> [Sound.Played] {
+        defer { sounds = [] }
+        return sounds
     }
 
     // MARK: the hi-res pages

@@ -10,6 +10,7 @@ faithful Swift version.
 | [WorldFormat.md](WorldFormat.md) | the world image $6000‑$94FF: objects, sprites, rooms, walls, texts, wires, colours, font, exact drawing rules |
 | [Engine.md](Engine.md) | memory map, the main loop (tick), draw phase, timing, the hybrid engine, porting strategy |
 | [Robots.md](Robots.md) | robot drawing ($D2BC/$D72B): robot state, the three engine builds, the random generator, verification |
+| [Sound.md](Sound.md) | the sound player: the queue, tone and noise loops, every world's sounds, the native port and the speaker |
 | [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
@@ -30,8 +31,13 @@ faithful Swift version.
   and buttons are emulated in `Machine`; the viewer uses the keyboard.
 * **Hybrid engine:** level and room code always runs as original 6502 code;
   ported to Swift so far: the robot drawing, the input (READ_INPUT and the
-  levels' player routines) and the object motion (moving objects across
-  rooms, walls, screen edges), Engine.md "Input".
+  levels' player routines), the object motion (moving objects across
+  rooms, walls, screen edges, Engine.md "Input") and the sound player.
+* **Sound** (Sound.md): the native PLAY_SOUNDS runs the tone and noise loops
+  as the original, reports every speaker click to the cycle and takes the
+  sound's cycles (the game waits while a sound plays, as on the Apple); the
+  viewer makes the speaker's sound from the clicks (*Sound* in the toolbar).
+  The 37 sounds of the worlds' tables are named in `GameSounds`.
 * **Symbol maps** (Symbols.md): every address the Swift code uses, with its
   place in each engine build and version, is in `RobotOddyssey/Symbols`
   (game, loader, Level 1's code); the native routines use the names
@@ -42,14 +48,15 @@ faithful Swift version.
   version runs on the original code only.
 * **Verified:** every native routine against the original code
   (`Data/native_check.sh`), per drawn room, per direct call (memory, and
-  registers and flags for the routines the worlds' code calls) and over
-  whole ticks with and without input: v1.1 670 frames, 440 ticks, 3,300
-  ticks with input, 50,400 calls; v1.0 542 frames, 360 ticks, 2,700 ticks
-  with input, 40,800 calls – all identical.
+  registers and flags for the routines the worlds' code calls; cycles and
+  speaker clicks for the sound) and over whole ticks with and without input:
+  v1.1 670 frames, 440 ticks, 3,300 ticks with input, 53,920 calls (1.45 M
+  clicks); v1.0 542 frames, 360 ticks, 2,700 ticks with input, 43,680 calls
+  (1.18 M clicks) – all identical.
 * **Next:** porting the tick's engine routines one by one (grabbing, linked
   objects, robots, wires, gates, chips), each checked tick by tick against
   the original; natives' cycle counts (pacing); the loader (level changes,
-  save/load); sound.
+  save/load).
 
 ## What we know so far
 
@@ -156,7 +163,8 @@ chip is burned), so it comes in two stages:
 
 **Phase 4 – the game**
 - [x] keyboard (viewer *Play*)
-- [ ] game controller as joystick, sound, menu, level changes, save/load
+- [x] sound (Sound.md)
+- [ ] game controller as joystick, menu, level changes, save/load
 - [ ] optional extras: larger window, zoom, better colours, debugging tools
 
 ## The viewer app
@@ -204,7 +212,9 @@ space picks up and drops, `?` gives hints and Esc asks to quit. The arrow keys
 move like I J K M, and with Shift slowly, as in the PC version (the Apple's
 own arrow keys send codes the game takes for other keys). When a world hands
 back to the loader (the menu, the next level, saving) the loop stops;
-*Restart* starts it again. *Step* stops inside a tick that waits for a key. *Static* uses `RoomRenderer`
+*Restart* starts it again. *Step* stops inside a tick that waits for a key. *Sound* plays the game's sounds
+(the game stops while one plays, as on the Apple; Ctrl‑S is the game's own
+switch), and the status shows the last one. *Static* uses `RoomRenderer`
 (tiles, texts, objects, wires).
 
 In Debug builds `-openDisks <path>…` opens disks at launch (needs

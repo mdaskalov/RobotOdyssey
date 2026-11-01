@@ -40,6 +40,17 @@ final class GameSymbols: Sendable {
     /// The random generator, a 16-bit shift register (RANDOM).
     let randomLow = Byte(0x4E)
     let randomHigh = Byte(0x4F)
+    /// The sound playing (Docs/Sound.md): PLAY_TONE's half period in loop
+    /// iterations, PLAY_NOISE's shift register, the loop iterations left (low
+    /// byte, then blocks of 256), PLAY_NOISE's period, and the sweep: every
+    /// (sweep & $7F) iterations the period grows by 1 (bit 7 set) or shrinks.
+    let tonePeriod = Byte(0x50)
+    let noiseLow = Byte(0x51)
+    let noiseHigh = Byte(0x52)
+    let soundCountLow = Byte(0x53)
+    let soundCountHigh = Byte(0x54)
+    let noisePeriod = Byte(0x55)
+    let soundSweep = Byte(0x56)
 
     // MARK: between the worlds and the loader
 
@@ -51,6 +62,9 @@ final class GameSymbols: Sendable {
     let resetVector = Word(0x03F2)
     /// Every world's code starts here (Level 1's: Level1Symbols).
     let worldStart = Routine(0x0803)
+    /// Every world's: queues sound X of the world's sound table for room A
+    /// (the engine's sounds are 0-8, GameSounds).
+    let worldSound = Routine(0x0806)
 
     // MARK: the levels' engine piece at $1A50
 
@@ -260,8 +274,26 @@ final class GameSymbols: Sendable {
     let moveObject = Routine(0x9DB3, code: 0x9DB3 ..< 0x9DB9, md5: "35ff7427acc50026bbfe3c1f6fe90e4b")
     let moveObjectXY = Routine(0x9DB9, code: 0x9DB9 ..< 0x9E07, md5: "c1dffdc72b6ca617d34226be7a531859")
     let setObjectRoom = Routine(0x9E07, code: 0x9E07 ..< 0x9E7A, md5: "68312d734af0a24960e495ab4b786f4e")
-    let playSound = Routine(0x9F13, guess: true)
-    let soundToggleKey = Routine(0x9F3C)
+
+    // Sound (Docs/Sound.md).
+    let playNoise = Routine(0x9E7A, code: 0x9E7A ..< 0x9EBB, md5: "b0e616804d05b5e1b98281274cc89643")
+    let playTone = Routine(0x9EBB, code: 0x9EBB ..< 0x9EEA, md5: "bbda16cff042b30ea7bc01f70f49e22e")
+    /// The sound queue, 8 slots: length (blocks of 256 loop iterations),
+    /// sweep, pitch (the period), flags (bit 7 noise, bit 6 a noise period
+    /// that may sweep through 0) and the room it is heard in ($FF: everywhere).
+    /// Slot 0 is where the worlds put a sound for QUEUE_SOUND.
+    let soundLengths = Table(0x9EEA)
+    let soundSweeps = Table(0x9EF2)
+    let soundPitches = Table(0x9EFA)
+    let soundFlags = Table(0x9F02)
+    let soundRooms = Table(0x9F0A)
+    /// The first slot queued; 8: none.
+    let soundQueue = Byte(0x9F12)
+    /// Queues slot 0's sound in front of the others (none once 8 are queued).
+    let queueSound = Routine(0x9F13)
+    /// Ctrl-S turns the sound off and on.
+    let soundOn = Byte(0x9F3B)
+    let playSounds = Routine(0x9F3C, code: 0x9F3C ..< 0x9FC1, md5: "957beec0803f140f7e974921ffdf05cd")
     /// VLINE's byte column, PLOT index (colour × 8 + shift) and end y.
     let verticalLineColumn = Byte(0x9FC1)
     let verticalLinePlot = Byte(0x9FC2)

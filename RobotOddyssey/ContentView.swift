@@ -40,6 +40,8 @@ struct ContentView: View {
                                     .help("Run one tick")
                                 Button("Restart", systemImage: "arrow.counterclockwise") { model.restartGame() }
                                     .help("Start the main loop again from the world's start-up state")
+                                Toggle("Sound", systemImage: model.sound ? "speaker.wave.2" : "speaker.slash", isOn: $model.sound)
+                                    .help("The game's sounds (in the game, Ctrl-S turns them off and on)")
                             }
                             Picker("Display", selection: $model.mode) {
                                 ForEach(HiresImage.Mode.allCases) { Text($0.rawValue).tag($0) }

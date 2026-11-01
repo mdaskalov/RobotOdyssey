@@ -47,6 +47,10 @@ checked as it comes from the disk.
 * `LoaderSymbols` – the loader (RobotOdysseyLoader.sym), and how its file
   table tells the version.
 * `Level1Symbols` – Level 1's own code, for the debugger (`L1_` names).
+* `GameSounds` – the sounds the worlds play, by name, each with its
+  parameters (tone or noise, length, sweep, pitch; several pitches where the
+  code computes it): what the native PLAY_SOUNDS names what it played by
+  (Sound.md). Data/ro_sounds.sh checks every world's sound table against it.
 
 A symbol is a `Byte`, a `Word` (low byte first), a `Table` (bytes indexed
 from the address), a `Sprite` (16 rows) or a `Routine`. Its `Address` is
@@ -121,7 +125,9 @@ frames and ticks are identical with and without natives.
 replaces, the routines it reproduces besides (`uses` – what it calls or
 falls into, e.g. READ_INPUT uses the object motion), whether callers use the
 registers it leaves (`leavesRegisters`, compared by native_check), and the
-method to run. Each listed routine has its code ranges and MD5s in
+method to run. A native may report the cycles the original takes
+(`Engine.elapsed`; PLAY_SOUNDS does) and the sounds it played
+(`Engine.sounds`). Each listed routine has its code ranges and MD5s in
 GameSymbols.
 
 ## Mapping a new routine

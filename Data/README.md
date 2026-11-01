@@ -14,6 +14,7 @@ python3 ro_timing.py "$STATE" 20     # cycles per tick of the Level 1 main loop
 ./ro_symbols.sh --code "$A" "$B"     # each mapped routine's fingerprint in every world
 python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml or a STORAGE.dsk)
 ./native_check.sh "$A" "$B" [STORAGE.dsk]   # native Swift routines vs. the original code
+./ro_sounds.sh [--wav DIR] "$A" "$B"   # the worlds' sound tables, every sound native vs. original (WAVs)
 python3 ro_title.py "$A" Extracted/v1.1 [--verify]   # title screens -> title_N.png/.bin
 python3 ro_icon.py "$STATE" ../RobotOddyssey/Assets.xcassets/AppIcon.appiconset   # app icon
 ```
@@ -33,6 +34,7 @@ python3 ro_icon.py "$STATE" ../RobotOddyssey/Assets.xcassets/AppIcon.appiconset 
 | `ro_chips.py` | find the chips (program disks: the loaders' set‑up; save state; storage disk: every saved game) and disassemble them |
 | `ro_chip_disasm.py` | Micah Dowty's chip disassembler (PC CHP/CSV files, same bytecode as the Apple II; MIT licence, ported to Python 3) |
 | `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, every world's main loop tick by tick (without input, and 300 ticks with the same keys, joystick moves and buttons fed to both), and direct calls on random robot states and on random objects, moves, walls, keys and joystick positions (memory byte for byte; registers and flags too for the object motion and input routines); fails too where a world's engine code doesn't match the symbols' fingerprints |
+| `ro_sounds.sh`, `ro_sounds.swift` | build the app's sources with a sound tool: every world's sound table by name against the sound map (`GameSounds`), every sound of the map run by the original PLAY_SOUNDS and by the native one (cycles and speaker clicks must match), with `--wav DIR` as WAV files rendered like the app (`SpeakerRenderer`); Docs/Sound.md |
 | `cpu6502.py` | NMOS 6502 emulator with cycle counting (the Swift `CPU6502` mirrors it) |
 | `dis6502.py` | small disassembler: `dis6502.py FILE START END [BASE]` |
 | `hexdump.py` | hex dump with Apple text column: `hexdump.py FILE START END [BASE]` |

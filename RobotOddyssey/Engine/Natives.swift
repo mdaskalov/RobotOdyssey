@@ -3,8 +3,8 @@ import Foundation
 /// The machine as a native routine sees it: memory with the game's symbols
 /// (`m`), the registers (`r`) and the input devices.  The ported routines are
 /// its methods, one file per part of the engine (EngineGraphics,
-/// ObjectMotion, PlayerInput, RobotDrawing), and read like the code they
-/// replace:
+/// ObjectMotion, PlayerInput, RobotDrawing, Speaker), and read like the code
+/// they replace:
 ///
 ///     /// MOVE_OBJECT ($9DB3): moves CUR_OBJECT by (MOVE_DX, MOVE_DY) from its room.
 ///     mutating func moveObject() {
@@ -16,8 +16,13 @@ struct Engine {
     let m: RAM
     var r: Registers
     var devices: InputDevices
-    /// The CPU's cycle counter at the call (a native routine takes no time).
+    /// The CPU's cycle counter at the call.
     let cycles: UInt64
+    /// The cycles the original takes, added to the CPU's when the routine
+    /// returns; 0 (no time) for the routines that don't count them yet.
+    var elapsed: UInt64 = 0
+    /// The sounds the routine played (`Machine.takeSounds`).
+    var sounds: [Sound.Played] = []
 
     /// The world's engine: the robot drawing differs a little between them.
     var build: EngineBuild { m.variant.engine }
@@ -85,6 +90,7 @@ extension Native {
         Native(\.drawRobotInterior, uses: graphics, leavesRegisters: false) { $0.drawRobotInterior() },
         Native(\.playerWalkSprite, uses: [\.magnitude]) { $0.playerWalkSprite() },
         Native(\.keepMove) { $0.keepMove() },
+        Native(\.playSounds, uses: [\.playTone, \.playNoise]) { $0.playSounds() },
     ]
 }
 

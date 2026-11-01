@@ -56,6 +56,13 @@ final class ViewerModel {
             showLive()
         }
     }
+    /// The game's sounds on the Mac's speaker (the game's own Ctrl-S turns them off too).
+    var sound = UserDefaults.standard.object(forKey: "sound") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(sound, forKey: "sound")
+            if !sound { soundPlayer.stop() }
+        }
+    }
     /// Counts restarts: the main loop starts again from the world's start-up state.
     private(set) var restarts = 0
     /// What the running loop shows of the selected room.
@@ -77,6 +84,9 @@ final class ViewerModel {
     @ObservationIgnored private var gameScreens: [World.ID: GameScreen?] = [:]
     @ObservationIgnored private var maps: [World.ID: WorldMap] = [:]
     @ObservationIgnored private var loop: (world: World.ID, loop: GameLoop)?
+    @ObservationIgnored private let soundPlayer = SoundPlayer()
+    /// The last sound the game played (GameSounds' name), for the status.
+    @ObservationIgnored private var lastSound: String?
     /// Source of `liveFrame`: room, display mode, on screen or preview; and the page shown.
     @ObservationIgnored private var liveSource: (key: String, bytes: [UInt8])?
     @ObservationIgnored private var renderErrors: [String: String] = [:]
@@ -309,13 +319,15 @@ final class ViewerModel {
     // MARK: running the game
 
     /// Runs the world's main loop as in the game, paced by its CPU cycles at
-    /// 1.0205 MHz, and shows the selected room.  Runs as the canvas's task:
-    /// ends when the world, the renderer or `restarts` changes.
+    /// 1.0205 MHz, plays its sounds and shows the selected room.  Runs as the
+    /// canvas's task: ends when the world, the renderer or `restarts` changes.
     func runGame(world: World) async {
         loop = nil
         liveFrame = nil
         liveSource = nil
         loopStatus = ""
+        lastSound = nil
+        soundPlayer.stop()
         thumbnails = [:]                            // the rooms as the world starts
         guard renderer == .game, let game = gameScreen(world) else { return }
         let loop = game.loop(room: viewedRoom(world))
@@ -323,20 +335,37 @@ final class ViewerModel {
         showLive()
         let clock = ContinuousClock()
         var last = clock.now
+        // The cycle the game should be at.  A sound takes its cycles at once
+        // (the native PLAY_SOUNDS), and the loop waits here while it plays.
+        var target: UInt64?
         while !Task.isCancelled {
             try? await Task.sleep(for: .milliseconds(15))
             // At most 0.1 s per step: a busy main thread slows the game down instead of skipping.
             let elapsed = min(clock.now - last, .milliseconds(100))
             last = clock.now
-            guard !paused, loop.exit == nil else { continue }
+            guard !paused, loop.exit == nil else {
+                target = nil
+                continue
+            }
+            let cycles = (target ?? loop.cycles) + UInt64(elapsed / .seconds(1) * GameLoop.clock)
+            target = cycles
             do {
-                try loop.run(until: loop.cycles + UInt64(elapsed / .seconds(1) * GameLoop.clock))
+                try loop.run(until: cycles)
             } catch {
                 stopGame(error)
                 return
             }
+            playSounds(loop)
             showLive()
         }
+    }
+
+    /// The sounds the loop played since the last call.
+    private func playSounds(_ loop: GameLoop) {
+        let sounds = loop.takeSounds()
+        guard let latest = sounds.last else { return }
+        lastSound = latest.name ?? latest.parameters.description
+        if sound { soundPlayer.play(sounds) }
     }
 
     /// Runs the paused main loop to the start of the next tick.
@@ -345,6 +374,7 @@ final class ViewerModel {
         do {
             // A tick is about 100,000 instructions; one that runs much longer waits for a key.
             try running.loop.runTick(maxSteps: 2_000_000)
+            playSounds(running.loop)
             showLive()
         } catch CPU6502.CPUError.tooManySteps {
             showLive()
@@ -386,6 +416,7 @@ final class ViewerModel {
         loop.room = viewedRoom(world)
         let speed = loop.tickCycles == 0 ? "" : String(format: " · %.1f ticks/s", GameLoop.clock / Double(loop.tickCycles))
         var status = paused ? "Paused at tick \(loop.ticks)" : "Tick \(loop.ticks)" + speed
+        if let lastSound { status += " · last sound \(lastSound)" }
         if let exit = loop.exit {
             status = "Tick \(loop.ticks): the world hands back to the loader, \(exit) – not emulated yet, Restart to play again"
         }

@@ -20,7 +20,11 @@
 //           in a row -- all memory must match except the stack below the caller;
 //           the object motion, input and player routines likewise on random
 //           objects, moves, walls, keys and joystick positions -- memory, A, X,
-//           Y and the flags must match.
+//           Y and the flags must match; the sound player on random queues --
+//           memory, registers, flags, the cycles it takes and every click
+//           (the speaker's sound), to the cycle.
+//
+// Every sound the ticks play must be in the sound map (GameSounds).
 //
 // Every world's engine code must match the symbols' fingerprints (the
 // loader's CodeCheck), and still match after the ticks.
@@ -103,6 +107,7 @@ struct NativeCheck {
             guard let check = world.codeCheck else { continue }
             calls += checkRegisterCalls(world, screen, check, &rng)
             calls += checkRobotCalls(world, screen, check, &rng)
+            calls += checkSoundCalls(world, screen, check, &rng)
         }
         print("\(frames) frames, \(ticks) ticks, \(inputTicks) ticks with input, \(calls) calls compared; \(failures) differences")
         exit(failures == 0 ? 0 : 1)
@@ -142,6 +147,8 @@ struct NativeCheck {
     static func checkTicks(_ world: World, _ screen: GameScreen, count: Int = 40) -> Int {
         let native = screen.loop(room: nil)
         let original = screen.loop(room: nil, nativesEnabled: false)
+        var sounds = 0
+        defer { if sounds > 0 { print("  \(sounds) sounds in the ticks") } }
         for tick in 0 ..< count {
             do {
                 try native.runTick()
@@ -150,6 +157,7 @@ struct NativeCheck {
                 fail("\(world.name) tick \(tick): \(error)")
                 return tick
             }
+            sounds += checkMapped(native.takeSounds(), "\(world.name) tick \(tick)")
             // Native routines leave no return addresses on the stack page.
             let deadStack = 0x0100 ... 0x01FF
             if let d = firstDifference(native.memory, original.memory, ignoring: deadStack) {
@@ -177,7 +185,7 @@ struct NativeCheck {
             change(&original.devices)
         }
         var key: UInt8 = 0, hold = 0
-        var rooms = Set<UInt8>(), keyTicks = 0, stickTicks = 0
+        var rooms = Set<UInt8>(), keyTicks = 0, stickTicks = 0, sounds = 0
         var player: [UInt8] = []
         for tick in 0 ..< count {
             let joystickPhase = tick >= count / 2
@@ -211,6 +219,7 @@ struct NativeCheck {
                 fail("\(world.name) input tick \(tick): \(error)")
                 return tick
             }
+            sounds += checkMapped(native.takeSounds(), "\(world.name) input tick \(tick)")
             let position: [KeyPath<GameSymbols, Table>] = [\.objRoom, \.objX, \.objY]
             let at = position.map { native.memory[$0, 0] }
             if at == player { hold = 0 }            // stuck at a wall: another direction
@@ -234,7 +243,7 @@ struct NativeCheck {
                 return tick
             }
             if let exit = native.exit {
-                print("  \(tick + 1) ticks with input, then the world exits \(exit)")
+                print("  \(tick + 1) ticks with input (\(sounds) sounds), then the world exits \(exit)")
                 return tick + 1
             }
         }
@@ -244,8 +253,16 @@ struct NativeCheck {
                 fail("\(world.name): natives after the ticks: \(still.natives.map(\.name)), differing: \(still.differing)")
             }
         }
-        print("  \(count) ticks with input (\(keyTicks) keys, \(stickTicks) with a joystick), player in \(rooms.count) rooms")
+        print("  \(count) ticks with input (\(keyTicks) keys, \(stickTicks) with a joystick, \(sounds) sounds), player in \(rooms.count) rooms")
         return count
+    }
+
+    /// Fails for each sound played that is not in the sound map; returns how many were played.
+    static func checkMapped(_ sounds: [Sound.Played], _ what: String) -> Int {
+        for s in sounds where s.name == nil {
+            fail("\(what): a sound not in GameSounds: \(s.parameters)")
+        }
+        return sounds.count
     }
 
     /// Movement keys (capitals, lower case, Ctrl), space, and two others: T
@@ -408,6 +425,85 @@ struct NativeCheck {
             }
         }
         print("  \(n) calls of the robot drawing")
+        return n
+    }
+
+    /// PLAY_SOUNDS called directly on random queues: up to 8 sounds, from
+    /// the map or random (wrapping noise too), for the player's room, every
+    /// room or another; the sound on or off, Ctrl-S; random counters, sweep
+    /// counter (Y) and noise.  Memory, registers, flags, cycles and the
+    /// clicks the native reports must be the original's.
+    static func checkSoundCalls(_ world: World, _ screen: GameScreen, _ check: CodeCheck,
+                                _ rng: inout SplitMix, trials: Int = 120) -> Int {
+        guard let native = check.natives.first(where: { $0.routine == \.playSounds }),
+              let start = try? screen.render(room: 0).machine else { return 0 }
+        let v = check.variant
+        let entry = GameSymbols.map.playSounds.entry(v)!
+        let known = GameSounds.pitches.map(\.parameters)
+        let kinds: [Sound.Kind] = [.tone, .noise, .noiseWrapping]
+        let counters: [ByteSymbol] = [\.tonePeriod, \.noiseLow, \.noiseHigh, \.soundCountLow, \.soundCountHigh,
+                                      \.noisePeriod, \.soundSweep]
+        var n = 0, played = 0, clickCount = 0
+        for trial in 0 ..< trials {
+            var mem = start.cpu.mem
+            mem.withRAM(v) { m in
+                let queued = Int(rng.byte(9))
+                m.soundQueue = UInt8(8 - queued)
+                for slot in 8 - queued ..< 8 {
+                    let p = rng.chance(3)
+                        ? Sound.Parameters(kind: kinds[Int(rng.byte(3))], length: rng.chance(8) ? rng.byte() : rng.byte(4),
+                                           sweep: rng.byte(), pitch: rng.byte())
+                        : known[Int(rng.byte(known.count))]
+                    m.soundFlags[slot] = p.kind.rawValue | rng.byte(0x40)
+                    m.soundLengths[slot] = p.length
+                    m.soundSweeps[slot] = p.sweep
+                    m.soundPitches[slot] = p.pitch
+                    let rooms = [0xFF, m.objRoom[0], rng.byte(0x40)]
+                    m.soundRooms[slot] = rooms[Int(rng.byte(3))]
+                }
+                m.soundOn = rng.chance(4) ? 0 : 1
+                m.lastKey = rng.chance(4) ? 0x93 : rng.byte()
+                for counter in counters { m[counter] = rng.byte() }
+            }
+            let original = Machine(memory: mem, bank1: start.bank1, variant: v)
+            let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
+            let regs = Registers(a: rng.byte(), x: rng.byte(), y: rng.byte(), p: rng.byte() & ~0x18 | 0x20)
+            for m in [original, ported] {
+                (m.cpu.a, m.cpu.x, m.cpu.y, m.cpu.p, m.cpu.sp) = (regs.a, regs.x, regs.y, regs.p, 0xF0)
+            }
+            original.clicks = []
+            do {
+                try original.cpu.call(entry, maxSteps: 50_000_000)
+            } catch {
+                fail("\(world.name) sound trial \(trial): \(error)")
+                return n
+            }
+            ported.call(native.run)
+            let sounds = ported.takeSounds()
+            n += 1
+            played += sounds.count
+            clickCount += original.clicks!.count
+            let o = original.cpu, c = ported.cpu
+            let what = "\(world.name) sound trial \(trial)"
+            if let d = firstDifference(c.mem, o.mem, ignoring: 0x0100 ... 0x01F0) {
+                fail("\(what): \(hex(d)) native \(c.mem[d]) original \(o.mem[d])")
+                return n
+            } else if (c.a, c.x, c.y, c.p & 0xCF) != (o.a, o.x, o.y, o.p & 0xCF) {
+                fail(String(format: "%@: registers native A=%02X X=%02X Y=%02X P=%02X original A=%02X X=%02X Y=%02X P=%02X",
+                            what, c.a, c.x, c.y, c.p & 0xCF, o.a, o.x, o.y, o.p & 0xCF))
+                return n
+            } else if c.cycles != o.cycles {
+                fail("\(what): native \(c.cycles) cycles, original \(o.cycles)")
+                return n
+            }
+            let clicks = sounds.flatMap { s in s.clicks.map { s.start + UInt64($0) } }
+            if clicks != original.clicks! {
+                let i = zip(clicks, original.clicks!).enumerated().first { $1.0 != $1.1 }?.offset ?? min(clicks.count, original.clicks!.count)
+                fail("\(what): \(clicks.count) clicks, original \(original.clicks!.count), from click \(i) on they differ")
+                return n
+            }
+        }
+        print("  \(n) calls of the sound player, \(played) sounds, \(clickCount) clicks")
         return n
     }
 }
