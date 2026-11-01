@@ -186,7 +186,7 @@ enum GameCatalog {
 }
 
 /// What a disk image is, determined from its contents.
-enum DiskRole {
+enum DiskRole: Equatable {
     case programSide(DiskSide, version: String)
     case storage
     case unknown

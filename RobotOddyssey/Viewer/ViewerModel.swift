@@ -105,6 +105,27 @@ final class ViewerModel {
     }
 
     func open(urls: [URL]) {
+        load(urls)
+        Bookmarks.save(urls)
+    }
+
+    func closeAll() {
+        disks = []
+        groups = []
+        messages = []
+        selectedWorldID = nil
+        Bookmarks.clear()
+    }
+
+    /// At launch: the disk images in the app's resources (not tracked in git), then
+    /// `urls` – by default the last opened disks.
+    func openAtLaunch(_ urls: [URL] = Bookmarks.load()) {
+        load([Bundle.main.resourceURL].compactMap { $0 } + urls)
+    }
+
+    /// Adds the disks in `urls` (files or folders), in order.  The first program
+    /// disk side of a version wins: later ones of the same side and version are ignored.
+    private func load(_ urls: [URL]) {
         var found: [DiskImage] = []
         var problems: [String] = []
         for url in urls {
@@ -118,24 +139,19 @@ final class ViewerModel {
                 }
             }
         }
+        var ignored: [String] = []
         for d in found where !disks.contains(where: { $0.md5 == d.md5 }) {
-            disks.append(d)
+            let role = d.role
+            if case .programSide = role, let first = disks.first(where: { $0.role == role }) {
+                ignored.append("\(d.name) (\(first.name) loaded first)")
+            } else {
+                disks.append(d)
+            }
+        }
+        if !ignored.isEmpty {
+            problems.append("Ignored, same version and side: " + ignored.joined(separator: ", ") + ".")
         }
         rebuild(extraMessages: problems)
-        Bookmarks.save(urls)
-    }
-
-    func closeAll() {
-        disks = []
-        groups = []
-        messages = []
-        selectedWorldID = nil
-        Bookmarks.clear()
-    }
-
-    func reopenLastDisks() {
-        let urls = Bookmarks.load()
-        if !urls.isEmpty { open(urls: urls) }
     }
 
     private func diskFiles(at url: URL) -> [URL] {
@@ -145,8 +161,8 @@ final class ViewerModel {
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    /// Pair program disk sides (same version, same file name apart from the side
-    /// letter/digit, e.g. ROBOT-1/ROBOT-2), build all worlds, then the saved games.
+    /// Pair the program disk sides of each version (`load` keeps one side A and
+    /// one side B per version), build all worlds, then the saved games.
     private func rebuild(extraMessages: [String]) {
         var notes = extraMessages
         var sets: [String: DiskSet] = [:]
@@ -154,26 +170,17 @@ final class ViewerModel {
         for d in disks {
             switch d.role {
             case .programSide(let side, let version):
-                let key = "\(version)|\(ViewerModel.stem(d.name))"
-                var set = sets[key] ?? DiskSet(version: version)
-                if side == .a, set.sideA == nil { set.sideA = d }
-                if side == .b, set.sideB == nil { set.sideB = d }
-                sets[key] = set
+                var set = sets[version] ?? DiskSet(version: version)
+                if side == .a { set.sideA = d } else { set.sideB = d }
+                sets[version] = set
             case .storage:
                 storage.append(d)
             case .unknown:
                 notes.append("\(d.name): not recognized (only Robot Odyssey I v1.0/v1.1 is supported so far).")
             }
         }
-        // Single sides with differently named partners of the same version belong together.
-        for (key, set) in sets where set.sideB == nil {
-            if let (otherKey, other) = sets.first(where: { $0.key != key && $0.value.sideA == nil && $0.value.version == set.version }) {
-                sets[key]?.sideB = other.sideB
-                sets[otherKey] = nil
-            }
-        }
         var newGroups: [WorldGroup] = []
-        let ordered = sets.sorted { ($0.value.version, $1.key) > ($1.value.version, $0.key) }
+        let ordered = sets.sorted { $0.key > $1.key }
         for (key, set) in ordered {
             let (worlds, errors) = WorldBuilder(disks: set).buildAll(idPrefix: "\(key)/")
             notes += errors
@@ -199,13 +206,6 @@ final class ViewerModel {
         if selectedWorld == nil {
             selectedWorldID = groups.first?.worlds.first?.id
         }
-    }
-
-    /// File name without extension and without a trailing side marker (a/b/1/2).
-    static func stem(_ name: String) -> String {
-        var s = (name as NSString).deletingPathExtension
-        if let last = s.last, "aAbB12".contains(last) { s.removeLast() }
-        return s
     }
 
     // MARK: navigation

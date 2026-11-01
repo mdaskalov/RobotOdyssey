@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .DS_Store
 xcuserdata/
+
+# Disk images bundled with the app (not distributable)
+RobotOddyssey/Resources/*.dsk

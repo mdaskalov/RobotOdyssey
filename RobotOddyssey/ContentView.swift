@@ -72,11 +72,11 @@ struct ContentView: View {
             // Development: -openDisks <path>... (needs the app sandbox off, e.g. ENABLE_APP_SANDBOX=NO)
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-openDisks") {
-                model.open(urls: args[(i + 1)...].prefix { !$0.hasPrefix("-") }.map { URL(fileURLWithPath: $0) })
+                model.openAtLaunch(args[(i + 1)...].prefix { !$0.hasPrefix("-") }.map { URL(fileURLWithPath: $0) })
                 return
             }
             #endif
-            model.reopenLastDisks()
+            model.openAtLaunch()
         }
     }
 }
