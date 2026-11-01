@@ -31,8 +31,8 @@ well, so you can change levels and save and load games.
 ## Running it
 
 Open `RobotOdyssey.xcodeproj` in Xcode and run. The original disk images are
-not included. Put your own v1.1 dump in `RobotOdyssey/Resources/` as
-`diskA.dsk` and `diskB.dsk`.
+not included. Put your own dump in `RobotOdyssey/Resources/` as `diskA.dsk`
+and `diskB.dsk`. Both v1.0 and v1.1 work; v2.0 is not supported (yet).
 
 ## Plans
 
