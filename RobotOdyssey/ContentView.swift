@@ -14,6 +14,7 @@ struct ContentView: View {
                 HStack(spacing: 0) {
                     WorldList(model: model)
                         .frame(width: levelsWidth)
+                        .clipped()                  // a list reaches up under the toolbar; keep the bar whole
                     ResizeHandle(size: $levelsWidth, range: 160 ... 400, panel: .leading)
                 }
                 .transition(.move(edge: .leading))
