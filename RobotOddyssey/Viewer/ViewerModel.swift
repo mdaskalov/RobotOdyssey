@@ -59,7 +59,14 @@ final class ViewerModel {
     /// Counts restarts: the main loop starts again from the world's start-up state.
     private(set) var restarts = 0
     /// What the running loop shows of the selected room.
-    private(set) var liveFrame: (world: World.ID, room: Int, image: CGImage)?
+    private(set) var liveFrame: (world: World.ID, room: Int, image: CGImage)? {
+        didSet {
+            // A room keeps its last live frame as its thumbnail: the room as last seen.
+            if let old = oldValue, old.world == selectedWorldID, old.room != liveFrame?.room {
+                thumbnails[old.room] = old.image
+            }
+        }
+    }
     /// Tick count and speed of the running loop.
     private(set) var loopStatus = ""
 
@@ -68,6 +75,7 @@ final class ViewerModel {
     @ObservationIgnored private var roomImage: (key: String, image: CGImage?)?
     /// Each world after its start-up code ran (nil: it could not run).
     @ObservationIgnored private var gameScreens: [World.ID: GameScreen?] = [:]
+    @ObservationIgnored private var maps: [World.ID: WorldMap] = [:]
     @ObservationIgnored private var loop: (world: World.ID, loop: GameLoop)?
     /// Source of `liveFrame`: room, display mode, on screen or preview; and the page shown.
     @ObservationIgnored private var liveSource: (key: String, bytes: [UInt8])?
@@ -184,6 +192,7 @@ final class ViewerModel {
             notes.append("Open the program disk too, to view saved games.")
         }
         gameScreens = [:]
+        maps = [:]
         renderErrors = [:]
         groups = newGroups
         messages = notes
@@ -210,12 +219,18 @@ final class ViewerModel {
     // MARK: images
 
     func image(world: World, room: Int) -> CGImage? {
-        if renderer == .game, let live = liveFrame, live.world == world.id, live.room == room { return live.image }
+        if let live = liveImage(world: world, room: room) { return live }
         let key = "\(world.id)#\(room)#\(mode.rawValue)#\(renderer.rawValue)"
         if let cached = roomImage, cached.key == key { return cached.image }
         let image = HiresImage.make(screen(world: world, room: room), mode: mode)
         roomImage = (key, image)
         return image
+    }
+
+    /// The room as the running loop shows it, if it is the one on screen.
+    func liveImage(world: World, room: Int) -> CGImage? {
+        guard renderer == .game, let live = liveFrame, live.world == world.id, live.room == room else { return nil }
+        return live.image
     }
 
     func thumbnail(room: Int) -> CGImage? {
@@ -251,6 +266,14 @@ final class ViewerModel {
         }
     }
 
+    /// The rooms laid out as they connect.
+    func map(_ world: World) -> WorldMap {
+        if let map = maps[world.id] { return map }
+        let map = WorldMap(world: world)
+        maps[world.id] = map
+        return map
+    }
+
     /// How the room in the canvas was drawn.
     func renderNote(world: World, room: Int) -> String {
         guard renderer == .game else { return "Static renderer: tiles, texts, objects and wires" }
@@ -274,6 +297,7 @@ final class ViewerModel {
         liveFrame = nil
         liveSource = nil
         loopStatus = ""
+        thumbnails = [:]                            // the rooms as the world starts
         guard renderer == .game, let game = gameScreen(world) else { return }
         let loop = game.loop(room: viewedRoom(world))
         self.loop = (world.id, loop)

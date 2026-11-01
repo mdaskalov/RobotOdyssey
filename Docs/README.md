@@ -16,7 +16,8 @@ faithful Swift version.
 
 * **Viewer app** (macOS, SwiftUI): opens the v1.0/v1.1 disk images and storage
   disks, shows all nine worlds and the saved games room by room, with
-  inspector, hover read‑out and exits.
+  inspector, hover read‑out and exits; the rooms in an 8×8 grid or on a map
+  of how they connect.
 * **The game runs and can be played.** In *Game* mode each world's main loop
   runs on the 6502 emulator as in the game, tick after tick at the original
   speed (4‑7 ticks/s, paced by CPU cycles at 1.0205 MHz): robots, circuits
@@ -150,8 +151,17 @@ chip is burned), so it comes in two stages:
 Open the side A and B images (or the folder) with *Open Disk Images…* or by
 dropping them on the window; storage disks with saved games can be added.
 The app remembers the disks (macOS). Pick a world in the sidebar and a room
-in the 8×8 map (room *n* is at column *n*%8, row *n*/8). Arrow keys follow
-exits. Hover shows object coordinates. Click an object to select it in the
+below the canvas: *Grid* shows all 64 rooms (room *n* at column *n*%8, row
+*n*/8), *Map* shows the rooms as they connect (`WorldMap`), scrollable and
+zoomable, with each room's number on it. The links don't always form a plane
+(the sewer mazes lead back into themselves, some exits are one‑way, Level 4's
+edges all lead to room $3F), so the map grows from the player's room along
+two‑way exits first, then one‑way exits, and an exit that doesn't lead to the
+room next door is a yellow badge on that edge (click it to go there). Rooms
+it can't reach that way form islands of their own; rooms without exits
+(robot interiors, chip and code rooms) follow as in the grid. The map keeps
+the selected room in view, so when playing it follows the player. Arrow keys
+follow exits. Hover shows object coordinates. Click an object to select it in the
 inspector, and the inspector lists all objects, wires and texts.
 
 The *Game* renderer runs the world's main loop on the emulator (with the
@@ -163,7 +173,8 @@ game; on a room change the room appears at once, drawn from the state at the
 start of the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
 (one tick, when paused) and *Restart*; the line under the canvas shows the
 tick and ticks/s. The room thumbnails show the rooms after the world's
-start‑up code.
+start‑up code; the selected room is shown live, and a room keeps its last
+live frame once you leave it, so the map shows the rooms as last seen.
 
 *Play* sends the keyboard to the game and makes the view follow the player.
 Keys are typed on the Apple's keyboard as they are (letters, digits, Ctrl,

@@ -1,10 +1,23 @@
 import SwiftUI
 
-/// The selected room large, with link navigation, and the 8x8 map of all rooms below.
+/// How the rooms below the selected one are arranged.
+enum RoomsLayout: String, CaseIterable, Identifiable {
+    /// Room n at column n % 8, row n / 8.
+    case grid = "Grid"
+    /// As they connect (WorldMap).
+    case map = "Map"
+    var id: String { rawValue }
+}
+
+/// The selected room large, with link navigation, and all rooms below: in an
+/// 8x8 grid or on the map of how they connect.
 struct WorldView: View {
     @Bindable var model: ViewerModel
     let world: World
     @FocusState private var focused: Bool
+    @AppStorage("roomsLayout") private var layout = RoomsLayout.grid
+    /// Map tiles as a fraction of a full-size thumbnail.
+    @AppStorage("mapZoom") private var zoom = 0.5
 
     var body: some View {
         let room = world.room(model.selectedRoom)
@@ -33,16 +46,33 @@ struct WorldView: View {
                 .task(id: "\(world.id)#\(model.renderer.rawValue)#\(model.restarts)") {
                     await model.runGame(world: world)
                 }
-            ScrollView {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Rooms").font(.headline)
-                    RoomMap(model: model, world: world)
+            HStack(spacing: 12) {
+                Text("Rooms").font(.headline)
+                Picker("Rooms", selection: $layout) {
+                    ForEach(RoomsLayout.allCases) { Text($0.rawValue).tag($0) }
                 }
-                .padding()
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("Grid: room n at column n % 8, row n / 8. Map: the rooms as they connect.")
+                Spacer()
+                if layout == .map {
+                    Slider(value: $zoom, in: 0.35 ... 1) { Text("Zoom") }
+                        .frame(maxWidth: 200)
+                }
             }
-            .navigationTitle(world.name)
-            .onAppear { focused = true }
+            .padding([.horizontal, .top])
+            switch layout {
+            case .grid:
+                ScrollView {
+                    RoomGrid(model: model, world: world).padding()
+                }
+            case .map:
+                WorldMapView(model: model, world: world, map: model.map(world), zoom: zoom)
+            }
         }
+        .navigationTitle(world.name)
+        .onAppear { focused = true }
     }
 }
 
@@ -179,36 +209,60 @@ private struct TileGrid: View {
 }
 
 /// All 64 rooms as thumbnails; room n is at column n % 8, row n / 8.
-private struct RoomMap: View {
+private struct RoomGrid: View {
     var model: ViewerModel
     let world: World
 
     var body: some View {
         LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
             ForEach(0 ..< World.roomCount, id: \.self) { r in
-                let isCode = world.codeRooms[r] != nil
-                let used = world.isRoomUsed(r) && !isCode
-                VStack(spacing: 2) {
-                    Group {
-                        if isCode {
-                            Rectangle().fill(.quaternary)
-                                .overlay { Image(systemName: "curlybraces").foregroundStyle(.orange) }
-                        } else if used || model.showEmptyRooms, let t = model.thumbnail(room: r) {
-                            Image(decorative: t, scale: 1).interpolation(.none).resizable()
-                        } else {
-                            Rectangle().fill(.quaternary)
-                        }
-                    }
-                    .aspectRatio(280.0 / 192.0, contentMode: .fit)
-                    .overlay {
-                        if r == model.selectedRoom { Rectangle().stroke(Color.accentColor, lineWidth: 3) }
-                    }
-                    Text(hex(r)).font(.caption2.monospaced()).foregroundStyle(used ? .primary : .tertiary)
-                }
-                .contentShape(Rectangle())
-                .onTapGesture { model.selectedRoom = r }
-                .help(roomTitle(r) + (isCode ? " – 6502 code" : ""))
+                RoomCell(model: model, world: world, room: r)
+                    .onTapGesture { model.selectedRoom = r }
             }
+        }
+    }
+}
+
+/// A room's thumbnail with its number below, outlined when selected.
+struct RoomCell: View {
+    var model: ViewerModel
+    let world: World
+    let room: Int
+
+    var body: some View {
+        let isCode = world.codeRooms[room] != nil
+        VStack(spacing: 2) {
+            RoomImage(model: model, world: world, room: room, showEmpty: model.showEmptyRooms)
+                .aspectRatio(280.0 / 192.0, contentMode: .fit)
+                .overlay {
+                    if room == model.selectedRoom { Rectangle().stroke(Color.accentColor, lineWidth: 3) }
+                }
+            Text(hex(room)).font(.caption2.monospaced())
+                .foregroundStyle(world.isRoomUsed(room) && !isCode ? .primary : .tertiary)
+        }
+        .contentShape(Rectangle())
+        .help(roomTitle(room) + (isCode ? " – 6502 code" : ""))
+    }
+}
+
+/// A room's thumbnail; the selected room as the running loop shows it.
+/// Unused rooms are blank unless `showEmpty`, code rooms always.
+struct RoomImage: View {
+    var model: ViewerModel
+    let world: World
+    let room: Int
+    let showEmpty: Bool
+
+    var body: some View {
+        if world.codeRooms[room] != nil {
+            Rectangle().fill(.quaternary)
+                .overlay { Image(systemName: "curlybraces").foregroundStyle(.orange) }
+        } else if showEmpty || world.isRoomUsed(room),
+                  let image = (room == model.selectedRoom ? model.liveImage(world: world, room: room) : nil)
+                      ?? model.thumbnail(room: room) {
+            Image(decorative: image, scale: 1).interpolation(.none).resizable()
+        } else {
+            Rectangle().fill(.quaternary)
         }
     }
 }
