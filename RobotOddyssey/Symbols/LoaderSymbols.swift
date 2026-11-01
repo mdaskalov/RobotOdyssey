@@ -14,6 +14,10 @@ final class LoaderSymbols: Sendable {
     /// Track 1: the disk pages loaded to $4000-$4EFF.
     static let track1 = (page: 16, address: 0x4000, length: 0xF00)
 
+    // The copy protection (Docs/CopyProtection.md): bit 7 set when the check passed.
+    let menuCheckResult = Byte(0x02CE)
+    let bootCheckResult = Byte(0x03FE)
+
     let loaderStart = Routine(0x4000)
     let loaderRestart = Routine(0x4003)
     let menuDispatch = Routine(0x4040)
@@ -23,6 +27,9 @@ final class LoaderSymbols: Sendable {
     let loadLevel5 = Routine(0x40DD)
     let loadEnding = Routine(0x40E9, guess: true)
     let saveGameWrite = Routine(0x4193)
+    /// Back to the world after saving or a message: shifts the boot check's
+    /// result into COPY_PROTECTION_OK ($9C4E), then RESTORE_LOAD_CODE.
+    let returnToWorld = Routine(0x434D, guess: true)
     let restoreLoadCode = Routine(0x435E)
     let loadCodeL1 = Routine(0x437E)
     let loadCodeL2 = Routine(0x4386)
@@ -32,6 +39,10 @@ final class LoaderSymbols: Sendable {
     let loadCodeLab = Routine(0x43A6)
     let restoreGame = Routine(0x443A)
     let jumpAY = Routine(0x44B0)
+    /// COPY_PROTECTION_OK = BOOT_CHECK_RESULT AND MENU_CHECK_RESULT, restoring
+    /// a game and starting a world.
+    let copyFlagRestore = Routine(0x452D)
+    let copyFlagStart = Routine(0x4563)
     let startWorld = Routine(0x456C)
     let loadEngine = Routine(0x4582)
     let loadLevel1 = Routine(0x4595)
@@ -53,6 +64,14 @@ final class LoaderSymbols: Sendable {
     let rwts = Routine(0x5A00)
     let rwtsSkew = Table(0x5CB8)
     let boot2Entry = Routine(0x5D00)
+    /// The check at boot, inline in boot stage 2; the menu runs a copy
+    /// (`JSR MENU_COPY_CHECK`, the result in the carry), part of the menu
+    /// program at $6000.  Each compares 8 nibbles with its signature, last byte
+    /// first.
+    let bootCopyCheck = Routine(0x5D58)
+    let bootCopySignature = Table(0x5DDC)
+    let menuCopyCheck = Routine(0x6255)
+    let menuCopySignature = Table(0x62F0)
 
     /// MD5 of the file table's entries ($4D5E-$4EE9) by version: the same on
     /// both sides and in every known dump of a version.

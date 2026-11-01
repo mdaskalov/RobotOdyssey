@@ -11,6 +11,7 @@ faithful Swift version.
 | [Engine.md](Engine.md) | memory map, the main loop (tick), draw phase, timing, the hybrid engine, porting strategy |
 | [Robots.md](Robots.md) | robot drawing ($D2BC/$D72B): robot state, the three engine builds, the random generator, verification |
 | [Sound.md](Sound.md) | the sound player: the queue, tone and noise loops, every world's sounds, the native port and the speaker |
+| [CopyProtection.md](CopyProtection.md) | the copy protection: the E7 bitstream on track 1, the checks, the flag that turns off the soldering pen, the cracked dumps |
 | [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
@@ -38,6 +39,9 @@ faithful Swift version.
   sound's cycles (the game waits while a sound plays, as on the Apple); the
   viewer makes the speaker's sound from the clicks (*Sound* in the toolbar).
   The 37 sounds of the worlds' tables are named in `GameSounds`.
+* **Copy protection** (CopyProtection.md): the worlds skip the soldering
+  pen unless the loader's flag says the disk passed the check; the app
+  loads every world with the flag set, as an original disk does.
 * **Symbol maps** (Symbols.md): every address the Swift code uses, with its
   place in each engine build and version, is in `RobotOddyssey/Symbols`
   (game, loader, Level 1's code); the native routines use the names
@@ -173,7 +177,7 @@ Open the side A and B images (or the folder) with *Open Disk Images…* or by
 dropping them on the window; storage disks with saved games can be added.
 The app remembers the disks (macOS). At launch it first loads every `.dsk` in
 `RobotOddyssey/Resources/` (bundled with the app, ignored by git – locally
-`disk1a.dsk`/`disk2a.dsk` = v1.1 side A/B), then the remembered disks. Each
+`diskA.dsk`/`diskB.dsk` = the 4am crack of v1.1, side A/B), then the remembered disks. Each
 version keeps one side A and one side B: the first one loaded wins, later
 sides of the same version are ignored (listed under *Notes*). Without disks
 the window shows the game's title screen (`Data/ro_title.py`); the app icon is

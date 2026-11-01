@@ -48,6 +48,7 @@ struct WorldBuilder {
             do {
                 var mem = try memory(for: def.id, cache: &cache)
                 let bank1 = try setUpChips(def.chips, mem: &mem)
+                WorldBuilder.passCopyProtection(&mem)
                 worlds.append(World(id: idPrefix + def.id, name: def.name, kind: def.kind, mem: mem,
                                     bank1: bank1, engine: def.engine, codeCheck: check(mem, def.engine)))
             } catch {
@@ -71,6 +72,16 @@ struct WorldBuilder {
             return disk.read(page: s.page, length: s.length)
         }
         return bank1
+    }
+
+    /// The copy protection: the loader's last step before it starts a world
+    /// (START_WORLD $4563, RESTORE_GAME $452D) is COPY_PROTECTION_OK = $03FE
+    /// AND $02CE, the results of the checks at boot and in the menu (bit 7 set:
+    /// passed).  The app runs neither, so it sets the flag as an original disk
+    /// leaves it.  On the disk the byte is $00, and with bit 7 clear every world
+    /// but Robot Anatomy skips the soldering pen (Docs/CopyProtection.md).
+    static func passCopyProtection(_ mem: inout [UInt8]) {
+        mem[\.copyProtectionOK] = 0x80
     }
 
     func memory(for id: String, cache: inout [String: [UInt8]]) throws -> [UInt8] {
@@ -221,6 +232,7 @@ struct WorldBuilder {
                     mem[variable] = header[0x40 + i]
                 }
             }
+            WorldBuilder.passCopyProtection(&mem)
             // Code below $0B00 is not saved (Level 5 calls its code rooms from $08DA),
             // so take the matching world's code rooms whose bytes are unchanged.
             var codeRooms = World.findCodeRooms(in: mem)

@@ -6,6 +6,8 @@ v2.0 (three sides) is different; see the end.
 
 | File | Version | Side | MD5 |
 |---|---|---|---|
+| Robot Odyssey v1.1 (4am crack) side A.dsk | 1.1 | A | fa478397594ba89c82f483503634897d |
+| Robot Odyssey v1.1 (4am crack) side B.dsk | 1.1 | B | 0b6dcd293b818da67fdc81740cc42c6a |
 | Ro1v11a.dsk | 1.1 | A | 46f60717423e1e3fef68f18fc7229b87 |
 | Ro1v11b.dsk | 1.1 | B | 3ade4e78583155e49bd0d08b8c0adf5e |
 | Ro1v10a.dsk | 1.0 | A | 0080e4fc5d65afc7ba39854584aa7b0c |
@@ -24,7 +26,7 @@ Mariani/AppleWin save state of Level 1, room $28, with full 64K main + aux RAM.
 There is no DOS 3.3 catalog. Track 0 sector 0 is a normal DOS boot1 that loads
 T0 sectors 1‑15 to $4F00‑$5DFF (boot stage 2 = a relocated DOS RWTS, entry
 $5D00). Stage 2 reads track 1 to $4000‑$4EFF, runs a nibble copy‑protection
-check (`D5 E7 E7 E7` + signature on track 1, also at $6255 in the menu) and
+check (CopyProtection.md; again at $6255 in the menu) and
 starts the **loader/menu program** at $4000.
 
 The RWTS uses a custom sector skew (table at $5CB8):
@@ -240,18 +242,17 @@ never end, so the viewer keeps the program disk's values for an empty header.
 
 ## Copy protection and the dumps
 
-Track 1 holds a nibble pattern a `.dsk` cannot store (`D5 E7 E7 E7`, then
-`FC EE EE FC E7 EE FC E7`), checked at boot ($5D58, result in bit 7 of $03FE)
-and when the menu starts ($6255, result in $02CE). Starting a world sets
-`$9C4E = $03FE AND $02CE`; the level code skips $F7BE/$F5C2 (Level 1 main loop
-$08DA) when the flag is clear. Boot stage 2 also sets the reset vector
-$03F2/$03F3 to $C600, which the game uses to return to its loader.
+Track 1 holds a nibble pattern a `.dsk` cannot store (an *E7 bitstream* in
+physical sector 1 = page 31), checked at boot and in the menu; the loader
+turns the result into a flag, and the worlds skip the soldering pen when it
+is clear. All of it, and how each dump gets past it, is in
+CopyProtection.md. Boot stage 2 also sets the reset vector $03F2/$03F3 to
+$C600, which the game uses to return to its loader.
 
-All the .dsk files are cracked, each differently (details and a ranking in
-`README.md` next to the disk images): Ro1v11 and Ro1v10 turn the failure
-path into success (`SEC`), Ro1v10 and RobotOdyssey also force $9C4E in the
-loader, ROBOT‑1/2 (“(K) 1985 MR. CLEAN”) removes the retry loop, and
-Robots_1/2 removes the reset vector and patches only some of the
+All the .dsk files are cracked, each differently (CopyProtection.md "The
+dumps"; a ranking in `README.md` next to the disk images). The 4am crack
+(Passport) changes only data in the protected sector and keeps the original
+code; Robots_1/2 also removes the reset vector and patches only some of the
 `JMP ($03F2)` exits (levels 2‑5 are missed). Version fingerprints that the
 cracks leave alone: MD5 of side A pages 383‑399 and side B pages 196‑211
 (`GameCatalog.fingerprints`).

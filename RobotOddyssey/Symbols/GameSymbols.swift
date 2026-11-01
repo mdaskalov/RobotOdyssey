@@ -155,7 +155,9 @@ final class GameSymbols: Sendable {
     let wireBY = Table(levels: 0x8A1C, kit: 0x18C0, lab: 0x0F00)
     let pinLine = Table(levels: 0x8A82, guess: true)
     let gateType = Table(levels: 0x8CB7, guess: true)
-    let toolMode = Byte(levels: 0x8DAA, guess: true)
+    /// The tool in the player's hand, set by grabbing from a table at $82F7
+    /// ($BE6D): $FD the soldering pen (Docs/CopyProtection.md).
+    let toolMode = Byte(levels: 0x8DAA, kit: 0x1ACE, lab: 0x128E, guess: true)
     let mode8DAB = Byte(levels: 0x8DAB, guess: true)
     /// The robots' state: 4 grabbers per robot, then $1A bytes per robot
     /// (`Robot.stateSize`) with the thrusters, bumper colours, battery and switch.
@@ -258,6 +260,10 @@ final class GameSymbols: Sendable {
     let currentTextColour = Byte(0x9C4B)
     let currentTextX = Byte(0x9C4C)
     let currentTextY = Byte(0x9C4D)
+    /// Bit 7: the copy protection passed.  The loader sets it when it starts a
+    /// world; it is $00 on the disk, and while bit 7 is clear the worlds' main
+    /// loops skip the soldering pen (Docs/CopyProtection.md).
+    let copyProtectionOK = Byte(0x9C4E)
     /// Every world's start-up clears it right before its main loop.
     let flag9C51 = Byte(0x9C51, guess: true)
     let linkIndex = Byte(0x9C52)
@@ -474,8 +480,13 @@ final class GameSymbols: Sendable {
     let sensors = Routine(levels: 0xF44D, guess: true)
     let chipsEval = Routine(levels: 0xF56B, guess: true)
     let engF5A9 = Routine(levels: 0xF5A9)
-    let remoteControl = Routine(levels: 0xF5C2, guess: true)
-    let engF7BE = Routine(levels: 0xF7BE)
+    /// The soldering pen, called each tick while the player holds it and the
+    /// copy protection passed (Docs/CopyProtection.md).  SOLDER_TOUCH acts on
+    /// what the pen touches while no wire is started; SOLDER_WIRE starts a
+    /// wire at the first touch (with the solder sound) and makes it at the
+    /// second.
+    let solderTouch = Routine(levels: 0xF5C2, guess: true)
+    let solderWire = Routine(levels: 0xF7BE, guess: true)
     let drawWires = Routine(levels: 0xFC62)
     let keepMove = Routine(levels: 0xFE18, code: [.levels(0xFE18 ..< 0xFE25, md5: "1544988aa9cbb3fa4337cfe931fb8fd9")])
     let engFE25 = Routine(levels: 0xFE25)
