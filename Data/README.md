@@ -13,6 +13,8 @@ python3 ro_timing.py "$STATE" 20     # cycles per tick of the Level 1 main loop
 python3 ro_symbols.py                # writes RobotOdyssey.sym and RobotOdysseyLoader.sym
 python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml or a STORAGE.dsk)
 ./native_check.sh "$A" "$B" [STORAGE.dsk]   # native Swift routines vs. the original code
+python3 ro_title.py "$A" Extracted/v1.1 [--verify]   # title screens -> title_N.png/.bin
+python3 ro_icon.py "$STATE" ../RobotOddyssey/Assets.xcassets/AppIcon.appiconset   # app icon
 ```
 
 ## Scripts
@@ -34,6 +36,8 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 | `dis6502.py` | small disassembler: `dis6502.py FILE START END [BASE]` |
 | `hexdump.py` | hex dump with Apple text column: `hexdump.py FILE START END [BASE]` |
 | `aws_state.py` | extract main/aux RAM from a Mariani/AppleWin `.yaml` save state |
+| `ro_title.py` | unpack the title pictures like the menu ($0A71) and write the three title screens; `--verify` compares with the original unpacker and wipe on the emulator (format: `Docs/DiskLayout.md`, *Title pictures*) |
+| `ro_icon.py` | the app icon: robot 2 (the blue one) drawn by the engine ($9D18, $D2BC) from the save state, 20× on a dark background, all macOS sizes |
 | `hires.py` | hi‑res address mapping, simple PNG writer and screen dump: `hires.py MEM.bin OUT.png [2000]` |
 
 ## Extracted/v1.1
@@ -47,6 +51,7 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 | `<world>/room_NN.png` | single rooms (with `--rooms`) |
 | `font.bin` | 8 glyph rows × 96 characters ($A0‑$FF), row 0 = bottom, bit 0 = left |
 | `colors.bin` | 32 colours × 4 pattern bytes |
+| `title_1..3.png`, `.bin` | the title screens: “The Learning Company presents”, the Robot Odyssey title, the menu frame (8K hi‑res page each) |
 | `chips.txt` | disassembled chips of Level 1 and the Innovation Lab Tutorial (`ro_chips.py "$A" "$B" > …`) |
 
 Worlds: `level1`‑`level5`, `anatomy` (Robot Anatomy), `toolkit`,

@@ -154,7 +154,9 @@ The app remembers the disks (macOS). At launch it first loads every `.dsk` in
 `RobotOddyssey/Resources/` (bundled with the app, ignored by git – locally
 `disk1a.dsk`/`disk2a.dsk` = v1.1 side A/B), then the remembered disks. Each
 version keeps one side A and one side B: the first one loaded wins, later
-sides of the same version are ignored (listed under *Notes*). Pick a world in the sidebar and a room
+sides of the same version are ignored (listed under *Notes*). Without disks
+the window shows the game's title screen (`Data/ro_title.py`); the app icon is
+robot 2, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world in the sidebar and a room
 below the canvas: *Grid* shows all 64 rooms (room *n* at column *n*%8, row
 *n*/8), *Map* shows the rooms as they connect (`WorldMap`), scrollable and
 zoomable, with each room's number on it. The links don't always form a plane

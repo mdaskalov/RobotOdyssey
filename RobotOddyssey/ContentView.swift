@@ -52,7 +52,15 @@ struct ContentView: View {
                     }
             } else {
                 ContentUnavailableView {
-                    Label("No Disks", systemImage: "opticaldisc")
+                    VStack(spacing: 20) {
+                        // The game's title screen (Data/ro_title.py, title_2.png of v1.1)
+                        Image(.title)
+                            .interpolation(.none)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: 560)
+                        Label("No Disks", systemImage: "opticaldisc")
+                    }
                 } description: {
                     Text("Open the Robot Odyssey I disk images (side A and side B, v1.0 or v1.1), "
                          + "or a folder containing them. Storage disks with saved games can be added too.")

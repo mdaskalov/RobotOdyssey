@@ -54,7 +54,7 @@ Shared pieces (“engine”):
 |---|---|---|---|
 | 64 | $0803 | 5p+208 | menu program (title screen, menu) |
 | 70 | $6000 | 2p+248 | menu program, part 2 |
-| 73 | $2000/$6300 | 55p+30 | title pictures (address patched at run time) |
+| 73 | $2000/$6300 | 55p+30 | title pictures (address patched at run time, see [Title pictures](#title-pictures)) |
 | 129 | $9500 | 35p+215 | **engine main**: font $9500, colour tables $9B91, drawing, text… (identical on both sides) |
 | 247 (A) | $1A50 | 5p+164 | engine piece (levels) |
 | 253 (A) | $8200 | 12p+217 | robot/circuit tables for Level 1 |
@@ -126,6 +126,93 @@ previous level. The entries are found in the code
 with the only `LDY #next / JMP handler` (handler = `LDA #$02 / STA $02D0`),
 and its entry is the lowest JMP/JSR target before it from which straight‑line
 code runs into that `LDY`.
+
+## Title pictures
+
+The title file (side A page 73, entry $4DD0 = `04 09 00 20 1E 37`) is
+loaded at **$6300**: before starting the menu the loader patches the entry's
+address ($4062: `LDA #$63 / STA $4DD3`) and length (`STA $4DD5`, $37 pages)
+and loads menu, menu part 2 and pictures in one `JSR $4A20` (entries
+$4DC4/$4DCA/$4DD0), then jumps to the menu at $6000. LOAD_ENDING_Q ($40E9)
+loads only its first 1p+30 bytes, to $6200. Bytes $00‑$C5 of the file are not
+used by the title sequence.
+
+### Menu bytecode
+
+The menu ($0803, 5p+208) is a small interpreter: `JSR $0803` is followed by
+inline bytecode (handlers in the tables $09C5/$09D0; opcodes ≥ $0B jump
+through the reset vector $03F2).
+
+| Op | Arguments | Handler | Action |
+|---|---|---|---|
+| 00 | address | $09F4 → $0A71 | draw the picture at *address* into the buffer |
+| 01 | – | $0BD1 | wipe: copy the buffer to hi‑res page 1 in 47 diagonal steps |
+| 02 | – | $09C2 | return to the code after the bytecode |
+| 03 | address, A | $09DC | call *address* with A |
+| 04 / 05 | – | $0A04 / $0A0C | a key press aborts the sequence / doesn't |
+| 06 | 4 bytes | $0A14 → $0D21 | not examined |
+| 07 | – | $0A39 | clear hi‑res page 1 and show it |
+| 08 | address | $0A5B | where a key press jumps to ($C9/$CA) |
+| 09 | address | $0D70 | not examined |
+| 0A | byte | $0A68 | sets $0D6F |
+
+The menu's entry $6000 (`JMP $6023`) plays the title sequence (v1.1):
+
+```
+05 07 00 C6 63 00 6A 6D 01 03 4A 62 FF 00 34 77 00 F1 81 01 03 4A 62 FF 00 47 8C 01 02
+```
+
+i.e. three screens, each shown by a wipe, with a pause ($624A) after the
+first two; the entry $6003 draws only the third one.
+
+| Screen | Pictures | File offset → disk page:byte | Contents |
+|---|---|---|---|
+| `title_1` | $63C6 (columns 0‑19), $6D6A (20‑39) | $00C6 → 73:$C6, $0A6A → 83:$6A | “The Learning Company presents” |
+| `title_2` | $7734 (columns 0‑19), $81F1 (20‑39) | $1434 → 93:$34, $1EF1 → 103:$F1 | ROBOT ODYSSEY, “v1.1”, authors, © 1984 |
+| `title_3` | $8C47 (v1.0: $8C45) | $2947 → 114:$47 | the menu's frame, “ROBOT ODYSSEY I” |
+
+v1.0 uses the same addresses for the first four pictures; its `title_2`
+differs only in the version label (“v1.0”).
+
+### Picture format ($0A71)
+
+A picture is a grid of character cells (7 × 8 pixels = 8 hi‑res bytes)
+drawn from two tile banks:
+
+| Offset | Contents |
+|---|---|
+| +2 | buffer page ($D0) |
+| +3, +4 | first row (0‑23) and column (0‑39) |
+| +8/+9, +10/+11 | sizes of tile bank A and B (big endian) |
+| +0, +1, +5‑+7, +12‑+15 | not read by $0A71 (+0 = 24 rows, +1 = columns) |
+| +16 | tile bank A, then tile bank B (8 bytes per tile, top line first), then the stream |
+
+The stream runs down the columns, starting at the first row and column:
+
+| Code | Meaning |
+|---|---|
+| $00‑$FA | tile *n* of the current bank ($FB/$FC + 8*n*), next row |
+| $FB / $FC | select bank A / B (every stream starts with $FB) |
+| $FF *n t* | tile *t* *n* times ($00 = 256) |
+| $FE *k* | next column, back to the first row; *k* > 1: the column just finished is drawn *k* times in all (the stream rewinds to its start, counter $0BBE) |
+| $FD | end |
+
+The rewind restores only the high byte of the tile bank ($0BBF → $FC), and
+$FB/$FC and $0BBF carry over from one picture to the next. The pictures are
+drawn into a buffer at **$D000‑$EFFF in language card bank 2** ($0986 enables
+it with `BIT $C083` twice), laid out like hi‑res page 1 + $B000: line *l* of
+cell (*r*, *c*) is at `((page | (r >> 1 & 3)) + 4l) << 8 | $28·(r >> 3) + $80·(r & 1) + c`.
+Nothing clears the buffer, but each screen's pictures cover all 960 cells.
+The wipe copies the buffer (`screen address + $B000`) to page 1 along circles
+of radius 0‑46 around the screen's centre (midpoint circle algorithm on a grid
+of half bytes × 4 lines, cells done marked at $BA00‑$BEFF), so each screen
+ends up as the buffer.
+
+`Data/ro_title.py` extracts the three screens (`title_N.png`/`.bin`); with
+`--verify` it also runs the original $0A71 and wipe on the emulator: the
+buffer is identical after every picture and page 1 identical to it after every
+wipe, v1.0 and v1.1. The app shows v1.1's `title_2` on its *No Disks* page
+(`Assets.xcassets/Title.imageset`).
 
 ## Storage diskette (saved games)
 
