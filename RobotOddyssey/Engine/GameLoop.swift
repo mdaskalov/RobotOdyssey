@@ -32,26 +32,26 @@ final class GameLoop {
     private var tickStart: Machine
     /// The room the draw phase is drawing.
     private var drawing: Int?
-    /// The loop's own `CUR_ROOM` while the draw phase draws `room`.
+    /// The loop's own CURRENT_ROOM while the draw phase draws `room`.
     private var loopRoom: UInt8?
-    /// The world's `JMP ($03F2)`, back to the loader.
+    /// The world's `JMP (RESET_VECTOR)`, back to the loader.
     private let exitJump: Int?
     /// Where the loop stopped, handing back to the loader.
     private(set) var exit: Exit?
 
     /// The world's request to the loader.
     struct Exit: CustomStringConvertible {
-        /// $02D0: 1 the menu, 2 the next level, 4 save the game, ...
+        /// MENU_MODE: 1 the menu, 2 the next level, 4 save the game, ...
         let request: UInt8
-        /// $02D1: the level (or slot) it asks for.
+        /// NEXT_LEVEL: the level (or slot) it asks for.
         let level: UInt8
 
         var description: String {
             switch request {
             case 1: "back to the menu"
-            case 2: "on to the next level ($02D1 = \(level))"
+            case 2: "on to the next level (NEXT_LEVEL = \(level))"
             case 4: "to save the game"
-            default: "to the loader ($02D0 = \(request), $02D1 = \(level))"
+            default: "to the loader (MENU_MODE = \(request), NEXT_LEVEL = \(level))"
             }
         }
     }
@@ -62,7 +62,7 @@ final class GameLoop {
         self.room = room
         machine.cpu.pc = UInt16(phase.loopStart)
         tickStart = machine.copy()
-        exitJump = WorldBuilder.find([0x6C, 0xF2, 0x03], in: machine.cpu.mem, from: 0x0803, to: 0x2000)
+        exitJump = WorldBuilder.find(WorldBuilder.instruction(0x6C, \.resetVector), in: machine.cpu.mem, from: 0x0803, to: 0x2000)
     }
 
     var cycles: UInt64 { machine.cpu.cycles }
@@ -112,7 +112,7 @@ final class GameLoop {
         try machine.cpu.step()
         if machine.shownPage != page { shownRoom = drawing }
         if Int(machine.cpu.pc) == exitJump {
-            exit = Exit(request: machine.cpu.mem[0x02D0], level: machine.cpu.mem[0x02D1])
+            exit = Exit(request: machine.cpu.mem[\.menuMode], level: machine.cpu.mem[\.nextLevel])
             return
         }
         switch Int(machine.cpu.pc) {
@@ -123,10 +123,10 @@ final class GameLoop {
             tickStart = machine.copy()
         case phase.start:
             if let room {
-                loopRoom = machine.cpu.mem[RAM.currentRoom]
-                machine.cpu.mem[RAM.currentRoom] = UInt8(room)
+                loopRoom = machine.cpu.mem[\.currentRoom]
+                machine.cpu.mem[\.currentRoom] = UInt8(room)
             }
-            drawing = Int(machine.cpu.mem[RAM.currentRoom])
+            drawing = Int(machine.cpu.mem[\.currentRoom])
         case phase.end:
             restoreRoom()
         default:
@@ -136,7 +136,7 @@ final class GameLoop {
 
     private func restoreRoom() {
         guard let r = loopRoom else { return }
-        machine.cpu.mem[RAM.currentRoom] = r
+        machine.cpu.mem[\.currentRoom] = r
         loopRoom = nil
     }
 }

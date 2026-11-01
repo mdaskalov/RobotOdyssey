@@ -18,9 +18,10 @@ they do **not** reset the rainbow step ($8E9B) before drawing robot 0.
 v1.0 differs from v1.1 only in `JSR $9CC3 / RTS` → `JMP $9CC3` at the end of
 the interior code (one byte, everything after it moves).
 
-Native port: `RobotOddyssey/Engine/RobotDrawing.swift`, one `Layout` per
-build (all addresses listed there). It replaces the 6502 code only where the
-code's MD5 matches.
+Native port: `RobotOddyssey/Engine/RobotDrawing.swift`, the same code for
+all three builds; their addresses are in `GameSymbols` (Symbols.md), and the
+port replaces the 6502 code only where the code's MD5 is the build's and
+version's.
 
 ## Robots
 
@@ -103,19 +104,19 @@ When the current room is robot *i*'s interior:
 * the window $8534 at ($76, $8E) in white – standing under it ($DD59: player
   at x ≥ $74, y ≥ $8C) shows the room outside;
 * the switch at ($76, $21): $6D00 orange when on, $6D10 white when off
-  (toggled by $DD59 when the player is below y = $26 and GRAB_STATE_Q $8E3E
+  (toggled by $DD59 when the player is below y = $26 and GRAB_STATE $8E3E
   is 1).
 
 ## Drawing primitives used
 
 | Routine | Parameters | Leaves |
 |---|---|---|
-| $9CC3 DRAW_SPRITE_COLOR | sprite ($0D), x $18, y $14, colour X | $0F/$10 patterns, then $AF1F |
+| $9CC3 DRAW_SPRITE_COLOUR | sprite ($0D), x $18, y $14, colour X | $0F/$10 patterns, then $AF1F |
 | $AF1F DRAW_SPRITE | | $AEE7‑$AEEA, $11‑$13, $15, $19/$1A |
 | $A14D PLOT | colour A, x $18, y $14 | $A14C, $11/$12 |
-| $A04C HLINE | colour $9C34, x1/x2 $9C35/$9C37, y $14 | $A044‑$A04B, $11/$12; under 4 units long it plots pixels and leaves $18 = max+1 |
-| $9FC4 VLINE | colour $9C34, y1/y2 $9C36/$9C38, x $18 | $9FC1‑$9FC3, $11/$12, $14 = max+1 |
-| $A281 DRAW_BOX | $9C34‑$9C38 | two HLINEs, two VLINEs |
+| $A04C HORIZONTAL_LINE | colour $9C34, x1/x2 $9C35/$9C37, y $14 | $A044‑$A04B, $11/$12; under 4 units long it plots pixels and leaves $18 = max+1 |
+| $9FC4 VERTICAL_LINE | colour $9C34, y1/y2 $9C36/$9C38, x $18 | $9FC1‑$9FC3, $11/$12, $14 = max+1 |
+| $A281 DRAW_BOX | $9C34‑$9C38 | two HORIZONTAL_LINEs, two VERTICAL_LINEs |
 
 All draw on the page the line tables point to ($9839 low bytes, ($16) high
 bytes, set by FLIP_PAGE) and none clips at the right edge of a line. The
@@ -141,4 +142,4 @@ the original code:
 
 Result on v1.1 (with the saved games of `Robots_s.dsk`): 670 frames, 440 ticks
 and 26,400 calls identical; v1.0: 542 frames, 360 ticks and 21,600 calls
-identical.
+identical (2026‑11‑01, after the move to the symbol maps).

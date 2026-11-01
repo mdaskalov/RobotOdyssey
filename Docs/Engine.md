@@ -109,7 +109,7 @@ skips it while FLAG_8ED8 is 0):
    from $AB81 (±16, ±1) or $ABCE (−15 −8 −4 −1 … 1 4 8 15). A held key
    moves once per tick, since the Apple repeats keys faster than the 4‑7
    ticks per second.
-5. LIMIT_MOVE ($ACF8, X = Y = $FF: no limit), then for the player (CUR_OBJECT
+5. LIMIT_MOVE ($ACF8, X = Y = $FF: no limit), then for the player (CURRENT_OBJECT
    = 0): STOP_AT_WALLS ($AD40) unless WALLS_ON ($9C30) is 0, KEEP_ON_SCREEN
    ($A934), MOVE_OBJECT ($9DB3).
 
@@ -132,15 +132,15 @@ the worlds' code). Positions: x 0‑$85 (7 per tile), y 0‑$B0 from the bottom
 * MOVE_OBJECT ($9DB3; MOVE_OBJECT_XY $9DB9 with X = room, Y = object): adds
   the move; x of $D8 and more has left by the left edge (+$86, ROOM_LEFT),
   $86 and more by the right one (−$86, ROOM_RIGHT); y likewise with $B1
-  (ROOM_DOWN, ROOM_UP). The room it ends in → DEST_ROOM ($9C2E), then
+  (ROOM_DOWN, ROOM_UP). The room it ends in → DESTINATION_ROOM ($9C2E), then
   SET_OBJECT_ROOM ($9E07): out of the old room's object list, into the new
   one's, which stays sorted by object number.
 * KEEP_ON_SCREEN ($A934): a move past the left/right edge goes exactly to it
-  ($FF/$86, SCREEN_EDGES $A979) and loses its vertical part; past the
+  ($FF/$86, SCREEN_EDGES_X $A979) and loses its vertical part; past the
   bottom/top ($FF/$B1) its horizontal part.
 * STOP_AT_WALLS ($AD40): TEST_MOVE ($AE69) checks the box's four corners
   after the move: bit 0 a wall (WALL_AT $B40B on the room's bitmap,
-  ROOM_WALLS_PTR $9D56: 30 bytes, three bands of four rows from the top,
+  ROOM_WALLS_POINTER $9D56: 30 bytes, three bands of four rows from the top,
   a byte = two tile columns of 4 bits), bit 1 x ≥ $8C, bit 2 y ≥ $C0. On a
   wall only, it keeps the longer part of the move and stops the shorter one
   at the edge of the tile the object is in (STOP_AT_TILE_ROW $AE2A /
@@ -208,7 +208,7 @@ work, mostly redrawing the whole room. Measured with `Data/ro_timing.py`
 So the original runs at roughly **4‑7 ticks per second**, varying by room.
 (Measured without joystick reads; the paddle read loops add up to ~3 ms per
 read on real hardware. Worth confirming in Mariani with a breakpoint on
-MAIN_LOOP and the cycle counter.) `GameLoop` on the worlds built from the
+L1_MAIN_LOOP and the cycle counter.) `GameLoop` on the worlds built from the
 disks agrees: Level 1's room $28 takes 200‑208 K cycles per tick, 5.0
 ticks/s.
 
@@ -254,27 +254,31 @@ The game runs as the original 6502 code on `CPU6502`, inside `Machine`:
   default) the timers never run out, so the engine finds none and plays by
   keyboard; a joystick can be plugged in at any time. (Timers that run out
   at once read as a joystick held up‑left: the player walks off.)
-* **native routines**: a Swift function registered at an engine entry point
-  runs when the 6502 code reaches it – by JSR, JMP or falling through (CPU
-  traps) – and returns like RTS. It works on the same memory (`RAM`), the
-  registers (`Registers`) and the input devices, takes its parameters where
-  the 6502 code does and must leave memory **byte for byte** as the original
-  leaves it, temporaries included, and A, X, Y and the flags where other
-  code may use them (routines that the worlds' code calls). It may decline a
-  case it doesn't handle (READ_INPUT with a mouse) and the original code
-  runs. It is installed only if the MD5 of the original code (without the
-  variables kept in it) matches, so other builds or versions fall back to
-  emulation; `GameScreen` installs them after the world's start‑up code, so
-  the check sees any patches it makes.
+* **native routines**: a Swift method of `Engine` registered at an engine
+  entry point runs when the 6502 code reaches it – by JSR, JMP or falling
+  through (CPU traps) – and returns like RTS. It works on the same memory
+  (`m`, a `RAM`: the CPU's own bytes with every symbol of `GameSymbols` by
+  name), the registers (`r`) and the input devices, takes its parameters
+  where the 6502 code does and must leave memory **byte for byte** as the
+  original leaves it, temporaries included, and A, X, Y and the flags where
+  other code may use them (routines that the worlds' code calls). It may
+  decline a case it doesn't handle (READ_INPUT with a mouse) and the
+  original code runs. Each native names the routine it replaces and the
+  ones it reproduces besides (`Native.all`); every one of them has its code
+  ranges and their MD5 per engine build and version in `GameSymbols`. The
+  loader (`WorldBuilder`) checks them when it loads a world (`CodeCheck`),
+  and `GameScreen` installs only the natives whose routines all match: a
+  modified routine, or an unknown version, runs as the original code
+  (Symbols.md).
 
 So level and room code always runs as the original code, and engine
-routines become Swift one at a time. Ported so far:
+routines become Swift one at a time. Ported so far (methods of `Engine`):
 
-| Routines | Swift | Worlds |
+| Routines | File | Worlds |
 |---|---|---|
-| robot drawing $D2BC/$D72B (kit/lab $D2AB/$D674), with sprite, plot, lines, box (Robots.md) | `RobotDrawing` | all |
+| DRAW_ROBOTS $D2BC, DRAW_ROBOT_INTERIOR $D72B (kit/lab $D2AB/$D674), with DRAW_SPRITE(_COLOUR), PLOT, the lines and DRAW_BOX (Robots.md) | `RobotDrawing`, `EngineGraphics` | all |
 | READ_INPUT $A90C | `PlayerInput` | all |
-| MOVE_OBJECT $9DB3/$9DB9, SET_OBJECT_ROOM $9E07, ROOM_WALLS_PTR $9D56, WALL_AT $B40B, STOP_AT_WALLS $AD40, KEEP_ON_SCREEN $A934, LIMIT_MOVE $ACF8 (registers exact) | `ObjectMotion` | all |
+| MOVE_OBJECT $9DB3, MOVE_OBJECT_XY $9DB9, SET_OBJECT_ROOM $9E07, ROOM_WALLS_POINTER $9D56, WALL_AT $B40B, STOP_AT_WALLS $AD40, KEEP_ON_SCREEN $A934, LIMIT_MOVE $ACF8 (registers exact) | `ObjectMotion` | all |
 | PLAYER_WALK_SPRITE $DFA3 (v1.0 $DFA4), GRAB_BUTTON $BEBC, KEEP_MOVE $FE18 | `PlayerInput` | levels |
 
 A native routine takes no CPU cycles, so a tick with natives is shorter than
@@ -292,9 +296,9 @@ at $4E/$4F = 0, which it never leaves; `GameScreen` seeds it (Robots.md).
 `GameLoop` runs the main loop from there as in the game, with the input
 devices (`devices`; the viewer's *Play* types keys): it is run by CPU cycles and the page on screen ($C054/$C055) is what the
 Apple shows, so each tick takes as long as its work. To watch any room, the
-selected room replaces the player's in `CUR_ROOM` when the loop arrives at
+selected room replaces the player's in `CURRENT_ROOM` when the loop arrives at
 the draw phase, and the loop's own value goes back before the page flip, so
-the rest of the tick (including the `$6300 ↔ CUR_ROOM` swap around $9F3C)
+the rest of the tick (including the `$6300 ↔ CURRENT_ROOM` swap around $9F3C)
 sees what the game would. Watching the player's room changes nothing
 (checked tick by tick on every world); elsewhere only what the draw phase
 writes differs. A room change shows the room at once, drawn on a copy of the
@@ -315,7 +319,9 @@ menu, the next level, saving – the loader is not emulated yet.
    of the hybrid engine (above): input, player movement, grabbing, linked
    objects, robots (thrusters, bumpers, antennas, grabbers, sensors,
    batteries), wires, gates, chips, room transitions. Done: the robot
-   drawing, the input and the object motion.
+   drawing, the input and the object motion. Each starts with its symbols:
+   its variables, tables and code (with fingerprints) in `GameSymbols`
+   ("Mapping a new routine" in Symbols.md).
 3. **Lock‑step tests** – `Data/native_check.sh` compares every native routine
    with the original, per call on random states, per drawn frame and over
    whole ticks (each world's main loop, 40 ticks: all memory, bank 1 and the

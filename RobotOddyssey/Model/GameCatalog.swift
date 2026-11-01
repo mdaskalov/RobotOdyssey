@@ -30,10 +30,9 @@ struct WorldDefinition {
     let kind: WorldKind
     /// For levels 2-5: the level whose final object table this level inherits.
     var base: String?
-    /// Where the world's engine keeps the wire tables (see `World.wireTables`).
-    var wireTables = World.levelWireTables
-    /// The engine pieces loaded with the world (besides `GameCatalog.engineMain`).
-    var engine = GameCatalog.engineLevels
+    /// The engine loaded with the world: its pieces besides
+    /// `GameCatalog.engineMain`, and where its symbols are (GameSymbols).
+    var engine = EngineBuild.levels
     /// What the loader does to the chips after loading the world.
     var chips = ChipSetup()
     let segments: [Segment]
@@ -92,6 +91,14 @@ enum GameCatalog {
                             Segment(.b, 196, 0xD000, pages: 15, last: 250),
                             Segment(.b, 212, 0xF000, pages: 15, last: 248)]
 
+    static func segments(of engine: EngineBuild) -> [Segment] {
+        switch engine {
+        case .levels: engineLevels
+        case .kit: engineKit
+        case .lab: engineLab
+        }
+    }
+
     /// Level 1 gets two chips (pages 167 -> $D000, 165 -> $D400; the Level 1 save
     /// state has exactly these, $D400 changed by play) and empties the others.
     /// Levels 2-5 load neither engine nor chips: Level 1's set-up carries over.
@@ -126,20 +133,17 @@ enum GameCatalog {
                         segments: [Segment(.a, 490, 0x6E40, pages: 19, last: 192),
                                    Segment(.a, 529, 0x8EF0, pages: 5, last: 217)],
                         code: [Segment(.a, 510, 0x0803, pages: 18, last: 42)]),
-        WorldDefinition(id: "anatomy", name: "Robot Anatomy", side: .b, kind: .tutorial, wireTables: 0x14C0,
-                        engine: engineKit,
+        WorldDefinition(id: "anatomy", name: "Robot Anatomy", side: .b, kind: .tutorial, engine: .kit,
                         segments: [Segment(.b, 396, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 348, 0x14C0, pages: 11, last: 64),
                                Segment(.b, 449, 0x0803, pages: 4, last: 99),
                                Segment(.b, 454, 0x14C0, pages: 6, last: 121)]),
-        WorldDefinition(id: "toolkit", name: "Toolkit", side: .b, kind: .tutorial, wireTables: 0x14C0,
-                        engine: engineKit,
+        WorldDefinition(id: "toolkit", name: "Toolkit", side: .b, kind: .tutorial, engine: .kit,
                         segments: [Segment(.b, 461, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 348, 0x14C0, pages: 11, last: 64),
                                Segment(.b, 514, 0x0803, pages: 9, last: 176),
                                Segment(.b, 524, 0x14C0, pages: 6, last: 20)]),
-        WorldDefinition(id: "labtutorial", name: "Innovation Lab Tutorial", side: .b, kind: .tutorial, wireTables: 0x0B00,
-                        engine: engineLab,
+        WorldDefinition(id: "labtutorial", name: "Innovation Lab Tutorial", side: .b, kind: .tutorial, engine: .lab,
                         // Chips 0 and 2 (the loader patches 165's address to $D800).
                         chips: ChipSetup(bank1: [Segment(.b, 165, 0xD800, pages: 1, last: 131),
                                                  Segment(.b, 167, 0xD000, pages: 0, last: 19)],
@@ -150,8 +154,7 @@ enum GameCatalog {
                         code: [Segment(.b, 337, 0x0803, pages: 2, last: 251),
                                Segment(.b, 168, 0x0B00, pages: 20, last: 225),
                                Segment(.b, 340, 0x0B00, pages: 8, last: 0)]),
-        WorldDefinition(id: "lab", name: "Innovation Lab", side: .b, kind: .lab, wireTables: 0x0B00,
-                        engine: engineLab,
+        WorldDefinition(id: "lab", name: "Innovation Lab", side: .b, kind: .lab, engine: .lab,
                         chips: ChipSetup(cleared: 0xFF),
                         segments: [Segment(.b, 228, 0x6000, pages: 53, last: 0)],
                         code: [Segment(.b, 281, 0x0803, pages: 2, last: 248),
@@ -173,21 +176,12 @@ enum GameCatalog {
         .b: [367: 15 * 256 + 237,       // Robot Anatomy/Toolkit engine $D000
              196: 15 * 256 + 242],      // lab engine $D000
     ]
-
-    /// Version fingerprints: MD5 of game code that the various cracked dumps
-    /// leave untouched (side A pages 383-399 = Level 2 code, side B pages
-    /// 196-211 = lab engine).  See the README next to the disk images.
-    static let fingerprints: [(side: DiskSide, pages: Range<Int>, md5: String, version: String)] = [
-        (.a, 383 ..< 400, "746986a031c024ecfe2dc5d4e7a8babe", "1.0"),
-        (.a, 383 ..< 400, "2ccd4a7f20f79a58293bd5543566e024", "1.1"),
-        (.b, 196 ..< 212, "3ddfbca61cfecb97a18af2d8221122d4", "1.0"),
-        (.b, 196 ..< 212, "01ccdab608976ab81aedc559afa4f11c", "1.1"),
-    ]
 }
 
 /// What a disk image is, determined from its contents.
 enum DiskRole: Equatable {
-    case programSide(DiskSide, version: String)
+    /// A program disk side; its version from the loader's file table (nil: unknown).
+    case programSide(DiskSide, version: Version?)
     case storage
     case unknown
 }
@@ -202,10 +196,7 @@ extension DiskImage {
     var role: DiskRole {
         let side: DiskSide? = hasWorld(atPage: 306) ? .a : (hasWorld(atPage: 228) && hasWorld(atPage: 396) ? .b : nil)
         if let side {
-            let version = GameCatalog.fingerprints.first { f in
-                f.side == side && DiskImage.md5(read(page: f.pages.lowerBound, length: f.pages.count * 256)) == f.md5
-            }?.version
-            return .programSide(side, version: version ?? "1.x")
+            return .programSide(side, version: LoaderSymbols.version(of: self))
         }
         // Storage diskettes boot with a "please insert the program disk" sector.
         if data.prefix(6) == [0x01, 0xA6, 0x2B, 0xBD, 0x88, 0xC0] { return .storage }

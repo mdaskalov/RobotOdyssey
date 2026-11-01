@@ -1,17 +1,31 @@
 import SwiftUI
 
-/// Room properties, objects (select to highlight), wires and texts of the selected room.
+/// The running game (tick, how the room is drawn, the native routines), then
+/// room properties, objects (select to highlight), wires and texts of the
+/// selected room.
 struct RoomInspector: View {
     @Bindable var model: ViewerModel
     let world: World
+    @AppStorage("showNatives") private var showNatives = false
 
     var body: some View {
         let room = world.room(model.selectedRoom)
         let objects = world.objectsInRoom(room.id)
         List(selection: $model.selectedObject) {
+            Section("Game") {
+                if model.renderer == .game, !model.loopStatus.isEmpty {
+                    Text(model.loopStatus).monospacedDigit()
+                }
+                Text(model.renderNote(world: world, room: room.id))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if model.renderer == .game {
+                    natives
+                }
+            }
             Section(roomTitle(room.id)) {
                 if let code = world.codeRooms[room.id] {
-                    let walls = 0x7000 + room.id * 30
+                    let walls = GameSymbols.address(\.roomWalls) + room.id * 30
                     row("Walls", String(format: "6502 code $%04X–$%04X", walls, walls + 29))
                     row("Routine", String(format: "$%04X, called from $%04X", code.entry, code.caller))
                 }
@@ -56,6 +70,27 @@ struct RoomInspector: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         LabeledContent(label) { Text(value).monospaced() }
+    }
+
+    /// The native routines with their entry points, and the routines the
+    /// loader found modified (they run as the original code).
+    private var natives: some View {
+        let natives = model.natives(world: world)
+        let differing = world.codeCheck?.differing ?? []
+        let summary = world.codeCheck.map { "\(natives.count) · \($0.variant)" } ?? "none: unknown version"
+        return DisclosureGroup(isExpanded: $showNatives) {
+            ForEach(natives, id: \.name) { native in
+                LabeledContent(native.name) { Text(String(format: "$%04X", native.entry)) }
+                    .font(.caption.monospaced())
+            }
+            ForEach(differing, id: \.self) { name in
+                LabeledContent(name) { Text("differs: 6502 code") }
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.orange)
+            }
+        } label: {
+            LabeledContent("Native routines") { Text(summary).monospacedDigit() }
+        }
     }
 }
 

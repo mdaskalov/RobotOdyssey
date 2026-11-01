@@ -49,12 +49,6 @@
             ReferencedContainer = "container:RobotOddyssey.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
-      <CommandLineArguments>
-         <CommandLineArgument
-            argument = "-openDisks &apos;/Volumes/SSD/Apple II/Robot Oddisey/Ro1v11a.dsk&apos;"
-            isEnabled = "YES">
-         </CommandLineArgument>
-      </CommandLineArguments>
    </LaunchAction>
    <ProfileAction
       buildConfiguration = "Release"

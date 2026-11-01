@@ -147,14 +147,6 @@ struct RoomCanvas: View {
             Text(hoverText(objects: objects))
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                if model.renderer == .game, !model.loopStatus.isEmpty {
-                    Text(model.loopStatus).font(.caption.monospacedDigit())
-                }
-                Text(model.renderNote(world: world, room: model.selectedRoom))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
         }
     }
 

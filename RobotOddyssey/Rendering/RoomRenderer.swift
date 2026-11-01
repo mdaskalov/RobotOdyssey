@@ -10,16 +10,18 @@ struct HiresScreen {
 /// the original drawing routines run on the emulator (Data/ro_verify.py).
 /// Mirrors Data/ro_render.py.
 struct RoomRenderer {
-    static let font = 0x9460                                // row r of char c: font + r*$60 + c
-    static let colorTables = [0x9B91, 0x9BB1, 0x9BD1, 0x9BF1] // 4 pattern bytes per colour
-    /// Colours of big (style 2) text, from the engine at $A4B9/$A4C1.
+    /// Row r of character c: FONT_BASE + r × $60 + c.
+    static let font = GameSymbols.address(\.fontBase)
+    /// 4 pattern bytes per colour.
+    static let colorTables: [KeyPath<GameSymbols, Table>] = [\.colourPattern0, \.colourPattern1, \.colourPattern2, \.colourPattern3]
+    /// Colours of big (style 2) text, from the engine's BIG_TEXT_PATTERN_EVEN/ODD.
     static let bigTextColors: [(UInt8, UInt8)] = [(0x00, 0x00), (0x2A, 0x55), (0x55, 0x2A), (0x7F, 0x7F),
                                                    (0x80, 0x80), (0xAA, 0xD5), (0xD5, 0xAA), (0xFF, 0xFF)]
 
     let world: World
 
     func colour(_ c: Int) -> [UInt8] {
-        RoomRenderer.colorTables.map { world.mem[$0 + (c & 0x1F)] }
+        RoomRenderer.colorTables.map { world.mem[$0, c & 0x1F] }
     }
 
     func spritePattern(_ c: Int) -> (UInt8, UInt8) {
@@ -30,23 +32,23 @@ struct RoomRenderer {
     func render(room: Int) -> HiresScreen {
         var screen = HiresScreen()
         let mem = world.mem
-        drawTiles(&screen, world.room(room))                              // $9D03
-        for t in world.textsInRoom(room) {                                // $A2A2
+        drawTiles(&screen, world.room(room))                              // DRAW_ROOM_TILES
+        for t in world.textsInRoom(room) {                                // DRAW_ROOM_TEXTS
             drawText(&screen, world.text(t))
         }
         let objects = world.drawList(room)
-        for o in objects {                                                // $9D18
+        for o in objects {                                                // DRAW_ROOM_OBJECTS
             let ob = world.object(o)
             drawSprite(&screen, Array(world.sprite(ob.sprite)), x: ob.x, y: ob.y, spritePattern(ob.color))
         }
-        for o in objects {                                                // $FC62
+        for o in objects {                                                // DRAW_WIRES
             if let w = world.wire(o) {
-                drawWire(&screen, w.ax, w.ay, w.bx, w.by, colour: Int(mem[0x6200 + o]))
+                drawWire(&screen, w.ax, w.ay, w.bx, w.by, colour: Int(mem[\.objColour, o]))
             }
         }
-        for o in 0xD1 ..< 0xE0 where Int(mem[0x6300 + o]) == room {       // loose wires
+        for o in 0xD1 ..< 0xE0 where Int(mem[\.objRoom, o]) == room {    // loose wires
             if let w = world.looseWire(o) {
-                drawWire(&screen, w.ax, w.ay, w.bx, w.by, colour: Int(mem[0x6200 + o]))
+                drawWire(&screen, w.ax, w.ay, w.bx, w.by, colour: Int(mem[\.objColour, o]))
             }
         }
         return screen
@@ -71,7 +73,7 @@ struct RoomRenderer {
 
     /// 16 rows, row 0 at the bottom; bit 6 is the leftmost pixel.
     ///
-    /// Like the engine's 7 pre-shifted routines ($AF5A...): every row with pixels
+    /// Like the engine's 7 pre-shifted routines (DRAW_SPRITE): every row with pixels
     /// rewrites all bytes it spans (2 for shift 0, else 3) with mask = pixels | $80,
     /// so those bytes take the pattern's palette bit; shift 0 also sets the
     /// palette bit of the third byte if that byte is empty.
@@ -98,20 +100,20 @@ struct RoomRenderer {
         }
     }
 
-    /// One colour pixel with the engine's wire tables ($A14D): AND/OR masks per
+    /// One colour pixel with the engine's tables (PLOT): AND/OR masks per
     /// (colour, shift) for the byte and the next one; the palette bit is ORed.
     func plotWire(_ s: inout HiresScreen, _ x: Int, _ y: Int, _ c: Int) {
         let mem = world.mem
-        let i = (191 - y) * 40 + Int(mem[0x9B05 + x])
-        let idx = (c << 3 | Int(mem[0x9A79 + x])) & 0xFF
-        s.bytes[i] = (s.bytes[i] & mem[0xA201 + idx]) | mem[0xA181 + idx]
-        if Int(mem[0x9B05 + x]) + 1 < 40 {
-            s.bytes[i + 1] = (s.bytes[i + 1] & mem[0xA241 + idx]) | mem[0xA1C1 + idx]
+        let i = (191 - y) * 40 + Int(mem[\.xByteTable, x])
+        let idx = (c << 3 | Int(mem[\.xShiftTable, x])) & 0xFF
+        s.bytes[i] = (s.bytes[i] & mem[\.plotKeep, idx]) | mem[\.plotSet, idx]
+        if Int(mem[\.xByteTable, x]) + 1 < 40 {
+            s.bytes[i + 1] = (s.bytes[i + 1] & mem[\.plotKeepNext, idx]) | mem[\.plotSetNext, idx]
         }
     }
 
-    /// Wires are L-shaped: horizontal at A's y from ax to bx ($A04C), then vertical
-    /// at B's x from ay to by ($9FC4), corner at (bx, ay).  If the horizontal part
+    /// Wires are L-shaped: horizontal at A's y from ax to bx (HORIZONTAL_LINE), then
+    /// vertical at B's x from ay to by (VERTICAL_LINE), corner at (bx, ay).  If the horizontal part
     /// is shorter than 4 units the vertical one ends up at max(ax, bx) + 1, as in
     /// the original (its loop leaves the x variable there).
     func drawWire(_ s: inout HiresScreen, _ ax: Int, _ ay: Int, _ bx: Int, _ by: Int, colour c: Int) {
@@ -126,17 +128,17 @@ struct RoomRenderer {
                 vx = end
             } else {                                        // byte-wise fill with end masks
                 let line = (191 - ay) * 40
-                let pat = [mem[0xA144 + c], mem[0xA13C + c]]   // even / odd byte columns
-                var b = Int(mem[0x9B05 + lo])
-                let last = Int(mem[0x9B05 + end])
-                var keep = mem[0xA135 + Int(mem[0x9A79 + lo])]
+                let pat = [mem[\.linePatternsEven, c], mem[\.linePatternsOdd, c]]   // even / odd byte columns
+                var b = Int(mem[\.xByteTable, lo])
+                let last = Int(mem[\.xByteTable, end])
+                var keep = mem[\.lineStartMasks, Int(mem[\.xShiftTable, lo])]
                 s.bytes[line + b] = (s.bytes[line + b] & keep) | (~keep & pat[b & 1])
                 b += 1
                 while b < last {
                     s.bytes[line + b] = pat[b & 1]
                     b += 1
                 }
-                keep = mem[0xA12E + Int(mem[0x9A79 + end])]
+                keep = mem[\.lineEndMasks, Int(mem[\.xShiftTable, end])]
                 if b < 40 { s.bytes[line + b] = (s.bytes[line + b] & keep) | (~keep & pat[b & 1]) }
             }
         }

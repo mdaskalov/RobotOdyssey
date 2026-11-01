@@ -154,6 +154,19 @@ final class ViewerModel {
         rebuild(extraMessages: problems)
     }
 
+    /// What the loader's code check found: an unknown version runs on the
+    /// original code alone, and so do routines whose code isn't the version's.
+    private func codeNotes(_ set: DiskSet, _ worlds: [World]) -> [String] {
+        guard set.version != nil else {
+            return ["\(set.title): version not recognized – the engine runs as original 6502 code only."]
+        }
+        return worlds.compactMap { w in
+            guard let differing = w.codeCheck?.differing, !differing.isEmpty else { return nil }
+            return "\(w.name) (v\(set.versionName)): " + differing.joined(separator: ", ")
+                + " differ from the original code (modified disk?) – they run as 6502 code."
+        }
+    }
+
     private func diskFiles(at url: URL) -> [URL] {
         guard (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true else { return [url] }
         let items = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
@@ -170,9 +183,9 @@ final class ViewerModel {
         for d in disks {
             switch d.role {
             case .programSide(let side, let version):
-                var set = sets[version] ?? DiskSet(version: version)
+                var set = sets[version?.rawValue ?? "1.x"] ?? DiskSet(version: version)
                 if side == .a { set.sideA = d } else { set.sideB = d }
-                sets[version] = set
+                sets[set.versionName] = set
             case .storage:
                 storage.append(d)
             case .unknown:
@@ -184,6 +197,7 @@ final class ViewerModel {
         for (key, set) in ordered {
             let (worlds, errors) = WorldBuilder(disks: set).buildAll(idPrefix: "\(key)/")
             notes += errors
+            notes += codeNotes(set, worlds)
             if set.sideA == nil { notes.append("\(set.title): side A missing – Robotropolis levels unavailable.") }
             if set.sideB == nil { notes.append("\(set.title): side B missing – tutorials and lab unavailable.") }
             newGroups.append(WorldGroup(id: key, title: set.title, worlds: worlds))
@@ -282,9 +296,14 @@ final class ViewerModel {
             return "The game's code could not draw this room (\(e)) – static renderer"
         }
         guard let game = gameScreen(world) else { return "" }
-        let natives = game.natives.isEmpty ? "none" : game.natives.joined(separator: ", ")
-        return String(format: "The world's main loop on the 6502 emulator, its draw phase ($%04X–$%04X) drawing this room · native: %@",
-                      game.phase.start, game.phase.end, natives)
+        return String(format: "The world's main loop on the 6502 emulator; its draw phase ($%04X–$%04X) draws this room.",
+                      game.phase.start, game.phase.end)
+    }
+
+    /// The native routines the game runs in place of the original code (`CodeCheck`).
+    func natives(world: World) -> [(name: String, entry: UInt16)] {
+        guard renderer == .game else { return [] }
+        return gameScreen(world)?.natives ?? []
     }
 
     // MARK: running the game

@@ -1,60 +1,126 @@
 import Foundation
 
-/// The 64K memory image as the native engine routines see it: the very bytes
-/// the 6502 code works on (`Machine` swaps them in and out of the CPU), so
-/// native and original routines can take turns.  Parameters live where the
-/// engine keeps them; names follow Data/RobotOdyssey.sym.
+/// Symbols of the game's map as code passes them around: `\.moveDX`, `\.drawRobots`.
+typealias ByteSymbol = KeyPath<GameSymbols, Byte>
+typealias RoutineSymbol = KeyPath<GameSymbols, Routine>
+
+/// Memory as the native routines see it: the CPU's own 64K (not a copy, so
+/// what a native writes is what the 6502 code reads next), with every symbol
+/// of the game's map by name, where the world's variant has it:
+///
+///     m.robotX = m.objX[body]
+///     m.drawX = m.robotX &+ 3
+///
+/// A `Byte` reads as UInt8, a `Word` as Int, a `Table` as `Bytes` (indexed
+/// from its address), a `Sprite` as its address.  Addresses wrap at 64K like
+/// the 6502's.  Only valid during the native call (`Machine.call`).
+@dynamicMemberLookup
 struct RAM {
-    var bytes: [UInt8]
+    private let bytes: UnsafeMutablePointer<UInt8>
+    /// The world's engine and version: where its symbols are.
+    let variant: Variant
 
+    init(_ bytes: UnsafeMutablePointer<UInt8>, _ variant: Variant) {
+        self.bytes = bytes
+        self.variant = variant
+    }
+
+    /// The byte at a computed address (a pointer's target, a table's entry).
     subscript(_ a: Int) -> UInt8 {
-        get { bytes[a] }
-        set { bytes[a] = newValue }
+        get { bytes[a & 0xFFFF] }
+        nonmutating set { bytes[a & 0xFFFF] = newValue }
     }
 
-    func word(_ a: Int) -> Int { Int(bytes[a]) | Int(bytes[a + 1]) << 8 }
+    func word(_ a: Int) -> Int { Int(self[a]) | Int(self[a + 1]) << 8 }
 
-    mutating func setWord(_ a: Int, _ v: Int) {
-        bytes[a] = UInt8(v & 0xFF)
-        bytes[a + 1] = UInt8(v >> 8 & 0xFF)
+    func setWord(_ a: Int, _ v: Int) {
+        self[a] = UInt8(v & 0xFF)
+        self[a + 1] = UInt8(v >> 8 & 0xFF)
     }
 
-    // MARK: engine parameters (zero page and $9Cxx)
-
-    static let spritePointer = 0x0D     // ZP_SPRITEPTR, 2 bytes
-    static let patternEven = 0x0F       // ZP_PAT_EVEN
-    static let patternOdd = 0x10        // ZP_PAT_ODD
-    static let linePointer = 0x11       // 2 bytes: hi-res line being drawn
-    static let spriteBits = 0x13
-    static let drawY = 0x14             // ZP_DRAW_Y, counted from the bottom
-    static let maskTemp = 0x15
-    static let lineHiTable = 0x16       // ZP_LINE_HI_PTR: line high bytes of the page drawn on
-    static let drawX = 0x18             // ZP_DRAW_X, 0-139
-    static let jumpVector = 0x19        // ZP_JUMP_VEC, 2 bytes
-    static let lineColour = 0x9C34      // lines and boxes: colour, x1, y1, x2, y2
-    static let lineX1 = 0x9C35, lineY1 = 0x9C36, lineX2 = 0x9C37, lineY2 = 0x9C38
-    static let currentRoom = 0x9C2D     // CUR_ROOM
-    static let moveDX = 0x9C22          // MOVE_DX, MOVE_DY: the move of CUR_OBJECT
-    static let moveDY = 0x9C23
-    static let destinationRoom = 0x9C2E // DEST_ROOM
-    static let currentObject = 0x9C2F   // CUR_OBJECT
-    static let buttonA = 0x9C3B         // BUTTON_A, BUTTON_B: 1 while pressed
-    static let buttonB = 0x9C3C
-    static let lastKey = 0x9C3D         // LAST_KEY: the key of this tick (0: none), 0 once used
-
-    var x: UInt8 {
-        get { bytes[RAM.drawX] }
-        set { bytes[RAM.drawX] = newValue }
+    /// Where a symbol is in this variant; a symbol the variant lacks is a bug.
+    /// (Inlined, the compiler turns `m.robotX` into a load from the map.)
+    @inline(__always)
+    func address<S: Symbol>(_ s: KeyPath<GameSymbols, S>) -> Int {
+        guard let a = GameSymbols.map[keyPath: s].address(variant) else { missing() }
+        return a
     }
 
-    var y: UInt8 {
-        get { bytes[RAM.drawY] }
-        set { bytes[RAM.drawY] = newValue }
+    private func missing() -> Never {
+        fatalError("A symbol the \(variant) engine doesn't have")
     }
 
-    var sprite: Int {
-        get { word(RAM.spritePointer) }
-        set { setWord(RAM.spritePointer, newValue) }
+    @inline(__always)
+    subscript(dynamicMember s: ByteSymbol) -> UInt8 {
+        get { self[address(s)] }
+        nonmutating set { self[address(s)] = newValue }
+    }
+
+    /// A variable passed by its symbol: `m[move]` for `move = \.moveDX`.
+    @inline(__always)
+    subscript(_ s: ByteSymbol) -> UInt8 {
+        get { self[address(s)] }
+        nonmutating set { self[address(s)] = newValue }
+    }
+
+    @inline(__always)
+    subscript(dynamicMember s: KeyPath<GameSymbols, Word>) -> Int {
+        get { word(address(s)) }
+        nonmutating set { setWord(address(s), newValue) }
+    }
+
+    @inline(__always)
+    subscript(dynamicMember s: KeyPath<GameSymbols, Table>) -> Bytes {
+        Bytes(ram: self, address: address(s))
+    }
+
+    @inline(__always)
+    subscript(dynamicMember s: KeyPath<GameSymbols, Sprite>) -> Int {
+        address(s)
+    }
+}
+
+/// A table in memory, indexed from its address.
+struct Bytes {
+    let ram: RAM
+    let address: Int
+
+    subscript(_ i: Int) -> UInt8 {
+        get { ram[address + i] }
+        nonmutating set { ram[address + i] = newValue }
+    }
+
+    subscript(_ i: UInt8) -> UInt8 {
+        get { ram[address + Int(i)] }
+        nonmutating set { ram[address + Int(i)] = newValue }
+    }
+
+    /// The 16-bit entry at byte `i`, low byte first.
+    func word(_ i: Int) -> Int { ram.word(address + i) }
+}
+
+extension Array where Element == UInt8 {
+    /// Runs `body` on this memory image as the native routines see it.
+    mutating func withRAM<R>(_ variant: Variant, _ body: (RAM) throws -> R) rethrows -> R {
+        try withUnsafeMutableBufferPointer { try body(RAM($0.baseAddress!, variant)) }
+    }
+
+    // Symbols that are at the same place in every variant, for code that
+    // looks at a memory image (the model, the viewer, the checks).
+
+    subscript(_ s: ByteSymbol) -> UInt8 {
+        get { self[GameSymbols.address(s)] }
+        set { self[GameSymbols.address(s)] = newValue }
+    }
+
+    subscript(_ s: KeyPath<GameSymbols, Table>, _ i: Int) -> UInt8 {
+        get { self[GameSymbols.address(s) + i] }
+        set { self[GameSymbols.address(s) + i] = newValue }
+    }
+
+    subscript(_ s: KeyPath<GameSymbols, Word>) -> Int {
+        let a = GameSymbols.address(s)
+        return Int(self[a]) | Int(self[a + 1]) << 8
     }
 }
 
@@ -113,8 +179,8 @@ struct Registers {
         set(CPU6502.Flag.overflow, m & 0x40 != 0)
     }
 
-    /// Loads `v` and drops its sign, as `LDA v / JSR $AE20` does (`BPL`, else
-    /// `EOR #$FF / CLC / ADC #1`): $80 stays $80.
+    /// Loads `v` and drops its sign, as `LDA v / JSR MAGNITUDE` does (`BPL`,
+    /// else `EOR #$FF / CLC / ADC #1`): $80 stays $80.
     mutating func magnitude(_ v: UInt8) -> UInt8 {
         guard nz(v) & 0x80 != 0 else { return v }
         carry = false

@@ -18,9 +18,12 @@
 //           the room, thrusters, bumpers, grabbers, battery, switch, antenna,
 //           animation counters, random generator, interior rooms), several ticks
 //           in a row -- all memory must match except the stack below the caller;
-//           the object motion and input routines likewise on random objects,
-//           moves, walls, keys and joystick positions -- memory, A, X, Y and
-//           the flags must match.
+//           the object motion, input and player routines likewise on random
+//           objects, moves, walls, keys and joystick positions -- memory, A, X,
+//           Y and the flags must match.
+//
+// Every world's engine code must match the symbols' fingerprints (the
+// loader's CodeCheck), and still match after the ticks.
 import Foundation
 
 struct SplitMix {
@@ -64,7 +67,7 @@ struct NativeCheck {
             let d = try DiskImage(name: (p as NSString).lastPathComponent, data: Data(contentsOf: URL(fileURLWithPath: p)))
             if case .storage = d.role { storage.append(d) } else { program.append(d) }
         }
-        var set = DiskSet(version: "?")
+        var set = DiskSet(version: nil)
         for d in program {
             if case .programSide(let side, let version) = d.role {
                 set.version = version
@@ -89,13 +92,17 @@ struct NativeCheck {
                 failures += 1
                 continue
             }
-            print("\(world.name) (v\(set.version)): natives \(screen.natives.joined(separator: ", "))")
+            let natives = screen.natives.map { String(format: "%@ $%04X", $0.name, $0.entry) }
+            print("\(world.name) (v\(set.versionName)): natives \(natives.joined(separator: ", "))")
+            if let differing = world.codeCheck?.differing, !differing.isEmpty {
+                fail("\(world.name): code differs from the symbols' fingerprints: \(differing.joined(separator: ", "))")
+            }
             frames += checkFrames(world, screen)
             ticks += checkTicks(world, screen)
             inputTicks += checkInputTicks(world, screen, &rng)
-            calls += checkMotionCalls(world, screen, &rng)
-            guard let layout = RobotDrawing.layout(in: world.mem) else { continue }
-            calls += checkCalls(world, screen, layout, &rng)
+            guard let check = world.codeCheck else { continue }
+            calls += checkRegisterCalls(world, screen, check, &rng)
+            calls += checkRobotCalls(world, screen, check, &rng)
         }
         print("\(frames) frames, \(ticks) ticks, \(inputTicks) ticks with input, \(calls) calls compared; \(failures) differences")
         exit(failures == 0 ? 0 : 1)
@@ -204,7 +211,8 @@ struct NativeCheck {
                 fail("\(world.name) input tick \(tick): \(error)")
                 return tick
             }
-            let at = [0x6300, 0x6400, 0x6500].map { native.memory[$0] }
+            let position: [KeyPath<GameSymbols, Table>] = [\.objRoom, \.objX, \.objY]
+            let at = position.map { native.memory[$0, 0] }
             if at == player { hold = 0 }            // stuck at a wall: another direction
             player = at
             rooms.insert(at[0])
@@ -230,8 +238,12 @@ struct NativeCheck {
                 return tick + 1
             }
         }
-        let still = Machine(memory: native.memory, bank1: native.bank1).installNatives()
-        if still != screen.natives { fail("\(world.name): natives after the ticks: \(still)") }
+        if let v = world.codeCheck?.variant {
+            let still = CodeCheck(native.memory, v)
+            if still.natives.map(\.name) != world.codeCheck?.natives.map(\.name) {
+                fail("\(world.name): natives after the ticks: \(still.natives.map(\.name)), differing: \(still.differing)")
+            }
+        }
         print("  \(count) ticks with input (\(keyTicks) keys, \(stickTicks) with a joystick), player in \(rooms.count) rooms")
         return count
     }
@@ -242,30 +254,22 @@ struct NativeCheck {
     static let testKeys: [UInt8] = [0xC9, 0xCD, 0xCA, 0xCB, 0xE9, 0xED, 0xEA, 0xEB, 0x89, 0x8D, 0x8A, 0x8B,
                                     0xA0, 0xD4, 0xDA]
 
-    /// The object motion and input routines called directly on randomised
-    /// states: memory, registers and the keyboard latch must match.
-    static func checkMotionCalls(_ world: World, _ screen: GameScreen, _ rng: inout SplitMix, trials: Int = 200) -> Int {
+    /// The natives that leave registers (object motion, input, the levels'
+    /// player routines) called directly on randomised states: memory,
+    /// registers and the keyboard latch must match.
+    static func checkRegisterCalls(_ world: World, _ screen: GameScreen, _ check: CodeCheck,
+                                   _ rng: inout SplitMix, trials: Int = 200) -> Int {
         guard let start = try? screen.render(room: 0).machine else { return 0 }
-        var routines: [(UInt16, String, Native)] = ObjectMotion.entries.map { entry, name, routine in
-            (entry, name, { (s: inout NativeState) in routine(&s.ram, &s.registers); return true })
-        }
-        if PlayerInput.matches(start.cpu.mem) {
-            routines.append((PlayerInput.entry, "READ_INPUT", PlayerInput.readInput))
-        }
-        if let l = PlayerInput.LevelRoutines.find(in: start.cpu.mem) {
-            for (entry, name, routine) in [(l.walk, "walk", PlayerInput.walk), (l.grab, "grab", PlayerInput.grabButton),
-                                           (l.keepMove, "keep move", PlayerInput.keepMove)] {
-                routines.append((entry, name, { (s: inout NativeState) in routine(&s.ram, &s.registers); return true }))
-            }
-        }
+        let v = check.variant
+        let natives = check.natives.filter(\.leavesRegisters)
         // Objects in the room lists (so moving them keeps the lists intact).
         let mem0 = start.cpu.mem
         var listed: [UInt8] = []
-        for room in 0 ..< 0x40 {
-            var o = mem0[0x6E00 + room], steps = 0
+        for room in 0 ..< World.roomCount {
+            var o = mem0[\.roomFirstObject, room], steps = 0
             while o != 0xFF && steps < 256 {
-                if mem0[0x6300 + Int(o)] == room { listed.append(o) }
-                o = mem0[0x6000 + Int(o)]
+                if mem0[\.objRoom, Int(o)] == room { listed.append(o) }
+                o = mem0[\.objNext, Int(o)]
                 steps += 1
             }
         }
@@ -277,52 +281,56 @@ struct NativeCheck {
         for trial in 0 ..< trials {
             var mem = mem0
             let object = listed[Int(rng.byte(listed.count))]
-            for o in [0, Int(object)] {
-                mem[0x6400 + o] = rng.chance(4) ? rng.byte() : rng.byte(0x86)
-                mem[0x6500 + o] = rng.chance(4) ? rng.byte() : rng.byte(0xB1)
+            mem.withRAM(v) { m in
+                for o in [0, Int(object)] {
+                    m.objX[o] = rng.chance(4) ? rng.byte() : rng.byte(0x86)
+                    m.objY[o] = rng.chance(4) ? rng.byte() : rng.byte(0xB1)
+                }
+                m.currentObject = object
+                m.moveDX = signedStep(&rng)
+                m.moveDY = signedStep(&rng)
+                m.destinationRoom = rng.byte(0x40)
+                m.wallsOn = rng.byte(2)
+                m.inputDevice = rng.byte(2)
+                m.lastPaddleX = rng.chance(2) ? 0xFE : rng.byte()
+                m.lastPaddleY = rng.chance(2) ? 0xFE : rng.byte()
+                m.pointer = m.roomWalls.address + 30 * Int(rng.byte(0x40))
+                m.wallColumn = rng.chance(5) ? rng.byte() : rng.byte(22)
+                m.wallRow = rng.chance(5) ? rng.byte() : rng.byte(14)
+                m.buttonA = rng.byte(2)
+                m.buttonB = rng.byte(2)
+                if v.engine == .levels {
+                    // Frames stay 0-7 in the game; from 8 on the sprite may be read from the I/O page.
+                    m.walkFrame = rng.byte(8)
+                    m.grabState = rng.byte(3)
+                }
             }
-            mem[RAM.currentObject] = object
-            mem[RAM.moveDX] = signedStep(&rng)
-            mem[RAM.moveDY] = signedStep(&rng)
-            mem[RAM.destinationRoom] = rng.byte(0x40)
-            mem[PlayerInput.wallsOn] = rng.byte(2)
-            mem[PlayerInput.device] = rng.byte(2)
-            for a in [PlayerInput.lastPaddleX, PlayerInput.lastPaddleY] { mem[a] = rng.chance(2) ? 0xFE : rng.byte() }
-            let walls = ObjectMotion.roomWalls + 30 * Int(rng.byte(0x40))
-            mem[0x00] = UInt8(walls & 0xFF)
-            mem[0x01] = UInt8(walls >> 8)
-            mem[0x02] = rng.chance(5) ? rng.byte() : rng.byte(22)
-            mem[0x03] = rng.chance(5) ? rng.byte() : rng.byte(14)
-            // Frames stay 0-7 in the game; from 8 on the sprite may be read from the I/O page.
-            mem[PlayerInput.walkFrame] = rng.byte(8)
-            mem[PlayerInput.grabState] = rng.byte(3)
-            mem[RAM.buttonA] = rng.byte(2)
-            mem[RAM.buttonB] = rng.byte(2)
             var devices = InputDevices()
             if !rng.chance(3) { devices.type(rng.chance(2) ? testKeys[Int(rng.byte(testKeys.count))] : rng.byte()) }
             if rng.chance(2) { devices.joystick = (rng.byte(), rng.byte()) }
             devices.buttons = [rng.chance(3), rng.chance(3)]
             let regs = Registers(a: rng.byte(), x: rng.byte(0x40), y: object, p: rng.byte() & ~0x18 | 0x20)
-            for (entry, name, routine) in routines {
-                let original = Machine(memory: mem, bank1: start.bank1)
-                let native = Machine(memory: mem, bank1: start.bank1)
-                for m in [original, native] {
+            for native in natives {
+                let entry = GameSymbols.map[keyPath: native.routine].entry(v)!
+                let original = Machine(memory: mem, bank1: start.bank1, variant: v)
+                let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
+                for m in [original, ported] {
                     m.devices = devices
                     (m.cpu.a, m.cpu.x, m.cpu.y, m.cpu.p, m.cpu.sp) = (regs.a, regs.x, regs.y, regs.p, 0xF0)
                 }
                 do {
                     try original.cpu.call(entry)
                 } catch {
-                    fail("\(world.name) trial \(trial) \(name): \(error)")
+                    fail("\(world.name) trial \(trial) \(native.name): \(error)")
                     return n
                 }
-                guard native.call(routine) else {
-                    fail("\(world.name) trial \(trial) \(name): declined")
+                guard ported.call(native.run) else {
+                    fail("\(world.name) trial \(trial) \(native.name): declined")
                     return n
                 }
                 n += 1
-                let o = original.cpu, c = native.cpu
-                let what = "\(world.name) trial \(trial) \(name) object \(hex(Int(object)))"
+                let o = original.cpu, c = ported.cpu
+                let what = "\(world.name) trial \(trial) \(native.name) object \(hex(Int(object)))"
                 if let d = firstDifference(c.mem, o.mem, ignoring: 0x0100 ... 0x01F0) {
                     fail("\(what): \(hex(d)) native \(c.mem[d]) original \(o.mem[d])")
                     return n
@@ -330,52 +338,58 @@ struct NativeCheck {
                     fail(String(format: "%@: registers native A=%02X X=%02X Y=%02X P=%02X original A=%02X X=%02X Y=%02X P=%02X",
                                 what, c.a, c.x, c.y, c.p & 0xCF, o.a, o.x, o.y, o.p & 0xCF))
                     return n
-                } else if native.devices.key != original.devices.key {
+                } else if ported.devices.key != original.devices.key {
                     fail("\(what): keyboard latch differs")
                     return n
                 }
             }
         }
-        print("  \(n) calls of \(routines.count) object motion and input routines")
+        print("  \(n) calls of \(natives.count) routines that leave registers")
         return n
     }
 
-    /// The robot routines called directly, on randomised states, 4 ticks each.
-    static func checkCalls(_ world: World, _ screen: GameScreen, _ l: RobotDrawing.Layout, _ rng: inout SplitMix) -> Int {
-        guard let start = try? screen.render(room: 0).machine else { return 0 }
-        let robots = RobotDrawing(layout: l)
+    /// The robot drawing called directly, on randomised states, 4 ticks each.
+    static func checkRobotCalls(_ world: World, _ screen: GameScreen, _ check: CodeCheck, _ rng: inout SplitMix) -> Int {
+        let robots = check.natives.filter { !$0.leavesRegisters }
+        guard !robots.isEmpty, let start = try? screen.render(room: 0).machine else { return 0 }
+        let v = check.variant
+        let count = Robot.count(v.engine)
         var n = 0
         for trial in 0 ..< 300 {
             var mem = start.cpu.mem
             let interior = rng.chance(3)
-            let room = interior ? RobotDrawing.interiorRooms[Int(rng.byte(l.robots))] : rng.byte(0x40)
-            mem[RAM.currentRoom] = room
-            for (i, body) in RobotDrawing.bodies.prefix(l.robots).enumerated() {
-                if !interior || rng.chance(2) { mem[0x6300 + body] = room }
-                mem[0x6400 + body] = rng.chance(8) ? rng.byte() : rng.byte(0x8C)
-                mem[0x6500 + body] = rng.chance(8) ? rng.byte() : rng.byte(0xB8)
-                let state = l.robotState + 0x1A * i
-                for k in 0 ..< 4 {
-                    mem[state + 0x0C + k] = rng.chance(10) ? rng.byte() : rng.byte(4)
-                    mem[state + 0x10 + k] = rng.byte(8)
-                    mem[l.grabbers + 4 * i + k] = rng.chance(10) ? rng.byte() : rng.byte(5)
+            let room = interior ? Robot.interiorRooms[Int(rng.byte(count))] : rng.byte(0x40)
+            mem.withRAM(v) { m in
+                m.currentRoom = room
+                for (i, body) in Robot.bodies.prefix(count).enumerated() {
+                    if !interior || rng.chance(2) { m.objRoom[body] = room }
+                    m.objX[body] = rng.chance(8) ? rng.byte() : rng.byte(0x8C)
+                    m.objY[body] = rng.chance(8) ? rng.byte() : rng.byte(0xB8)
+                    let state = Robot.stateSize * i
+                    for k in 0 ..< 4 {
+                        m.robotThrusters[state + k] = rng.chance(10) ? rng.byte() : rng.byte(4)
+                        m.robotBumpers[state + k] = rng.byte(8)
+                        m.robotGrabbers[4 * i + k] = rng.chance(10) ? rng.byte() : rng.byte(5)
+                    }
+                    m.robotBattery[state] = rng.chance(10) ? rng.byte(0x20) : rng.byte(0x10)
+                    m.robotSwitch[state] = rng.byte(2)
+                    m.objColour[Robot.antennaObjects[i]] = rng.byte(8)
+                    m.objColour[Robot.signalObjects[i]] = rng.chance(2) ? 5 : rng.byte(8)
                 }
-                mem[state + 0x18] = rng.chance(10) ? rng.byte(0x20) : rng.byte(0x10)
-                mem[state + 0x19] = rng.byte(2)
-                mem[0x6200 + RobotDrawing.antennaObjects[i]] = rng.byte(8)
-                mem[0x6200 + RobotDrawing.signalObjects[i]] = rng.chance(2) ? 5 : rng.byte(8)
+                let counters: [ByteSymbol] = [\.scanPosition, \.sparkToggle, \.rainbowColour, \.rainbowStep, \.rainbowBit]
+                for counter in counters {
+                    m[counter] = rng.chance(4) ? rng.byte() : rng.byte(14)
+                }
+                if v.engine == .levels { m.pulsePhase = rng.byte(4) }
+                m.randomLow = rng.byte()
+                m.randomHigh = rng.byte()
             }
-            for v in [l.scanPosition, l.sparkToggle, l.rainbowColour, l.rainbowStep, l.rainbowBit] {
-                mem[v] = rng.chance(4) ? rng.byte() : rng.byte(14)
-            }
-            if l.robots == 4 { mem[l.pulsePhase] = rng.byte(4) }
-            mem[0x4E] = rng.byte()
-            mem[0x4F] = rng.byte()
-            let original = Machine(memory: mem, bank1: start.bank1)
+            let original = Machine(memory: mem, bank1: start.bank1, variant: v)
             original.nativesEnabled = false
-            let native = Machine(memory: mem, bank1: start.bank1)
+            let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
             for tick in 0 ..< 4 {
-                for (entry, routine) in [(l.exterior, robots.drawExteriors), (l.interior, robots.drawInterior)] {
+                for native in robots {
+                    let entry = GameSymbols.map[keyPath: native.routine].entry(v)!
                     original.cpu.sp = 0xF0
                     do {
                         try original.cpu.call(entry)
@@ -383,16 +397,17 @@ struct NativeCheck {
                         fail("\(world.name) trial \(trial): \(error)")
                         return n
                     }
-                    native.run(routine)
+                    ported.call(native.run)
                     n += 1
                     // The stack below the caller ($01F0 down) only holds dead return addresses.
-                    if let d = firstDifference(native.cpu.mem, original.cpu.mem, ignoring: 0x0100 ... 0x01F0) {
-                        fail("\(world.name) trial \(trial) tick \(tick) room \(room) \(hex(Int(entry))): \(hex(d)) native \(native.cpu.mem[d]) original \(original.cpu.mem[d])")
+                    if let d = firstDifference(ported.cpu.mem, original.cpu.mem, ignoring: 0x0100 ... 0x01F0) {
+                        fail("\(world.name) trial \(trial) tick \(tick) room \(room) \(native.name): \(hex(d)) native \(ported.cpu.mem[d]) original \(original.cpu.mem[d])")
                         return n
                     }
                 }
             }
         }
+        print("  \(n) calls of the robot drawing")
         return n
     }
 }

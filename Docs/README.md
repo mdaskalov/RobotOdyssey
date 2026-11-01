@@ -10,9 +10,10 @@ faithful Swift version.
 | [WorldFormat.md](WorldFormat.md) | the world image $6000‑$94FF: objects, sprites, rooms, walls, texts, wires, colours, font, exact drawing rules |
 | [Engine.md](Engine.md) | memory map, the main loop (tick), draw phase, timing, the hybrid engine, porting strategy |
 | [Robots.md](Robots.md) | robot drawing ($D2BC/$D72B): robot state, the three engine builds, the random generator, verification |
+| [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
-## Current status (2026‑10‑31)
+## Current status (2026‑11‑01)
 
 * **Viewer app** (macOS, SwiftUI): opens the v1.0/v1.1 disk images and storage
   disks, shows all nine worlds and the saved games room by room, with
@@ -31,6 +32,14 @@ faithful Swift version.
   ported to Swift so far: the robot drawing, the input (READ_INPUT and the
   levels' player routines) and the object motion (moving objects across
   rooms, walls, screen edges), Engine.md "Input".
+* **Symbol maps** (Symbols.md): every address the Swift code uses, with its
+  place in each engine build and version, is in `RobotOddyssey/Symbols`
+  (game, loader, Level 1's code); the native routines use the names
+  (`m.robotX = m.objX[body]`) and the Mariani `.sym` files are written from
+  the maps. The loader tells the version by its file table and, loading a
+  world, checks the fingerprint of every routine a native replaces: a
+  routine that differs (a modified disk) runs as 6502 code, an unknown
+  version runs on the original code only.
 * **Verified:** every native routine against the original code
   (`Data/native_check.sh`), per drawn room, per direct call (memory, and
   registers and flags for the routines the worlds' code calls) and over
@@ -54,7 +63,11 @@ faithful Swift version.
   objects carry over from the previous level, rearranged by that level's
   exit code. We rebuild them by running that code on a 6502 emulator.
 * Each world comes with its own **6502 code** (main loop, puzzles,
-  animations) at $0803 and $8EF0; the engine itself is shared.
+  animations) at $0803 and $8EF0; the engine itself is shared: engine main
+  ($9500‑$B7D6) is one file for every world and version, the rest comes in
+  three builds (levels, Robot Anatomy/Toolkit, lab) of the same code with
+  the variables elsewhere, and v1.0 differs from v1.1 only in the language
+  card's $D000 bank, by a few shifted routines (Symbols.md).
 * **Rendering is solved exactly.** Walls, sprites, texts and the L‑shaped
   wires match the original drawing routines byte for byte (all 64 rooms of
   the save state, run on the emulator).
@@ -177,8 +190,10 @@ the hi‑res page on screen. The selected room is drawn by the world's draw
 phase in place of the player's room, while the rest of the tick runs as in the
 game; on a room change the room appears at once, drawn from the state at the
 start of the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
-(one tick, when paused) and *Restart*; the line under the canvas shows the
-tick and ticks/s. The room thumbnails show the rooms after the world's
+(one tick, when paused) and *Restart*; the inspector's *Game* section shows
+the tick and ticks/s, how the room is drawn and, folded, the native routines
+in use with their entry points (and any routine the loader found modified,
+which runs as 6502 code). The room thumbnails show the rooms after the world's
 start‑up code; the selected room is shown live, and a room keeps its last
 live frame once you leave it, so the map shows the rooms as last seen.
 

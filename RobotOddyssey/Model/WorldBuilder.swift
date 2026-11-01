@@ -2,26 +2,32 @@ import Foundation
 
 /// The program disk (side A and/or B) of one version, plus optional storage disks.
 struct DiskSet {
-    var version: String
+    /// nil: a version the loader's file table doesn't tell (`LoaderSymbols`).
+    var version: Version?
     var sideA: DiskImage?
     var sideB: DiskImage?
 
     func disk(_ side: DiskSide) -> DiskImage? { side == .a ? sideA : sideB }
 
+    var versionName: String { version?.rawValue ?? "1.x" }
+
     var title: String {
         let names = [sideA?.name, sideB?.name].compactMap { $0 }.joined(separator: " + ")
-        return "Robot Odyssey I v\(version) (\(names))"
+        return "Robot Odyssey I v\(versionName) (\(names))"
     }
 }
 
-/// Builds world memory images the way the game's loader does.
+/// Builds world memory images the way the game's loader does.  It knows
+/// which engine it loads with a world and the disks' version, so it checks
+/// the engine code against the symbols' fingerprints right away (`CodeCheck`):
+/// the natives replace only the routines whose code is the version's.
 struct WorldBuilder {
     let disks: DiskSet
 
     private func load(_ segments: [Segment], into mem: inout [UInt8]) throws {
         for s in segments {
             guard let disk = disks.disk(s.side) else { throw DiskError.missingSide(s.side.rawValue) }
-            let length = disks.version == "1.0" ? GameCatalog.lengthsV10[s.side]?[s.page] ?? s.length : s.length
+            let length = disks.version == .v1_0 ? GameCatalog.lengthsV10[s.side]?[s.page] ?? s.length : s.length
             mem.replaceSubrange(s.address ..< s.address + length, with: disk.read(page: s.page, length: length))
         }
     }
@@ -43,12 +49,17 @@ struct WorldBuilder {
                 var mem = try memory(for: def.id, cache: &cache)
                 let bank1 = try setUpChips(def.chips, mem: &mem)
                 worlds.append(World(id: idPrefix + def.id, name: def.name, kind: def.kind, mem: mem,
-                                    bank1: bank1, wireTables: def.wireTables))
+                                    bank1: bank1, engine: def.engine, codeCheck: check(mem, def.engine)))
             } catch {
                 errors.append("\(def.name): \(error.localizedDescription)")
             }
         }
         return (worlds, errors)
+    }
+
+    /// The engine code in `mem` checked as the code of `engine` in the disks' version.
+    func check(_ mem: [UInt8], _ engine: EngineBuild) -> CodeCheck? {
+        disks.version.map { CodeCheck(mem, Variant(engine: engine, version: $0)) }
     }
 
     /// The loader's chip set-up on a loaded world; returns language card bank 1
@@ -75,7 +86,7 @@ struct WorldBuilder {
             mem = [UInt8](repeating: 0, count: 0x10000)
         }
         try loadEngineMain(into: &mem)
-        try load(def.engine, into: &mem)
+        try load(GameCatalog.segments(of: def.engine), into: &mem)
         try load(def.segments, into: &mem)
         try load(def.code, into: &mem)
         cache[id] = mem
@@ -86,16 +97,17 @@ struct WorldBuilder {
     ///
     /// It moves objects in/out of the world (room $3F = nowhere), shows a text
     /// screen, waits for a key and jumps to the next-level handler
-    /// (LDA #$02 / STA $02D0), where we stop.  ESC is reported as held down.
+    /// (`LDA #2 / STA MENU_MODE`), where we stop.  ESC is reported as held down.
     static func runExitCode(_ mem: inout [UInt8], worldName: String) throws {
+        let startUpEnd = [0xA9, 0x00] + instruction(0x8D, \.flag9C51)             // LDA #0 / STA FLAG_9C51
         guard let entry = exitEntry(in: mem),
-              let handler = find([0xA9, 0x02, 0x8D, 0xD0, 0x02], in: mem, from: 0x0803, to: 0x2000),
-              let initEnd = find([0xA9, 0x00, 0x8D, 0x51, 0x9C], in: mem, from: 0x0816, to: 0x0900)
+              let handler = find(nextLevelHandler, in: mem, from: 0x0803, to: 0x2000),
+              let initEnd = find(startUpEnd, in: mem, from: 0x0816, to: 0x0900)
         else { throw DiskError.exitCodeNotFound(worldName) }
         let cpu = CPU6502(memory: mem)
         cpu.ioRead = { $0 == 0xC000 ? 0x9B : 0 }
         // The level start-up code sets engine vectors used by the exit code.
-        try cpu.call(0x0803, stopAt: [UInt16(initEnd + 5)])
+        try cpu.call(UInt16(GameSymbols.address(\.worldStart)), stopAt: [UInt16(initEnd + startUpEnd.count)])
         cpu.sp = 0xFF
         try cpu.call(UInt16(entry), stopAt: [UInt16(handler)])
         mem = cpu.mem
@@ -108,7 +120,7 @@ struct WorldBuilder {
     /// straight-line code (no RTS/RTI/BRK, no JMP away) runs into the LDY.
     /// The addresses differ between v1.0 and v1.1 (level 2: $0B6F vs $0B76).
     static func exitEntry(in mem: [UInt8]) -> Int? {
-        guard let handler = find([0xA9, 0x02, 0x8D, 0xD0, 0x02], in: mem, from: 0x0803, to: 0x2000) else { return nil }
+        guard let handler = find(nextLevelHandler, in: mem, from: 0x0803, to: 0x2000) else { return nil }
         let regions = [0x0803 ..< 0x2000, 0x8EF0 ..< 0x9500]
         let jmp: [UInt8] = [0x4C, UInt8(handler & 0xFF), UInt8(handler >> 8)]
         let sites = regions.flatMap { r in
@@ -136,6 +148,16 @@ struct WorldBuilder {
             if pc == site { return t }
         }
         return nil
+    }
+
+    /// `LDA #2 / STA MENU_MODE`: a level's way to the next level.
+    private static let nextLevelHandler = [0xA9, 0x02] + instruction(0x8D, \.menuMode)
+
+    /// An instruction with a symbol's address as its operand, as code has it:
+    /// `instruction(0xAD, \.objRoom)` is `LDA OBJ_ROOM`.
+    static func instruction<S: Symbol>(_ opcode: UInt8, _ s: KeyPath<GameSymbols, S>) -> [UInt8] {
+        let a = GameSymbols.address(s)
+        return [opcode, UInt8(a & 0xFF), UInt8(a >> 8)]
     }
 
     static func find(_ pattern: [UInt8], in mem: [UInt8], from: Int, to: Int) -> Int? {
@@ -172,9 +194,10 @@ struct WorldBuilder {
             mem.replaceSubrange(0xD000 ..< 0xF000, with: storage.read(page: first + 1, length: 32 * 256))
             mem.replaceSubrange(0x6000 ..< 0x9500, with: storage.read(page: first + 33, length: 53 * 256))
             mem.replaceSubrange(0x0B00 ..< 0x2000, with: storage.read(page: first + 86, length: 21 * 256))
-            let walls = mem[0x7000 ..< 0x7780]
+            let wallBytes = GameSymbols.address(\.roomWalls) ..< GameSymbols.address(\.roomWalls) + World.roomCount * 30
+            let walls = mem[wallBytes]
             let match = reference.max { a, b in
-                zip(a.mem[0x7000 ..< 0x7780], walls).count { $0 == $1 } < zip(b.mem[0x7000 ..< 0x7780], walls).count { $0 == $1 }
+                zip(a.mem[wallBytes], walls).count { $0 == $1 } < zip(b.mem[wallBytes], walls).count { $0 == $1 }
             }
             let level = match.map { $0.name.components(separatedBy: " – ").first ?? $0.name } ?? "?"
             // The save holds language card bank 1 at $D000.  Restoring reloads the
@@ -191,22 +214,25 @@ struct WorldBuilder {
             // v1.0/v1.1 save code); restored, the player would hold itself (object 0)
             // and the main loop hang, so they keep the program disk's values.
             if header[0 ..< 0x44].contains(where: { $0 != 0 }) {
-                mem.replaceSubrange(0xF008 ..< 0xF048, with: header[0 ..< 0x40])
-                for (i, a) in [0x9C26, 0x9C27, 0xA5C9, 0xA5CA].enumerated() {
-                    mem[a] = header[0x40 + i]
+                let chipPins = GameSymbols.address(\.chipPins)
+                mem.replaceSubrange(chipPins ..< chipPins + 0x40, with: header[0 ..< 0x40])
+                let restored: [ByteSymbol] = [\.heldObject, \.held9C27, \.buttonEdgesA5C9, \.buttonEdgesA5CA]
+                for (i, variable) in restored.enumerated() {
+                    mem[variable] = header[0x40 + i]
                 }
             }
             // Code below $0B00 is not saved (Level 5 calls its code rooms from $08DA),
             // so take the matching world's code rooms whose bytes are unchanged.
             var codeRooms = World.findCodeRooms(in: mem)
             for (r, code) in match?.codeRooms ?? [:] where codeRooms[r] == nil {
-                let w = 0x7000 + r * 30 ..< 0x7000 + r * 30 + 30
+                let w = wallBytes.lowerBound + r * 30 ..< wallBytes.lowerBound + r * 30 + 30
                 if mem[w] == match?.mem[w] { codeRooms[r] = code }
             }
+            let engine = match?.engine ?? .levels
             games.append(World(id: "\(storage.name)#\(slot)",
                                name: "\(name.isEmpty ? "Slot \(slot + 1)" : name) (\(level))",
                                kind: .savedGame, mem: mem, bank1: bank1, codeRooms: codeRooms,
-                               wireTables: match?.wireTables ?? World.levelWireTables))
+                               engine: engine, codeCheck: check(mem, engine)))
         }
         return games
     }
