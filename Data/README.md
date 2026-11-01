@@ -3,9 +3,9 @@
 Python 3 scripts, no dependencies. Run them from this folder.
 
 ```sh
-A="/Volumes/SSD/Apple II/Robot Oddisey/Ro1v11a.dsk"
-B="/Volumes/SSD/Apple II/Robot Oddisey/Ro1v11b.dsk"
-STATE="/Volumes/SSD/Apple II/Robot Oddisey/RO_L1_SaveState.yaml"
+A="path/to/Ro1v11a.dsk"
+B="path/to/Ro1v11b.dsk"
+STATE="path/to/RO_L1_SaveState.yaml"   # Mariani/AppleWin save state in Level 1
 
 python3 ro_extract.py "$A" "$B" Extracted/v1.1 [--rooms]   # all worlds -> bin/json/png
 python3 ro_verify.py "$STATE"        # renderer vs. the original drawing code: 64/64 rooms identical
@@ -65,7 +65,8 @@ Worlds: `level1`‑`level5`, `anatomy` (Robot Anatomy), `toolkit`,
 `labtutorial` (Innovation Lab Tutorial), `lab` (Innovation Lab).
 Levels 2‑5 show the state when entered from an untouched previous level.
 
-This is data from the game disks – keep it out of public repositories.
+The `.bin` files are raw data from the game disks and are not committed
+(`.gitignore`); `ro_extract.py` and `ro_title.py` write them.
 
 ## Mariani symbol files
 

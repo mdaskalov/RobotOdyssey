@@ -5,3 +5,6 @@ xcuserdata/
 
 # Disk images bundled with the app (not distributable)
 RobotOdyssey/Resources/*.dsk
+
+# Raw data extracted from the game disks (written by ro_extract.py / ro_title.py)
+Data/Extracted/**/*.bin
