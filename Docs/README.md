@@ -184,9 +184,14 @@ the window shows the game's title screen (`Data/ro_title.py`); the app icon is
 robot 2, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world in the sidebar and a room
 below the canvas: *Grid* shows all 64 rooms (room *n* at column *n*%8, row
 *n*/8), *Map* shows the rooms as they connect (`WorldMap`), scrollable and
-zoomable, with each room's number on it. The links don't always form a plane
-(the sewer mazes lead back into themselves, Level 2's subway wraps around,
-some exits are one‑way, Level 4's edges all lead to room $3F), so the map is
+zoomable, with each room's number on it. It leaves out links to and from the
+robots' interiors ($09‑$0B, $0D in the levels: the player gets in and out by
+the robot) and $3F (nowhere: Level 4's edges lead there, and its code takes
+$3F for no exit). The links never change while a world runs; the walls do
+(SET_WALL $B3AA: doors, the Lab's paintbrush, Level 5 opens the top of the start room), so an
+edge walled up from end to end keeps its exit (Level 2's $3A↓$3D). The links
+don't always form a plane (the sewer mazes lead back into themselves, Level 2's
+subway wraps around, some exits are one‑way), so the map is
 the layout found to show the most exits as rooms next door (a two‑way exit
 counts twice): the rooms are placed best first, each where it shows the most
 exits to the rooms placed so far, then moved, alone or with the rooms they
@@ -196,9 +201,9 @@ a yellow badge on that edge (click it to go there). Rooms shown next to each
 other form an island, the player's first; rooms without exits (robot
 interiors, chip and code rooms) follow as in the grid.
 `Data/ro_map.sh` prints every world's map as text, with how many exits it
-shows (v1.1: Level 1 64 of 72, Level 2 137/173, Level 3 88/121, Level 4
-175/220, Level 5 76/93; growing breadth first from the player's room showed
-60, 132, 80, 155, 70). The map keeps
+shows (v1.1: Level 1 64 of 72, Level 2 136/170, Level 3 87/118, Level 4
+174/192, Level 5 76/93; before leaving out the robots' interiors and $3F,
+growing breadth first from the player's room showed 60, 132, 80, 155, 70). The map keeps
 the selected room in view, so when playing it follows the player. Arrow keys
 follow exits. Hover shows object coordinates and the sprite or wire under
 the pointer. Click a sprite or a wire to select it in the inspector (the

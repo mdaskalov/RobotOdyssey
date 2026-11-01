@@ -1,13 +1,14 @@
 import Foundation
 
 /// The rooms laid out as they connect: an exit is shown by putting the room
-/// it leads to next to its room, on that side.  The links need not form a
-/// plane (the sewer mazes lead back into themselves, Level 2's skyway wraps
-/// around, some exits are one-way, Level 4's edges all lead to room $3F), so
-/// the layout is the one found to show the most exits (a two-way exit counts
-/// twice): the rooms are placed best first, each where it shows the most
-/// exits to the rooms placed so far, then moved around by simulated annealing
-/// with a fixed seed, so a world always gets the same map.  Rooms shown next
+/// it leads to next to its room, on that side (`links`: the robots'
+/// interiors and $3F left out).  The links need not form a plane (the sewer
+/// mazes lead back into themselves, Level 2's skyway wraps around, some
+/// exits are one-way), so the layout is the one found to show the most
+/// exits (a two-way exit counts twice): the rooms are placed best first,
+/// each where it shows the most exits to the rooms placed so far, then moved
+/// around by simulated annealing with a fixed seed, so a world always gets
+/// the same map.  Rooms shown next
 /// to each other form an island; exits that don't lead to the room next door
 /// are listed in `exits`.
 nonisolated struct WorldMap {
@@ -43,7 +44,7 @@ nonisolated struct WorldMap {
     /// The player's island first, the others by size.
     let islands: [Island]
     let exits: [Int: [Exit]]
-    /// Rooms without exits that no exit leads to (robot interiors, code
+    /// Rooms without exits that no exit leads to (robot interiors, $3F, code
     /// rooms, unused rooms).
     let unconnected: [Int]
 
@@ -52,17 +53,40 @@ nonisolated struct WorldMap {
     /// is the slowest).
     private static let stepsPerRoom = 4000
 
-    init(world: World) {
-        let rooms = (0 ..< World.roomCount).map(world.room)
-        var layout = Layout()
-        for r in rooms.indices {
+    /// Where each room's exits lead, as the map shows them: a link to the
+    /// room itself is no exit, and links to or from the robots' interiors
+    /// and $3F are left out.  The player gets into and out of a robot by the
+    /// robot, not by links (Level 2's rooms $04-$06 lead down into $09-$0B,
+    /// Level 3's $0D leads out to rooms that don't lead back); $3F is
+    /// nowhere (Level 4's edges lead there and its code at $93CC takes $3F
+    /// for no exit; Robot Anatomy's $3F leads to $3E).  The links never
+    /// change while a world runs.  The walls do (SET_WALL: doors, the Lab's
+    /// paintbrush), so an edge walled up from end to end keeps its exit:
+    /// Level 5 opens the top of the player's room $28, which leads to $29.
+    static func links(_ world: World) -> [[Room.Direction: Int]] {
+        let left = Set(Robot.interiorRooms.prefix(Robot.count(world.engine)).map(Int.init) + [World.nowhere])
+        return (0 ..< World.roomCount).map { r in
+            guard !left.contains(r) else { return [:] }
+            let room = world.room(r)
+            var links: [Room.Direction: Int] = [:]
             for d in Room.Direction.allCases {
-                let t = rooms[r].link(d)
-                if t != r, t < World.roomCount { layout.link(r, d, t) }
+                let t = room.link(d)
+                if t != r, t < World.roomCount, !left.contains(t) { links[d] = t }
+            }
+            return links
+        }
+    }
+
+    init(world: World) {
+        let links = Self.links(world)
+        var layout = Layout()
+        for r in links.indices {
+            for d in Room.Direction.allCases {
+                if let t = links[r][d] { layout.link(r, d, t) }
             }
         }
         let player = world.object(0).room
-        let connected = rooms.indices.filter { !layout.neighbours[$0].isEmpty }
+        let connected = links.indices.filter { !layout.neighbours[$0].isEmpty }
         layout.placeBestFirst(seeds: [player] + connected)
         layout.anneal(steps: Self.stepsPerRoom * connected.count)
         islands = layout.islands(first: player)
@@ -71,15 +95,14 @@ nonisolated struct WorldMap {
         for island in islands {
             for (cell, r) in island.rooms {
                 for d in Room.Direction.allCases {
-                    let t = rooms[r].link(d)
-                    if t != r, t < World.roomCount, island.rooms[cell.step(d)] != t {
+                    if let t = links[r][d], island.rooms[cell.step(d)] != t {
                         exits[r, default: []].append(Exit(direction: d, room: t))
                     }
                 }
             }
         }
         self.exits = exits
-        unconnected = rooms.indices.filter { layout.neighbours[$0].isEmpty }
+        unconnected = links.indices.filter { layout.neighbours[$0].isEmpty }
     }
 }
 

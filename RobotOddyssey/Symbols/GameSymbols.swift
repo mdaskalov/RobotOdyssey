@@ -168,7 +168,7 @@ nonisolated final class GameSymbols: Sendable {
     let robotBattery = Table(levels: 0x8DE5, kit: 0x1B03, lab: 0x12C3)
     let robotSwitch = Table(levels: 0x8DE6, kit: 0x1B04, lab: 0x12C4)
     /// 0 without a button, 1 on a new press, 2 once the grab code is done.
-    let grabState = Byte(levels: 0x8E3E)
+    let grabState = Byte(levels: 0x8E3E, kit: 0x1B40, lab: 0x1300)
     // The robot drawing's variables: the robot being drawn and its parts.
     let drawnGrabbers = Table(levels: 0x8E7E, kit: 0x1B97, lab: 0x1358)
     let partIndex = Byte(levels: 0x8E82, kit: 0x1BE7, lab: 0x13A8)
@@ -416,8 +416,17 @@ nonisolated final class GameSymbols: Sendable {
     /// Their tables turning sprite bits into masks of covered pixels.
     let spriteMasks = Table(0xB2A3)
     let wallGroup = Byte(0xB3A8)
+    /// SET_WALL's A: 0 clears the wall, anything else sets it.
+    let wallValue = Byte(0xB3A9)
+    /// SET_WALL ($B3AA): sets or clears (A) the wall at tile WALL_COLUMN,
+    /// WALL_ROW (from the bottom) of the bitmap at POINTER; nothing outside
+    /// the room.  The worlds' doors and the Lab's paintbrush; the room links
+    /// never change, the walls do.
+    let setWall = Routine(0xB3AA)
     let wallGroupOffsets = Table(0xB3F8)
     let wallBits = Table(0xB3FB)
+    /// WALL_BITS inverted, for SET_WALL to clear one.
+    let wallMasks = Table(0xB403)
     let wallAt = Routine(0xB40B, code: 0xB40B ..< 0xB44F, md5: "a85248b2a7df309026f79291064bb967")
     let tilePatterns = Table(0xB496)
     let loadTilePatterns = Routine(0xB4A2)
@@ -428,10 +437,33 @@ nonisolated final class GameSymbols: Sendable {
     let engB8E6 = Routine(levels: 0xB8E6)
     let engB8ED = Routine(levels: 0xB8ED)
     let grabLogic = Routine(levels: 0xBDE1, guess: true)
-    let grabButton = Routine(levels: 0xBEBC, code: [.levels(0xBEBC ..< 0xBED6, md5: "901b150e06b79c82488a264e17b0a4d8")])
+    /// GRAB_STATE from the buttons; the kit's and the lab's own copies
+    /// (their code unchecked, so the native runs in the levels only).
+    let grabButton = Routine(levels: 0xBEBC, kit: 0xBEDB, lab: 0x185A,
+                             code: [.levels(0xBEBC ..< 0xBED6, md5: "901b150e06b79c82488a264e17b0a4d8")])
     let engBED6 = Routine(levels: 0xBED6)
     /// The player's 8 walking frames.
     let playerSprites = Table(levels: 0xBF30)
+
+    // MARK: the lab's engine piece at $B8E0
+
+    /// PAINTBRUSH ($BEBB, the lab's main loop calls it every tick): holding
+    /// the paintbrush (TOOL_MODE $E0) in the maze rooms $0D-$14 turns
+    /// WALLS_ON off, and the grab button paints the tile under the player
+    /// (SET_WALL): a new press toggles it, held it paints the same value.
+    let paintbrush = Routine(lab: 0xBEBB)
+    /// POINTER and WALL_COLUMN, WALL_ROW of the tile under the player (x+4, y+8).
+    let paintbrushTile = Routine(lab: 0xBF01)
+    /// A tile on the room's edge is painted in the linked room too and stays
+    /// a wall where the edge has no exit.
+    let paintbrushEdges = Routine(lab: 0xBF1A)
+    /// The value painted (SET_WALL's A) and WALL_ROW kept while painting the edges.
+    let paintValue = Byte(lab: 0x13B1)
+    let paintRow = Byte(lab: 0x13B2)
+    /// WALL_COLUMN of x A (X_BYTE_TABLE / 2), 0 off the screen.
+    let columnOfX = Routine(lab: 0xBFBE)
+    /// WALL_ROW of y A (A / 16).
+    let rowOfY = Routine(lab: 0xBFD5)
 
     // MARK: language card bank 2 at $D000 (moved in v1.0)
 

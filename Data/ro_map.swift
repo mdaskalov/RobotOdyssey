@@ -36,9 +36,7 @@ struct MapTool {
         let start = Date()
         let map = WorldMap(world: world)
         let time = Date().timeIntervalSince(start)
-        let exits = (0 ..< World.roomCount).map(world.room).reduce(0) { n, room in
-            n + Room.Direction.allCases.count { room.link($0) != room.id && room.link($0) < World.roomCount }
-        }
+        let exits = WorldMap.links(world).reduce(0) { $0 + $1.count }
         let badges = map.exits.values.reduce(0) { $0 + $1.count }
         print("\(world.name): \(exits - badges) of \(exits) exits shown, "
               + "islands \(map.islands.map { String($0.rooms.count) }.joined(separator: "+")) rooms, "
