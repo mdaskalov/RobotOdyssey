@@ -1,7 +1,8 @@
 import SwiftUI
 
-/// The selected room's properties, the running game (tick, how the room is
-/// drawn, the native routines), then the room's objects, the other sprites
+/// The selected room's properties, the running game (tick, what is
+/// under the pointer or the keys, how the room is drawn, the native
+/// routines), then the room's objects, the other sprites
 /// drawn, wires and texts (folded; select a sprite or wire to highlight it),
 /// as the loop last drew it (`ViewerModel.contents`).
 struct RoomInspector: View {
@@ -36,6 +37,7 @@ struct RoomInspector: View {
                 if !model.loopStatus.isEmpty {
                     Text(model.loopStatus).monospacedDigit()
                 }
+                PointerReadout(model: model, world: world)
                 Text(model.renderNote(world: world, room: room.id))
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -133,6 +135,43 @@ struct RoomInspector: View {
         } label: {
             LabeledContent("Native routines") { Text(summary).monospacedDigit() }
         }
+    }
+}
+
+/// What is under the pointer on the canvas: the place, the tile and the
+/// sprite or wire there; else the keys.  A view of its own, so that moving
+/// the pointer redraws only this line.
+private struct PointerReadout: View {
+    var model: ViewerModel
+    let world: World
+
+    var body: some View {
+        Text(text(model.contents(world)))
+            .font(.caption.monospaced())
+            .foregroundStyle(.secondary)
+            .lineLimit(3, reservesSpace: true)
+    }
+
+    private func text(_ contents: RoomContents) -> String {
+        guard let p = model.pointer, (0 ..< 140).contains(p.x), (0 ..< 192).contains(p.y) else {
+            if model.playing {
+                return "Playing: I J K M or the arrow keys move (Ctrl or Shift: slowly) · space picks up and drops · ? hints · Esc quits"
+            }
+            return "Hover for coordinates · click a sprite or a wire to select it · arrow keys follow exits · space pauses"
+        }
+        let (x, y) = (p.x, p.y)
+        var s = String(format: "x=$%02X y=$%02X · tile column %d row %d", x, y, x * 2 / 14, (191 - y) / 16)
+        if let sprite = contents.sprite(atX: x, y: y) {
+            let name = sprite.spriteName(in: contents.world)
+            if case .object(let o) = sprite.id {
+                s += String(format: "\nobject $%02X: %@ at ($%02X,$%02X)", o, name, sprite.x, sprite.y)
+            } else {
+                s += String(format: "\n%@ at ($%02X,$%02X) by %@", name, sprite.x, sprite.y, sprite.drawnBy(in: contents.world) ?? "?")
+            }
+        } else if let w = contents.wire(atX: x, y: y) {
+            s += String(format: "\nwire $%02X → $%02X %@", w.object, w.wire.to, w.wire.hot ? "hot" : "off")
+        }
+        return s
     }
 }
 

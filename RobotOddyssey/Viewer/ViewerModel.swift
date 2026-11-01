@@ -42,9 +42,22 @@ final class ViewerModel {
     }
     var showEmptyRooms = false
     var showGrid = false
-    var showInspector = true {
-        didSet { showLive() }
+    /// The panels: the worlds on the left, the rooms below the canvas, the inspector on the right.
+    var showLevels = UserDefaults.standard.object(forKey: "showLevels") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showLevels, forKey: "showLevels") }
     }
+    var showRooms = UserDefaults.standard.object(forKey: "showRooms") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showRooms, forKey: "showRooms") }
+    }
+    var showInspector = UserDefaults.standard.object(forKey: "showInspector") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(showInspector, forKey: "showInspector")
+            showLive()
+        }
+    }
+    /// Object coordinates under the pointer on the canvas (x 0-139, y 0-191
+    /// from the bottom), for the inspector's read-out.
+    var pointer: RoomPoint?
     /// The inspector's other sprites drawn are open: while the inspector is
     /// shown, the selected room's sprites are recorded (`updateContents`).
     var showSprites = UserDefaults.standard.bool(forKey: "showSprites") {

@@ -79,6 +79,12 @@ struct RoomContents {
     }
 }
 
+/// A point of the room in object coordinates: x 0-139, y 0-191 counted from the bottom.
+struct RoomPoint: Equatable {
+    let x: Int
+    let y: Int
+}
+
 /// What the inspector and the canvas select in the room.
 enum RoomItem: Hashable {
     case object(Int)

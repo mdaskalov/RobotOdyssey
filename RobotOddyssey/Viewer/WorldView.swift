@@ -9,43 +9,69 @@ enum RoomsLayout: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-/// The selected room large, with link navigation, and all rooms below: in an
-/// 8x8 grid or on the map of how they connect.
+/// The selected room large, and below it, if shown, all rooms in an 8x8 grid
+/// or on the map of how they connect (`RoomBrowser`).
 struct WorldView: View {
     @Bindable var model: ViewerModel
     let world: World
     @FocusState private var focused: Bool
+    @AppStorage("roomsHeight") private var roomsHeight = 320.0
+
+    var body: some View {
+        GeometryReader { geo in
+            // The canvas keeps at least 160 points.
+            let maxRooms = max(geo.size.height - 160, 100)
+            VStack(spacing: 0) {
+                RoomCanvas(model: model, world: world)
+                    .focusable()
+                    .focused($focused)
+                    .focusEffectDisabled()
+                    .onKeyPress(phases: [.down, .repeat]) { press in
+                        if model.playing {
+                            guard let code = AppleKeyboard.code(for: press) else { return .ignored }
+                            model.type(code)
+                            return .handled
+                        }
+                        switch press.key {
+                        case .upArrow: model.go(.up)
+                        case .downArrow: model.go(.down)
+                        case .leftArrow: model.go(.left)
+                        case .rightArrow: model.go(.right)
+                        case .space: model.paused.toggle()
+                        default: return .ignored
+                        }
+                        return .handled
+                    }
+                    .task(id: "\(world.id)#\(model.restarts)") {
+                        await model.runGame(world: world)
+                    }
+                    .padding()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if model.showRooms {
+                    VStack(spacing: 0) {
+                        ResizeHandle(size: $roomsHeight, range: 100 ... maxRooms, panel: .bottom)
+                        RoomBrowser(model: model, world: world)
+                            .frame(height: min(roomsHeight, maxRooms))
+                    }
+                    .transition(.move(edge: .bottom))
+                }
+            }
+            .animation(.default, value: model.showRooms)  // as the inspector slides
+        }
+        .onAppear { focused = true }
+    }
+}
+
+/// All rooms, in an 8x8 grid or on the map of how they connect; click one to select it.
+private struct RoomBrowser: View {
+    var model: ViewerModel
+    let world: World
     @AppStorage("roomsLayout") private var layout = RoomsLayout.grid
     /// Map tiles as a fraction of a full-size thumbnail.
     @AppStorage("mapZoom") private var zoom = 0.5
 
     var body: some View {
-        let room = world.room(model.selectedRoom)
-        VStack {
-            RoomHeader(model: model, room: room, code: world.codeRooms[room.id])
-            RoomCanvas(model: model, world: world)
-                .focusable()
-                .focused($focused)
-                .focusEffectDisabled()
-                .onKeyPress(phases: [.down, .repeat]) { press in
-                    if model.playing {
-                        guard let code = AppleKeyboard.code(for: press) else { return .ignored }
-                        model.type(code)
-                        return .handled
-                    }
-                    switch press.key {
-                    case .upArrow: model.go(.up)
-                    case .downArrow: model.go(.down)
-                    case .leftArrow: model.go(.left)
-                    case .rightArrow: model.go(.right)
-                    case .space: model.paused.toggle()
-                    default: return .ignored
-                    }
-                    return .handled
-                }
-                .task(id: "\(world.id)#\(model.restarts)") {
-                    await model.runGame(world: world)
-                }
+        VStack(spacing: 0) {
             HStack(spacing: 12) {
                 Text("Rooms").font(.headline)
                 Picker("Rooms", selection: $layout) {
@@ -61,12 +87,13 @@ struct WorldView: View {
                         .frame(maxWidth: 200)
                 }
             }
-            .padding([.horizontal, .top])
+            .padding(.horizontal)
+            .padding(.vertical, 8)
             if !model.thumbnailsReady {
                 loading("Drawing the rooms…")
             } else if layout == .grid {
                 ScrollView {
-                    RoomGrid(model: model, world: world).padding()
+                    RoomGrid(model: model, world: world).padding([.horizontal, .bottom])
                 }
             } else if let map = model.map(world) {
                 WorldMapView(model: model, world: world, map: map, zoom: zoom)
@@ -77,8 +104,6 @@ struct WorldView: View {
         .task(id: "\(world.id)#\(model.mode.rawValue)#\(layout.rawValue)") {
             await model.prepareRooms(world: world, withMap: layout == .map)
         }
-        .navigationTitle(world.name)
-        .onAppear { focused = true }
     }
 
     /// In place of the rooms while `prepareRooms` makes them.
@@ -88,111 +113,56 @@ struct WorldView: View {
     }
 }
 
-private struct RoomHeader: View {
-    var model: ViewerModel
-    let room: Room
-    let code: RoomCode?
-
-    var body: some View {
-        HStack(spacing: 12) {
-            Text(roomTitle(room.id)).font(.title2.monospacedDigit().bold())
-            if let code {
-                Label("Code room", systemImage: "curlybraces")
-                    .foregroundStyle(.orange)
-                    .help(String(format: "The wall bytes are 6502 code: routine $%04X, called from $%04X", code.entry, code.caller))
-            }
-            Spacer()
-            ForEach([(Room.Direction.left, "arrow.left"), (.up, "arrow.up"), (.down, "arrow.down"), (.right, "arrow.right")],
-                    id: \.1) { dir, icon in
-                let target = room.link(dir)
-                Button {
-                    model.go(dir)
-                } label: {
-                    Label(target == room.id ? "–" : hex(target), systemImage: icon).monospacedDigit()
-                }
-                .disabled(target == room.id)
-                .help(target == room.id ? "No exit" : "Go to room \(roomTitle(target))")
-            }
-        }
-    }
-}
-
-/// The room at 560x384 (scaled to fit), with hover read-out, selection of
-/// sprites and wires, and tile grid.
+/// The room at 560x384 (scaled to fit), with selection of sprites and wires,
+/// and tile grid; the point under the pointer goes to `ViewerModel.pointer`.
 struct RoomCanvas: View {
     var model: ViewerModel
     let world: World
-    /// Object coordinates under the pointer: x 0-139, y 0-191 counted from the bottom.
-    @State private var hover: (x: Int, y: Int)?
 
     var body: some View {
         let contents = model.contents(world)
-        VStack(alignment: .leading, spacing: 4) {
-            GeometryReader { geo in
-                let k = geo.size.width / 560          // view points per image pixel
-                ZStack(alignment: .topLeading) {
-                    if let img = model.image(world: world, room: model.selectedRoom) {
-                        Image(decorative: img, scale: 1)
-                            .interpolation(.none)
-                            .resizable()
-                            .frame(width: geo.size.width, height: geo.size.height)
-                    }
-                    if model.showGrid { TileGrid(k: k) }
-                    if let s = model.selection.flatMap(contents.sprite) {
-                        Rectangle()
-                            .stroke(.yellow, lineWidth: 2)
-                            .frame(width: 28 * k + 4, height: 32 * k + 4)
-                            .offset(x: CGFloat(s.x * 4) * k - 2, y: CGFloat((191 - s.y - 15) * 2) * k - 2)
-                    }
-                    if let w = model.selection.flatMap(contents.wire) {
-                        // Through the middle of each unit: 4 x 2 image pixels.
-                        Path { path in
-                            path.addLines(w.points.map { CGPoint(x: CGFloat($0.x * 4 + 2) * k, y: CGFloat((191 - $0.y) * 2 + 1) * k) })
-                        }
-                        .stroke(.yellow, style: StrokeStyle(lineWidth: 3, lineCap: .square))
-                        .allowsHitTesting(false)
-                    }
+        GeometryReader { geo in
+            let k = geo.size.width / 560          // view points per image pixel
+            ZStack(alignment: .topLeading) {
+                if let img = model.image(world: world, room: model.selectedRoom) {
+                    Image(decorative: img, scale: 1)
+                        .interpolation(.none)
+                        .resizable()
+                        .frame(width: geo.size.width, height: geo.size.height)
                 }
-                .contentShape(Rectangle())
-                .onContinuousHover { phase in
-                    if case .active(let p) = phase { hover = logical(p, k: k) } else { hover = nil }
+                if model.showGrid { TileGrid(k: k) }
+                if let s = model.selection.flatMap(contents.sprite) {
+                    Rectangle()
+                        .stroke(.yellow, lineWidth: 2)
+                        .frame(width: 28 * k + 4, height: 32 * k + 4)
+                        .offset(x: CGFloat(s.x * 4) * k - 2, y: CGFloat((191 - s.y - 15) * 2) * k - 2)
                 }
-                .onTapGesture { p in
-                    let (x, y) = logical(p, k: k)
-                    model.selection = contents.item(atX: x, y: y)
+                if let w = model.selection.flatMap(contents.wire) {
+                    // Through the middle of each unit: 4 x 2 image pixels.
+                    Path { path in
+                        path.addLines(w.points.map { CGPoint(x: CGFloat($0.x * 4 + 2) * k, y: CGFloat((191 - $0.y) * 2 + 1) * k) })
+                    }
+                    .stroke(.yellow, style: StrokeStyle(lineWidth: 3, lineCap: .square))
+                    .allowsHitTesting(false)
                 }
             }
-            .aspectRatio(560.0 / 384.0, contentMode: .fit)
-            .frame(maxWidth: 1120)
-            Text(hoverText(contents))
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
+            .contentShape(Rectangle())
+            .onContinuousHover { phase in
+                var point: RoomPoint?
+                if case .active(let p) = phase { point = logical(p, k: k) }
+                if model.pointer != point { model.pointer = point }
+            }
+            .onTapGesture { p in
+                let point = logical(p, k: k)
+                model.selection = contents.item(atX: point.x, y: point.y)
+            }
         }
+        .aspectRatio(560.0 / 384.0, contentMode: .fit)
+        .frame(maxWidth: 1120)
     }
 
-    private func logical(_ p: CGPoint, k: CGFloat) -> (x: Int, y: Int) {
-        (Int(p.x / k / 4), 191 - Int(p.y / k / 2))
-    }
-
-    private func hoverText(_ contents: RoomContents) -> String {
-        guard let (x, y) = hover, (0 ..< 140).contains(x), (0 ..< 192).contains(y) else {
-            if model.playing {
-                return "Playing: I J K M or the arrow keys move (Ctrl or Shift: slowly) · space picks up and drops · ? hints · Esc quits"
-            }
-            return "Hover for coordinates · click a sprite or a wire to select it · arrow keys follow exits · space pauses"
-        }
-        var s = String(format: "x=$%02X y=$%02X   tile column %d row %d", x, y, x * 2 / 14, (191 - y) / 16)
-        if let sprite = contents.sprite(atX: x, y: y) {
-            let name = sprite.spriteName(in: contents.world)
-            if case .object(let o) = sprite.id {
-                s += String(format: "   object $%02X: %@ at ($%02X,$%02X)", o, name, sprite.x, sprite.y)
-            } else {
-                s += String(format: "   %@ at ($%02X,$%02X) by %@", name, sprite.x, sprite.y, sprite.drawnBy(in: contents.world) ?? "?")
-            }
-        } else if let w = contents.wire(atX: x, y: y) {
-            s += String(format: "   wire $%02X → $%02X %@", w.object, w.wire.to, w.wire.hot ? "hot" : "off")
-        }
-        return s
+    private func logical(_ p: CGPoint, k: CGFloat) -> RoomPoint {
+        RoomPoint(x: Int(p.x / k / 4), y: 191 - Int(p.y / k / 2))
     }
 }
 
