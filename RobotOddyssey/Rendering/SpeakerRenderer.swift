@@ -6,7 +6,7 @@ import Foundation
 /// the speaker's coupling does (a high pass at about 35 Hz), which lets the
 /// cone settle after the last click.  The clicks come from the native
 /// PLAY_SOUNDS (`Sound.Played`), to the cycle as the original makes them.
-enum SpeakerRenderer {
+nonisolated enum SpeakerRenderer {
     static let sampleRate = 44_100
     /// Time for the cone to settle after the last click.
     static let settle = sampleRate / 50

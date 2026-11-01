@@ -12,7 +12,7 @@ import Foundation
 ///         r.x = r.nz(m.objRoom[r.y])
 ///         moveObjectXY()
 ///     }
-struct Engine {
+nonisolated struct Engine {
     let m: RAM
     var r: Registers
     var devices: InputDevices
@@ -38,7 +38,7 @@ struct Engine {
 /// of every routine it reproduces (`uses`) is exactly the code it was ported
 /// from: their fingerprints in GameSymbols (`CodeCheck`).
 /// Data/native_check.sh compares each with the original.
-struct Native {
+nonisolated struct Native {
     let routine: KeyPath<GameSymbols, Routine>
     let uses: [KeyPath<GameSymbols, Routine>]
     /// The worlds' code calls it and uses the registers it leaves, so it
@@ -50,7 +50,7 @@ struct Native {
     var name: String { GameSymbols.name(of: routine) }
 }
 
-extension Native {
+nonisolated extension Native {
     init(_ routine: KeyPath<GameSymbols, Routine>, uses: [KeyPath<GameSymbols, Routine>] = [],
          leavesRegisters: Bool = true, _ run: @escaping (inout Engine) -> Void) {
         self.init(routine: routine, uses: uses, leavesRegisters: leavesRegisters) { e in
@@ -99,7 +99,7 @@ extension Native {
 /// code): which natives may replace their routines, and which routines differ
 /// from the version's code (a modified or damaged disk).  Those, and the
 /// natives that need them, run as the original 6502 code.
-struct CodeCheck {
+nonisolated struct CodeCheck {
     let variant: Variant
     /// The natives whose routines all have their fingerprints.
     let natives: [Native]

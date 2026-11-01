@@ -2,7 +2,7 @@ import CoreGraphics
 import Foundation
 
 /// Converts a hi-res screen to an RGBA image; scale 2 gives 560x384 (each Apple pixel doubled).
-enum HiresImage {
+nonisolated enum HiresImage {
     enum Mode: String, CaseIterable, Identifiable {
         case color = "Color", monochrome = "Mono"
         var id: String { rawValue }

@@ -14,7 +14,7 @@ import Foundation
 /// would.  Looking at the player's room changes nothing; elsewhere, only what
 /// the draw phase itself writes differs (the world's own drawing code
 /// animates the room it draws).
-final class GameLoop {
+nonisolated final class GameLoop {
     /// Apple IIe CPU clock in Hz (Data/ro_timing.py).
     static let clock = 1_020_484.0
 

@@ -185,12 +185,20 @@ robot 2, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world 
 below the canvas: *Grid* shows all 64 rooms (room *n* at column *n*%8, row
 *n*/8), *Map* shows the rooms as they connect (`WorldMap`), scrollable and
 zoomable, with each room's number on it. The links don't always form a plane
-(the sewer mazes lead back into themselves, some exits are one‑way, Level 4's
-edges all lead to room $3F), so the map grows from the player's room along
-two‑way exits first, then one‑way exits, and an exit that doesn't lead to the
-room next door is a yellow badge on that edge (click it to go there). Rooms
-it can't reach that way form islands of their own; rooms without exits
-(robot interiors, chip and code rooms) follow as in the grid. The map keeps
+(the sewer mazes lead back into themselves, Level 2's subway wraps around,
+some exits are one‑way, Level 4's edges all lead to room $3F), so the map is
+the layout found to show the most exits as rooms next door (a two‑way exit
+counts twice): the rooms are placed best first, each where it shows the most
+exits to the rooms placed so far, then moved, alone or with the rooms they
+show exits to, by simulated annealing with a fixed seed (the same map every
+time, 3–70 ms per world). An exit that doesn't lead to the room next door is
+a yellow badge on that edge (click it to go there). Rooms shown next to each
+other form an island, the player's first; rooms without exits (robot
+interiors, chip and code rooms) follow as in the grid.
+`Data/ro_map.sh` prints every world's map as text, with how many exits it
+shows (v1.1: Level 1 64 of 72, Level 2 137/173, Level 3 88/121, Level 4
+175/220, Level 5 76/93; growing breadth first from the player's room showed
+60, 132, 80, 155, 70). The map keeps
 the selected room in view, so when playing it follows the player. Arrow keys
 follow exits. Hover shows object coordinates. Click an object to select it in the
 inspector, and the inspector lists all objects, wires and texts.
@@ -208,6 +216,12 @@ in use with their entry points (and any routine the loader found modified,
 which runs as 6502 code). The room thumbnails show the rooms after the world's
 start‑up code; the selected room is shown live, and a room keeps its last
 live frame once you leave it, so the map shows the rooms as last seen.
+The thumbnails and the map are made off the main thread when a world, the
+display mode or the renderer changes (`ViewerModel.prepareRooms`; in a Debug
+build the 6502 takes 1–2 s to draw all rooms and the map up to 1 s), with a
+progress indicator in their place meanwhile. For that the engine, symbol,
+rendering and model types are `nonisolated` (the app target's default
+isolation is the main actor); the viewer stays on the main actor.
 
 *Play* sends the keyboard to the game and makes the view follow the player.
 Keys are typed on the Apple's keyboard as they are (letters, digits, Ctrl,

@@ -62,17 +62,29 @@ struct WorldView: View {
                 }
             }
             .padding([.horizontal, .top])
-            switch layout {
-            case .grid:
+            if !model.thumbnailsReady {
+                loading("Drawing the rooms…")
+            } else if layout == .grid {
                 ScrollView {
                     RoomGrid(model: model, world: world).padding()
                 }
-            case .map:
-                WorldMapView(model: model, world: world, map: model.map(world), zoom: zoom)
+            } else if let map = model.map(world) {
+                WorldMapView(model: model, world: world, map: map, zoom: zoom)
+            } else {
+                loading("Laying out the map…")
             }
+        }
+        .task(id: "\(world.id)#\(model.mode.rawValue)#\(model.renderer.rawValue)#\(layout.rawValue)") {
+            await model.prepareRooms(world: world, withMap: layout == .map)
         }
         .navigationTitle(world.name)
         .onAppear { focused = true }
+    }
+
+    /// In place of the rooms while `prepareRooms` makes them.
+    private func loading(_ title: String) -> some View {
+        ProgressView(title)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

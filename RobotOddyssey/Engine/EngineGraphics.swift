@@ -7,7 +7,7 @@ import Foundation
 /// engine's own mask tables and leave every temporary the original leaves, so
 /// memory ends up identical byte for byte (Data/native_check.swift).  Like the
 /// original they do not clip at the right edge of a line.
-extension Engine {
+nonisolated extension Engine {
     /// Sets LINE_POINTER to hi-res line y of the page being drawn and returns it.
     func selectLine(_ y: UInt8) -> Int {
         m.linePointer = Int(m.lineLowTable[y]) | Int(m[m.lineHighTable + Int(y)]) << 8

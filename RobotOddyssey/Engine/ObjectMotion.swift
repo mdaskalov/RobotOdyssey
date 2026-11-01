@@ -15,7 +15,7 @@ import Foundation
 ///
 /// Positions: x 0-$85 in a room (two pixels each, 7 per wall tile), y 0-$B0
 /// from the bottom (16 per tile); 20 × 12 tiles.  An object is a 7 × 16 box.
-extension Engine {
+nonisolated extension Engine {
     // MARK: walls
 
     /// ROOM_WALLS_PTR ($9D56): POINTER = the wall bitmap of room A,

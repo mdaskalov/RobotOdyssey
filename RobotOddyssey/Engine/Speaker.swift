@@ -12,7 +12,7 @@ import Foundation
 /// its time, to the cycle (`elapsed`): the loops run as they do, counting
 /// cycles, and note each click by the cycle the original reads the speaker
 /// at (`sounds`), for `SpeakerRenderer`.
-extension Engine {
+nonisolated extension Engine {
     /// PLAY_SOUNDS ($9F3C): Ctrl-S turns the sound off and on.  While it is
     /// on, plays the queued sounds from SOUND_QUEUE on, each that is for
     /// object 0's room or for every room ($FF), and empties the queue.

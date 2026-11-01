@@ -1,7 +1,7 @@
 import Foundation
 
 /// What the robot drawing has fixed in its instructions, in every engine.
-enum Robot {
+nonisolated enum Robot {
     /// The robots' body objects.
     static let bodies: [UInt8] = [0xF0, 0xF2, 0xF4, 0x01]
     /// The antenna takes the colour of the first object; the second orange means transmitting.
@@ -35,7 +35,7 @@ enum Robot {
 /// The three engines run the same code with the variables, tables and
 /// sprites elsewhere (GameSymbols has them all); the levels' has a fourth
 /// robot and resets the rainbow's step before every draw.  See Docs/Robots.md.
-extension Engine {
+nonisolated extension Engine {
     // MARK: outside
 
     /// DRAW_ROBOTS ($D2BC in the levels): robots 0, 1, 2 (and 3), each only

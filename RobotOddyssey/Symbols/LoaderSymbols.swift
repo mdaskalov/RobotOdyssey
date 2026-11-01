@@ -8,7 +8,7 @@ import Foundation
 /// versions differ in eight file lengths, so the file table tells the
 /// version.  The loader's code is left unchecked: every cracked dump patches
 /// it differently (Docs/DiskLayout.md).
-final class LoaderSymbols: Sendable {
+nonisolated final class LoaderSymbols: Sendable {
     static let map = LoaderSymbols()
 
     /// Track 1: the disk pages loaded to $4000-$4EFF.
@@ -93,7 +93,7 @@ final class LoaderSymbols: Sendable {
 /// Level 1's own code ($0803-$18FF, $8EF0-$94FF) by name, for the debugger:
 /// L1_ in RobotOdyssey.sym.  The same addresses in v1.0 and v1.1.  The other
 /// worlds' code is laid out differently and has no names yet.
-final class Level1Symbols: Sendable {
+nonisolated final class Level1Symbols: Sendable {
     static let map = Level1Symbols()
 
     let initialise = Routine(0x0816)

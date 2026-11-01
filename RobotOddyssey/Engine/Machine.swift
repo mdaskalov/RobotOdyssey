@@ -7,7 +7,7 @@ import Foundation
 /// native routine runs when the 6502 code reaches its entry point and returns
 /// like RTS; it must leave memory exactly as the original does, and the
 /// registers too where other code uses them (Data/native_check.swift).
-final class Machine {
+nonisolated final class Machine {
     /// The world's engine and version, where natives find their symbols; nil:
     /// an unknown version, everything runs as 6502 code.
     let variant: Variant?
@@ -167,7 +167,7 @@ final class Machine {
 /// (`LDA OBJ_ROOM / STA CURRENT_ROOM / JSR PLAYER_IN_ROBOT`), up to
 /// `JSR FLIP_PAGE`.  In between come the engine's drawing routines and the
 /// world's own (sprites of its puzzles, code rooms...).
-struct DrawPhase {
+nonisolated struct DrawPhase {
     let start: Int
     let end: Int
     /// First instruction of the main loop (where the start-up code arrives).
@@ -204,7 +204,7 @@ struct DrawPhase {
 /// to the room) on the 6502 emulator, with the native engine routines in
 /// place: those the loader's `CodeCheck` found the code for.
 /// `loop` runs the main loop from there (GameLoop).
-final class GameScreen {
+nonisolated final class GameScreen {
     let phase: DrawPhase
     /// Native routines in use, with their entry points (shown in the viewer).
     let natives: [(name: String, entry: UInt16)]

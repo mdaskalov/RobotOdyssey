@@ -77,12 +77,16 @@ final class ViewerModel {
     /// Tick count and speed of the running loop.
     private(set) var loopStatus = ""
 
+    /// The selected world's rooms as it starts, for the thumbnails, and the
+    /// maps: made off the main thread (`prepareRooms`), `roomsKey` says for what.
+    private var startThumbnails: (key: String, images: [Int: CGImage])?
+    private var maps: [World.ID: WorldMap] = [:]
     /// Render caches; not observed, so filling them while a view draws is fine.
+    /// `thumbnails`: the rooms as last seen live, in place of `startThumbnails`.
     @ObservationIgnored private var thumbnails: [Int: CGImage] = [:]
     @ObservationIgnored private var roomImage: (key: String, image: CGImage?)?
     /// Each world after its start-up code ran (nil: it could not run).
     @ObservationIgnored private var gameScreens: [World.ID: GameScreen?] = [:]
-    @ObservationIgnored private var maps: [World.ID: WorldMap] = [:]
     @ObservationIgnored private var loop: (world: World.ID, loop: GameLoop)?
     @ObservationIgnored private let soundPlayer = SoundPlayer()
     /// The last sound the game played (GameSounds' name), for the status.
@@ -223,6 +227,7 @@ final class ViewerModel {
             notes.append("Open the program disk too, to view saved games.")
         }
         gameScreens = [:]
+        startThumbnails = nil
         maps = [:]
         renderErrors = [:]
         groups = newGroups
@@ -257,24 +262,29 @@ final class ViewerModel {
         return live.image
     }
 
+    /// The room as last seen, else as the world starts once `prepareRooms` has drawn it.
     func thumbnail(room: Int) -> CGImage? {
-        if let t = thumbnails[room] { return t }
-        guard let w = selectedWorld else { return nil }
-        let t = HiresImage.make(screen(world: w, room: room), mode: mode, scale: 1)
-        thumbnails[room] = t
-        return t
+        thumbnails[room] ?? (thumbnailsReady ? startThumbnails?.images[room] : nil)
     }
 
     /// The room as the chosen renderer draws it; the game's code falls back to the static renderer.
     private func screen(world: World, room: Int) -> HiresScreen {
-        if renderer == .game, world.codeRooms[room] == nil, let game = gameScreen(world) {
+        let (screen, error) = Self.screen(world: world, room: room, game: renderer == .game ? gameScreen(world) : nil)
+        if let error { renderErrors["\(world.id)#\(room)"] = error }
+        return screen
+    }
+
+    /// The room as `game` draws it, else, or if its code fails (the error),
+    /// as the static renderer does.
+    private nonisolated static func screen(world: World, room: Int, game: GameScreen?) -> (HiresScreen, error: String?) {
+        if world.codeRooms[room] == nil, let game {
             do {
-                return try game.render(room: room).screen
+                return (try game.render(room: room).screen, nil)
             } catch {
-                renderErrors["\(world.id)#\(room)"] = error.localizedDescription
+                return (RoomRenderer(world: world).render(room: room), error.localizedDescription)
             }
         }
-        return RoomRenderer(world: world).render(room: room)
+        return (RoomRenderer(world: world).render(room: room), nil)
     }
 
     private func gameScreen(_ world: World) -> GameScreen? {
@@ -290,12 +300,65 @@ final class ViewerModel {
         }
     }
 
-    /// The rooms laid out as they connect.
-    func map(_ world: World) -> WorldMap {
-        if let map = maps[world.id] { return map }
-        let map = WorldMap(world: world)
-        maps[world.id] = map
-        return map
+    /// The rooms laid out as they connect, once `prepareRooms` has done it.
+    func map(_ world: World) -> WorldMap? {
+        maps[world.id]
+    }
+
+    // MARK: preparing the rooms
+
+    /// What the thumbnails as the world starts depend on.
+    private var roomsKey: String? {
+        selectedWorldID.map { "\($0)#\(mode.rawValue)#\(renderer.rawValue)" }
+    }
+
+    /// The thumbnails of the selected world as it starts are drawn.
+    var thumbnailsReady: Bool {
+        startThumbnails != nil && startThumbnails?.key == roomsKey
+    }
+
+    /// Draws the selected world's rooms as it starts, for the thumbnails, and
+    /// lays out its map (`withMap`), off the main thread: the 6502 code draws
+    /// each room, which takes seconds in a Debug build.  Runs as the rooms
+    /// view's task, which shows progress until they are there.
+    func prepareRooms(world: World, withMap: Bool) async {
+        guard world.id == selectedWorldID, let key = roomsKey else { return }
+        let draw = !thumbnailsReady, layOut = withMap && maps[world.id] == nil
+        guard draw || layOut,
+              let prepared = await Self.prepare(world, mode: mode, game: renderer == .game, draw: draw, layOut: layOut),
+              !Task.isCancelled else { return }
+        renderErrors.merge(prepared.errors) { $1 }
+        if let images = prepared.thumbnails { startThumbnails = (key, images) }
+        if let map = prepared.map { maps[world.id] = map }
+    }
+
+    /// Every room's thumbnail but the code rooms', as `screen` draws it, and
+    /// the map; nil when cancelled.
+    @concurrent
+    private nonisolated static func prepare(_ world: World, mode: HiresImage.Mode, game: Bool, draw: Bool, layOut: Bool) async
+        -> (thumbnails: [Int: CGImage]?, map: WorldMap?, errors: [String: String])? {
+        var errors: [String: String] = [:]
+        var thumbnails: [Int: CGImage]?
+        if draw {
+            var gameScreen: GameScreen?
+            if game {
+                do {
+                    gameScreen = try GameScreen(world: world)
+                } catch {
+                    errors[world.id] = error.localizedDescription
+                }
+            }
+            var images: [Int: CGImage] = [:]
+            for room in 0 ..< World.roomCount where world.codeRooms[room] == nil {
+                guard !Task.isCancelled else { return nil }
+                let (drawn, error) = screen(world: world, room: room, game: gameScreen)
+                errors["\(world.id)#\(room)"] = error
+                images[room] = HiresImage.make(drawn, mode: mode, scale: 1)
+            }
+            thumbnails = images
+        }
+        guard !Task.isCancelled else { return nil }
+        return (thumbnails, layOut ? WorldMap(world: world) : nil, errors)
     }
 
     /// How the room in the canvas was drawn.

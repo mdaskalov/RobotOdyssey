@@ -15,7 +15,7 @@ typealias RoutineSymbol = KeyPath<GameSymbols, Routine>
 /// from its address), a `Sprite` as its address.  Addresses wrap at 64K like
 /// the 6502's.  Only valid during the native call (`Machine.call`).
 @dynamicMemberLookup
-struct RAM {
+nonisolated struct RAM {
     private let bytes: UnsafeMutablePointer<UInt8>
     /// The world's engine and version: where its symbols are.
     let variant: Variant
@@ -81,7 +81,7 @@ struct RAM {
 }
 
 /// A table in memory, indexed from its address.
-struct Bytes {
+nonisolated struct Bytes {
     let ram: RAM
     let address: Int
 
@@ -99,7 +99,7 @@ struct Bytes {
     func word(_ i: Int) -> Int { ram.word(address + i) }
 }
 
-extension Array where Element == UInt8 {
+nonisolated extension Array where Element == UInt8 {
     /// Runs `body` on this memory image as the native routines see it.
     mutating func withRAM<R>(_ variant: Variant, _ body: (RAM) throws -> R) rethrows -> R {
         try withUnsafeMutableBufferPointer { try body(RAM($0.baseAddress!, variant)) }
@@ -129,7 +129,7 @@ extension Array where Element == UInt8 {
 /// what they leave (a result in A, a flag to branch on).  The helpers do what
 /// the instructions do to the flags, so a port can leave them exactly as the
 /// original does.
-struct Registers {
+nonisolated struct Registers {
     var a: UInt8 = 0, x: UInt8 = 0, y: UInt8 = 0
     var p: UInt8 = CPU6502.Flag.unused
 
@@ -190,7 +190,7 @@ struct Registers {
 
 /// What `CLC / ADC` and the following `ADC` do with the carry: some engine code
 /// adds two constants in a row without clearing it in between.
-struct Adder {
+nonisolated struct Adder {
     private(set) var carry = false
 
     mutating func callAsFunction(_ a: UInt8, _ b: UInt8) -> UInt8 {

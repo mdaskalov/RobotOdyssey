@@ -7,7 +7,7 @@ import Foundation
 /// counting loop rounds (`PlayerInput`).  Without a joystick the timers never
 /// run out, so the engine finds none at start-up ($AC24) and plays by keyboard;
 /// it switches to the joystick as soon as the paddles read differently.
-struct InputDevices {
+nonisolated struct InputDevices {
     /// $C000: the last key typed, bit 7 set until $C010 clears it.
     var key: UInt8 = 0
     /// Button 0 (Open Apple) and button 1 (Solid Apple).

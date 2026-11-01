@@ -1,7 +1,7 @@
 import Foundation
 
 /// Apple II hi-res page: 192 lines x 40 bytes; bits 0-6 are pixels (bit 0 leftmost), bit 7 the palette.
-struct HiresScreen {
+nonisolated struct HiresScreen {
     static let width = 280, height = 192, bytesPerLine = 40
     var bytes = [UInt8](repeating: 0, count: 192 * 40)
 }
@@ -9,7 +9,7 @@ struct HiresScreen {
 /// Draws a room exactly like the Apple II engine: identical, byte for byte, to
 /// the original drawing routines run on the emulator (Data/ro_verify.py).
 /// Mirrors Data/ro_render.py.
-struct RoomRenderer {
+nonisolated struct RoomRenderer {
     /// Row r of character c: FONT_BASE + r × $60 + c.
     static let font = GameSymbols.address(\.fontBase)
     /// 4 pattern bytes per colour.
@@ -196,7 +196,7 @@ struct RoomRenderer {
     }
 }
 
-private extension UInt8 {
+nonisolated private extension UInt8 {
     var bitReversed: UInt8 {
         var v = self, r: UInt8 = 0
         for _ in 0 ..< 8 {

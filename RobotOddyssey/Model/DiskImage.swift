@@ -6,7 +6,7 @@ import CryptoKit
 /// Robot Odyssey does not use DOS; its loader reads whole tracks and puts the
 /// k-th 256-byte page of a track at consecutive memory pages.  We address the
 /// disk by "page" = track * 16 + k, matching the game's own loader table.
-struct DiskImage {
+nonisolated struct DiskImage {
     static let size = 35 * 16 * 256
 
     /// .dsk sector holding the k-th page of a track, as read by the game's loader.
@@ -46,7 +46,7 @@ struct DiskImage {
     }
 }
 
-enum DiskError: LocalizedError {
+nonisolated enum DiskError: LocalizedError {
     case notADiskImage(String)
     case missingSide(String)
     case exitCodeNotFound(String)

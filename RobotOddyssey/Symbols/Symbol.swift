@@ -4,7 +4,7 @@ import Foundation
 /// (`GameCatalog`).  The three are the same code, assembled with their
 /// variables, tables and sprites in other places; engine main ($9500-$B7D6)
 /// is one file for all of them (Docs/Symbols.md).
-enum EngineBuild: Int, CaseIterable {
+nonisolated enum EngineBuild: Int, CaseIterable {
     /// The Robotropolis levels 1-5 (side A).
     case levels
     /// Robot Anatomy and Toolkit (side B).
@@ -14,12 +14,12 @@ enum EngineBuild: Int, CaseIterable {
 }
 
 /// The program disks' version, as the loader's file table tells (`LoaderSymbols`).
-enum Version: String, CaseIterable {
+nonisolated enum Version: String, CaseIterable {
     case v1_0 = "1.0", v1_1 = "1.1"
 }
 
 /// What a world's symbols' addresses depend on: its engine and the disks' version.
-struct Variant: Hashable, CustomStringConvertible {
+nonisolated struct Variant: Hashable, CustomStringConvertible {
     let engine: EngineBuild
     let version: Version
 
@@ -36,7 +36,7 @@ struct Variant: Hashable, CustomStringConvertible {
 /// Where a symbol is in each variant: the same everywhere, or per engine
 /// (nil: not in that engine), with v1.0's place where its code moved.  Only
 /// the language card's $D000 bank differs between the versions.
-struct Address: Equatable {
+nonisolated struct Address: Equatable {
     /// One per variant in `Variant.index` order (-1: none), kept inline: the
     /// native routines look addresses up on every access.
     private let places: SIMD8<Int32>
@@ -71,14 +71,14 @@ struct Address: Equatable {
 /// A named place in memory.  Its name is the property's in a symbol map
 /// (`GameSymbols`, `LoaderSymbols`, `Level1Symbols`), in capitals in the
 /// Mariani .sym files: `moveDX` is MOVE_DX.
-protocol Symbol {
+nonisolated protocol Symbol {
     var address: Address { get }
     /// The name is a guess (`_Q` in the .sym files).
     var guess: Bool { get }
     init(address: Address, guess: Bool)
 }
 
-extension Symbol {
+nonisolated extension Symbol {
     /// At the same address in every world and version.
     init(_ address: Int, guess: Bool = false) {
         self.init(address: Address(address), guess: guess)
@@ -93,25 +93,25 @@ extension Symbol {
 }
 
 /// One byte: a variable or a constant.
-struct Byte: Symbol {
+nonisolated struct Byte: Symbol {
     let address: Address
     let guess: Bool
 }
 
 /// Two bytes, low byte first: a pointer or a vector.
-struct Word: Symbol {
+nonisolated struct Word: Symbol {
     let address: Address
     let guess: Bool
 }
 
 /// Bytes indexed from the address: an array of the engine's or the world's.
-struct Table: Symbol {
+nonisolated struct Table: Symbol {
     let address: Address
     let guess: Bool
 }
 
 /// Sprite data: 16 rows from the address, row 0 at the bottom (or several sprites in a row).
-struct Sprite: Symbol {
+nonisolated struct Sprite: Symbol {
     let address: Address
     let guess: Bool
 }
@@ -120,7 +120,7 @@ struct Sprite: Symbol {
 /// the bytes from its entry (variables left out) and their MD5, per variant.
 /// The loader checks them (`CodeCheck`), so a native only ever replaces the
 /// exact code it was ported from.
-struct Routine: Symbol {
+nonisolated struct Routine: Symbol {
     let address: Address
     let guess: Bool
     let code: [Code]
@@ -164,7 +164,7 @@ struct Routine: Symbol {
 }
 
 /// A routine's code in some variants: address ranges and the MD5 of their bytes.
-struct Code {
+nonisolated struct Code {
     let engines: [EngineBuild]
     /// nil: both versions.
     let version: Version?
@@ -198,7 +198,7 @@ struct Code {
 // MARK: names
 
 /// A symbol map's symbols with their names, in declaration order.
-func namedSymbols(of map: Any) -> [(name: String, symbol: Symbol)] {
+nonisolated func namedSymbols(of map: Any) -> [(name: String, symbol: Symbol)] {
     Mirror(reflecting: map).children.compactMap { child in
         guard let label = child.label, let s = child.value as? Symbol else { return nil }
         return (symbolName(label, guess: s.guess), s)
@@ -208,7 +208,7 @@ func namedSymbols(of map: Any) -> [(name: String, symbol: Symbol)] {
 /// The .sym name of a property: `moveDX` MOVE_DX, `drawRobot2Scan`
 /// DRAW_ROBOT2_SCAN, `engDA44` ENG_DA44 (a trailing address after a
 /// lower-case letter), `_Q` for a guess.
-func symbolName(_ property: String, guess: Bool = false) -> String {
+nonisolated func symbolName(_ property: String, guess: Bool = false) -> String {
     let c = Array(property)
     var end = c.count
     if c.count > 4, c[(c.count - 4)...].allSatisfy({ $0.isHexDigit && !$0.isLowercase }), c[c.count - 5].isLowercase {

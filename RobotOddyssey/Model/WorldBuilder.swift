@@ -1,7 +1,7 @@
 import Foundation
 
 /// The program disk (side A and/or B) of one version, plus optional storage disks.
-struct DiskSet {
+nonisolated struct DiskSet {
     /// nil: a version the loader's file table doesn't tell (`LoaderSymbols`).
     var version: Version?
     var sideA: DiskImage?
@@ -21,7 +21,7 @@ struct DiskSet {
 /// which engine it loads with a world and the disks' version, so it checks
 /// the engine code against the symbols' fingerprints right away (`CodeCheck`):
 /// the natives replace only the routines whose code is the version's.
-struct WorldBuilder {
+nonisolated struct WorldBuilder {
     let disks: DiskSet
 
     private func load(_ segments: [Segment], into mem: inout [UInt8]) throws {

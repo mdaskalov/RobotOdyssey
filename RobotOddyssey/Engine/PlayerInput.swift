@@ -20,7 +20,7 @@ import Foundation
 /// a 24-cycle loop, at most 127; with the keyboard the paddles are still read
 /// every tick and the first change switches to the joystick, a key back to
 /// the keyboard.
-extension Engine {
+nonisolated extension Engine {
     /// READ_INPUT ($A90C); declines for the mouse.
     mutating func readInput() -> Bool {
         guard m.inputDevice != 2 else { return false }

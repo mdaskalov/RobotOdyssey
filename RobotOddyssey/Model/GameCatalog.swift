@@ -1,7 +1,7 @@
 import Foundation
 
 /// A run of disk pages loaded to a memory address (from the track 1 loader table).
-struct Segment {
+nonisolated struct Segment {
     let side: DiskSide
     let page: Int
     let address: Int
@@ -15,15 +15,15 @@ struct Segment {
     }
 }
 
-enum DiskSide: String {
+nonisolated enum DiskSide: String {
     case a = "A", b = "B"
 }
 
-enum WorldKind {
+nonisolated enum WorldKind {
     case level, tutorial, lab, savedGame
 }
 
-struct WorldDefinition {
+nonisolated struct WorldDefinition {
     let id: String
     let name: String
     let side: DiskSide
@@ -44,7 +44,7 @@ struct WorldDefinition {
 /// n lives at $D000 + $400n (chips 0-3 in language card bank 1, 4-7 at
 /// $E000-$EFFF) with its program from +8; CHIPS_EVAL ($F56B) runs each program
 /// up to opcode 7, so an empty chip is `07 FF FF FF` (CLEAR_CHIPS $4D13).
-struct ChipSetup {
+nonisolated struct ChipSetup {
     /// Chip programs loaded into bank 1.
     var bank1: [Segment] = []
     /// Bytes stored into the engine's chip table ($F008...).
@@ -75,7 +75,7 @@ struct ChipSetup {
 
 /// Robot Odyssey I for the Apple II, versions 1.0 and 1.1 (two-sided program disk).
 /// See Docs/DiskLayout.md.
-enum GameCatalog {
+nonisolated enum GameCatalog {
     /// Engine part identical on both sides: font ($9500) and colour tables ($9B91).
     static let engineMain = Segment(.a, 129, 0x9500, pages: 35, last: 215)
     static let engineLevels = [Segment(.a, 247, 0x1A50, pages: 5, last: 164),
@@ -179,14 +179,14 @@ enum GameCatalog {
 }
 
 /// What a disk image is, determined from its contents.
-enum DiskRole: Equatable {
+nonisolated enum DiskRole: Equatable {
     /// A program disk side; its version from the loader's file table (nil: unknown).
     case programSide(DiskSide, version: Version?)
     case storage
     case unknown
 }
 
-extension DiskImage {
+nonisolated extension DiskImage {
     /// A world loaded at $6000 has its text pointer table at +$1B80/+$1C00 starting with $7C80.
     func hasWorld(atPage page: Int) -> Bool {
         let p = read(page: page + 0x1B, length: 0x200)

@@ -6,7 +6,7 @@ import Foundation
 /// the keyboard and soft switches.  Used to run original game code headless
 /// (level exit scripts today, timing measurements and reference behaviour for
 /// the game-logic port later).  Mirrors Data/cpu6502.py.
-final class CPU6502 {
+nonisolated final class CPU6502 {
     var mem: [UInt8]
     var a: UInt8 = 0, x: UInt8 = 0, y: UInt8 = 0
     var sp: UInt8 = 0xFF

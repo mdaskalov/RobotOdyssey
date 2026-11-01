@@ -1,13 +1,13 @@
 import Foundation
 
 /// One of the 256 entries of the object table ($6000-$69FF, one array per field).
-struct GameObject: Identifiable, Hashable {
+nonisolated struct GameObject: Identifiable, Hashable {
     let id: Int
     let next, sprite, color, room, x, y, link, dx, dy, flags: Int
 }
 
 /// One of the 64 rooms ($6E00-$6FFF, one 64-byte array per field, walls at $7000).
-struct Room: Identifiable {
+nonisolated struct Room: Identifiable {
     enum Direction: CaseIterable { case up, down, left, right }
 
     let id: Int
@@ -29,7 +29,7 @@ struct Room: Identifiable {
 }
 
 /// One of the 128 text entries ($7880-$7C7F, strings from $7C80).
-struct RoomText: Identifiable {
+nonisolated struct RoomText: Identifiable {
     let id: Int
     let room, x, y, style, color: Int
     /// Raw Apple characters (high bit set, $8D = new line).
@@ -41,19 +41,19 @@ struct RoomText: Identifiable {
 }
 
 /// A wire drawn from (ax, ay) to (bx, by); `to` is the object at the other end.
-struct Wire {
+nonisolated struct Wire {
     let to, ax, ay, bx, by: Int
 }
 
 /// 6502 code in the wall bytes of an unused room: part of the routine at `entry`,
 /// which the world's code calls with JSR/JMP at `caller`.
-struct RoomCode: Hashable {
+nonisolated struct RoomCode: Hashable {
     let caller, entry: Int
 }
 
 /// A world: the memory image $6000-$94FF plus the engine tables needed to draw it.
 /// See Docs/WorldFormat.md for the layout; its tables by name are GameSymbols'.
-struct World: Identifiable {
+nonisolated struct World: Identifiable {
     static let roomCount = 64
     static let objectCount = 256
     static let textCount = 128

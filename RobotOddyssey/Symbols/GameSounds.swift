@@ -7,7 +7,7 @@ import Foundation
 /// value.  What the speaker plays is not taken from here: the native
 /// PLAY_SOUNDS reports every click, as the original makes them
 /// (`SpeakerRenderer`).  The map names what was played.
-struct Sound {
+nonisolated struct Sound {
     /// The queue's flags, bits 7 and 6.
     enum Kind: UInt8 {
         /// A square wave: a click every period.
@@ -64,7 +64,7 @@ struct Sound {
 /// worlds play, with the numbers they have in the worlds' sound tables.  With
 /// several pitches, each has the name with its pitch (`exitTones_28`).
 /// Data/ro_sounds.sh checks the worlds' tables against the map.
-final class GameSounds: Sendable {
+nonisolated final class GameSounds: Sendable {
     static let map = GameSounds()
 
     // The engine's, 0-8 in every world's table.
@@ -123,7 +123,7 @@ final class GameSounds: Sendable {
     let labSound10 = Sound(.noise, length: 0x0B, sweep: 0x52, pitch: 0x16)
 }
 
-extension GameSounds {
+nonisolated extension GameSounds {
     /// Every sound with its name (the property's), in declaration order.
     static let named: [(name: String, sound: Sound)] = Mirror(reflecting: map).children.compactMap { child in
         guard let label = child.label, let s = child.value as? Sound else { return nil }

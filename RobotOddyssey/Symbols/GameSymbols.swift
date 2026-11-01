@@ -11,7 +11,7 @@ import Foundation
 /// per engine exists only in those engines.  Only the language card's $D000
 /// bank moved between v1.0 and v1.1 (`levelsV1_0`, `kitV1_0`, `labV1_0`).
 /// Sorted by address in the levels.  See Docs/Symbols.md.
-final class GameSymbols: Sendable {
+nonisolated final class GameSymbols: Sendable {
     static let map = GameSymbols()
 
     // MARK: zero page
@@ -492,7 +492,7 @@ final class GameSymbols: Sendable {
     let engFE25 = Routine(levels: 0xFE25)
 }
 
-extension GameSymbols {
+nonisolated extension GameSymbols {
     /// The address of a symbol that is at the same place in every world and version.
     static func address<S: Symbol>(_ s: KeyPath<GameSymbols, S>) -> Int {
         guard let a = map[keyPath: s].address.everywhere else { fatalError("\(s) differs between the engines") }
