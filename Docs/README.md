@@ -215,7 +215,9 @@ the tick and ticks/s, how the room is drawn and, folded, the native routines
 in use with their entry points (and any routine the loader found modified,
 which runs as 6502 code). The room thumbnails show the rooms after the world's
 start‑up code; the selected room is shown live, and a room keeps its last
-live frame once you leave it, so the map shows the rooms as last seen.
+live frame once you leave it, so the map shows the rooms as last seen. A room
+the player walks out of while playing is drawn again a tick later, without
+the player.
 The thumbnails and the map are made off the main thread when a world, the
 display mode or the renderer changes (`ViewerModel.prepareRooms`; in a Debug
 build the 6502 takes 1–2 s to draw all rooms and the map up to 1 s), with a

@@ -81,9 +81,9 @@ final class ViewerModel {
     /// maps: made off the main thread (`prepareRooms`), `roomsKey` says for what.
     private var startThumbnails: (key: String, images: [Int: CGImage])?
     private var maps: [World.ID: WorldMap] = [:]
+    /// The rooms as last seen live, in place of `startThumbnails`.
+    private var thumbnails: [Int: CGImage] = [:]
     /// Render caches; not observed, so filling them while a view draws is fine.
-    /// `thumbnails`: the rooms as last seen live, in place of `startThumbnails`.
-    @ObservationIgnored private var thumbnails: [Int: CGImage] = [:]
     @ObservationIgnored private var roomImage: (key: String, image: CGImage?)?
     /// Each world after its start-up code ran (nil: it could not run).
     @ObservationIgnored private var gameScreens: [World.ID: GameScreen?] = [:]
@@ -91,6 +91,9 @@ final class ViewerModel {
     @ObservationIgnored private let soundPlayer = SoundPlayer()
     /// The last sound the game played (GameSounds' name), for the status.
     @ObservationIgnored private var lastSound: String?
+    /// Rooms the player left while playing, with the tick they left in: their
+    /// last live frame shows the player at the exit (`redrawLeftRooms`).
+    @ObservationIgnored private var leftRooms: [Int: Int] = [:]
     /// Source of `liveFrame`: room, display mode, on screen or preview; and the page shown.
     @ObservationIgnored private var liveSource: (key: String, bytes: [UInt8])?
     @ObservationIgnored private var renderErrors: [String: String] = [:]
@@ -392,6 +395,7 @@ final class ViewerModel {
         lastSound = nil
         soundPlayer.stop()
         thumbnails = [:]                            // the rooms as the world starts
+        leftRooms = [:]
         guard renderer == .game, let game = gameScreen(world) else { return }
         let loop = game.loop(room: viewedRoom(world))
         self.loop = (world.id, loop)
@@ -484,7 +488,9 @@ final class ViewerModel {
             status = "Tick \(loop.ticks): the world hands back to the loader, \(exit) – not emulated yet, Restart to play again"
         }
         if loopStatus != status { loopStatus = status }
+        redrawLeftRooms(world, loop)
         if playing, let shown = loop.shownRoom, shown != selectedRoom {
+            leftRooms[selectedRoom] = loop.ticks
             selectedRoom = shown                    // shows it
             return
         }
@@ -512,6 +518,20 @@ final class ViewerModel {
         liveSource = (key, screen.bytes)
         if let image = HiresImage.make(screen, mode: mode) {
             liveFrame = (world.id, room, image)
+        }
+    }
+
+    /// The thumbnails of the rooms the player left in an earlier tick, drawn
+    /// from the state at the start of this one: the player is in the new room
+    /// by then.  (At the room change, the start of the tick still has the
+    /// player at the exit.)
+    private func redrawLeftRooms(_ world: World, _ loop: GameLoop) {
+        for (room, tick) in leftRooms where tick < loop.ticks {
+            leftRooms[room] = nil
+            guard room != selectedRoom, world.codeRooms[room] == nil,
+                  let screen = try? loop.preview(room: room),
+                  let image = HiresImage.make(screen, mode: mode, scale: 1) else { continue }
+            thumbnails[room] = image
         }
     }
 }
