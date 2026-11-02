@@ -35,8 +35,8 @@ One loop iteration is one game tick. In order (names from
 ```
 $A90C READ_INPUT          $0963 L1_KEY_COMMANDS      $DFA3 PLAYER_WALK_SPRITE
 $BEBC GRAB_BUTTON         $1A50 KEY_T_HANDLER        $FE18 KEEP_MOVE
-$1AB0 / $A5CD (only when $8DAA = 0)                  $0920 L1_HELD_CHANGED_Q
-$9C53 MOVE_LINKED_OBJECTS $BED6 / $BDE1 GRAB_LOGIC_Q $FE25 (if $8ED8 = $FF)
+$1AB0 / $A5CD GRAB_AND_CARRY (if $8DAA = 0)          $0920 L1_HELD_CHANGED_Q
+$9C53 MOVE_LINKED_OBJECTS $BED6 / $BDE1 TAKE_TOOL    $FE25 (if $8ED8 = $FF)
 $DE95 / $DF81 CRYSTALS_Q  $0CA8 / $918B / $10F8 level specific
 $D000 ROBOTS_RESET_Q      (if $8DAB = 5 – which it is on every tick of normal play:
                            $D832 thrusters, $DA90, $DE10, $F0CC wires, $F04B gates,
@@ -59,9 +59,10 @@ their source ($F0CC), gates are evaluated from a type table at $8CB7
 up to opcode 7, so an empty chip must hold `07 FF FF FF` – the loader's job
 (DiskLayout.md); with zeros there a tick never ends.
 
-$8DAB mirrors the player's colour (object 0, $6200): 5 normally, 7 (white)
-after the toggle at $BEF4; the robot and circuit block runs only at 5. Both
-saved games on the sample storage disk are at 7.
+REMOTE_SWITCH $8DAB mirrors the player's colour (object 0, $6200): 5
+normally, 7 (white) after the remote control's toggle ($BEF4); the robot
+and circuit block runs only at 5. Both saved games on the sample storage
+disk are at 7.
 
 ## Input
 
@@ -149,6 +150,35 @@ the worlds' code). Positions: x 0‑$85 (7 per tile), y 0‑$B0 from the bottom
   vertical move, bit 2 the horizontal one.
 * LIMIT_MOVE ($ACF8): at most X across, Y up or down (the worlds' code uses
   it for other objects).
+* GRAB_AND_CARRY ($A5CD): a button pressed while holding something drops it
+  (HELD_OBJECT $9C26 and GRABBED_OBJECT $9C27 = $FF); with nothing held it
+  takes the object touched ($A8FC): GRABBED_OBJECT is that one, HELD_OBJECT
+  the end of its OBJ_LINK chain (a robot's body, a gate's base), and
+  HELD_DX/DY ($A5C9/$A5CA) its place from the player. Every tick, after the
+  world's hook (the JSR at $A66D), FOLLOW_AT ($9C7C) moves HELD_OBJECT to
+  the player plus that offset, across room edges as MOVE_OBJECT_XY does.
+* MOVE_LINKED_OBJECTS ($9C53): objects 0‑$FE in order, each one that follows
+  another (OBJ_LINK) goes to that one's place plus OBJ_DX/DY (FOLLOW_LINK
+  $9C88). One that follows a higher object takes where that one was before
+  its move: it lags a tick, and a part of what the player carries can be in
+  the room left a tick after the player (more ticks down a longer chain), or
+  stay there until the player gets far enough. The viewer draws the rooms
+  those are in again every tick (`World.carried`), each preview going on
+  from the draw state the room's previous one left (`GameLoop.preview`), so
+  that robots there animate.
+* Tools (levels; TAKE_TOOL $BDE1, with nothing held): the keys C, S, R
+  (TOOL_KEYS $82FA), or the button on a tool lying about (TOUCHED_TOOL
+  $BE76), take the player's own look, the soldering pen ($FD) or the remote
+  control ($FC) (TOOL_OBJECTS $82F7 → TOOL_MODE $8DAA); the tool in hand
+  puts it away. SWAP_WITH_PLAYER ($BEA3) swaps the sprite and colour of the
+  player and the tool object, so the player *looks like* the tool and the
+  tool object keeps the player's look until it is swapped back. Object $FE,
+  linked to the player at (0,0) in every world, is the tool's tip: blank
+  (sprite $1A) but with the pen, sprite $1D colour 6 (TOOL_TIP_SPRITES
+  $8300, TOOL_TIP_COLOURS $82FD); the soldering code ($F7BE…) looks at what
+  is under it. With the remote control in hand a new press of the button
+  (REMOTE_CONTROL $BED6) toggles the player's colour and REMOTE_SWITCH
+  ($8DAB) between 5 and 7: the robots and the circuits run only at 5.
 
 ### Easter egg: walking through walls
 
@@ -169,8 +199,8 @@ With WALLS_ON 0 the player's move skips STOP_AT_WALLS (READ_INPUT at $A925,
 READ_DEVICE at $AA07): walls no longer stop the player, the screen's edges
 still do (KEEP_ON_SCREEN), and it walks into the room next door as always.
 Nothing else reads WALLS_ON, so robots and the other objects still stop at
-walls. Taking or putting down a tool (the grab code, GRAB_LOGIC: $BE54 and
-$BE72 as it sets TOOL_MODE) sets WALLS_ON to 1: the walls are back until the
+walls. Taking or putting down a tool (TAKE_TOOL: $BE54 and $BE72 as it sets
+TOOL_MODE) sets WALLS_ON to 1: the walls are back until the
 next Ctrl‑E.
 
 The title clears WALLS_KEY ($6023), the menu without the title ($6003)
@@ -190,15 +220,53 @@ In the app: worlds started from the sidebar have WALLS_KEY $00, so go to the
 menu with *Play* on (Esc Esc in a level), type the code there, then choose
 Robotropolis. The app types Ctrl + letter as the control code.
 
+### Level 1: the shuffled objects
+
+Five objects lie elsewhere in every new game. L1_SHUFFLE_OBJECTS ($10F8,
+called by the main loop after $918B) runs each tick until L1_SHUFFLED
+($8F46, 0 on the disk) is set. While the player is in room $28 (the start)
+or $02 (the three robots), it counts L1_SHUFFLE_TICKS3/6 ($8F47/$8F48, 0 on
+the disk) on, modulo 3 and 6, and draws L1_SHUFFLE_PAIR ($8F49) =
+RANDOM_BELOW_A 2 and L1_SHUFFLE_CRYSTAL ($8F4A) = RANDOM_BELOW_A 6. The
+first tick the player is in any other room, it places them (SET_OBJECT_ROOM,
+via L1_PLACE_OBJECT $11AF) and sets L1_SHUFFLED to 1:
+
+| Object | Places | Chosen by |
+|---|---|---|
+| key $FA (sprite $38; “The key to success lies within.”) | the interior of robot $F0, $F2 or $F4 (rooms $09 $0A $0B, L1_SHUFFLE_KEY_ROOMS $11B9), at ($3C, $2A) | ticks mod 3 |
+| energy crystal $F6, object $03 (sprite $37) | rooms $22 at ($47, $24) and $23 at ($43, $60), or the other way round (L1_SHUFFLE_PAIRS $11DC) | random |
+| chip 1 $E7 | maze room $08 ($4A, $44), $0C ($79, $98), $07 ($20, $37), $06 ($52, $46), $17 ($5B, $75), $16 ($25, $98) | ticks mod 6 |
+| black crystal $04 | maze room $08 ($1F, $6E), $0C ($0B, $9A), $07 ($2A, $50), $06 ($0B, $17), $17 ($1F, $4F), $16 ($7B, $96) | random |
+
+The maze rooms come from L1_SHUFFLE_MAZE_ROOMS ($11BC), the spots from
+$11C2/$11C8 (chip) and $11CE/$11D4 (crystal). The black crystal's six
+spots, drawn in white (`Data/ro_shuffle.py`; top: rooms $08 $0C $07,
+bottom: $06 $17 $16):
+
+![The black crystal's six spots in the maze](crystal_spots.png)
+
+The level isn't shuffled when it starts, but when the player first leaves
+the start rooms: *n* ticks in them put the key in room $09 + *n* mod 3 and
+the chip at entry *n* mod 6 (*n* = 1 gives the disk's places, room $0A and
+$0C); the random numbers are those of the last tick there, and every tick
+advances the generator (robot 1's dots alone by 32 steps, Robots.md), so the
+crystal's room can't be foretold. The chip and the crystal may share a room. The black crystal's
+place on the disk (room $07 at ($1F, $3D)) is none of the six, so a game
+never shows it there. A saved game keeps L1_SHUFFLED, so restoring one
+shuffles nothing. Checked on the emulator from the Level 1 save state
+(L1_SHUFFLED 0, room $28): 0‑7 ticks there, then the player moved to room
+$03, give the places of the table.
+
 ### Level 1: the Ampire Bot and the black crystal
 
-Object $04 in room $07 is a **black crystal**: the crystal sprite 57 (as the
-energy crystals $11 and $F6) in colour 4, black, on the room's black floor
-(colour 4 too). The engine draws it like any object, but every pixel stays
-black, so it can't be seen on the floor; the room view shows the same. Only
-over the walls, or in the viewer's inspector (colour 4 in grey), does it
-show. Nothing moves it at the start; the hint for it is on the *?* screen
-(room $01): “Black crystals foil Ampire Bots.”
+Object $04 is a **black crystal**: the crystal sprite 57 (as the energy
+crystals $11 and $F6) in colour 4, black, on the room's black floor (colour
+4 too). The engine draws it like any object, but every pixel stays black, so
+it can't be seen on the floor; the room view shows the same. Only over the
+walls, or in the viewer's inspector (colour 4 in grey), does it show. On the
+disk it lies in room $07; a game puts it on one of six spots in the maze
+(above), so finding it means trying them, grabbing in the dark. The hint for
+it is on the *?* screen (room $01): “Black crystals foil Ampire Bots.”
 
 The **Ampire Bot** is no object: Level 1's code keeps it in $8F4B‑$8F57
 (L1_AMPIRE_STATE, _ROOM, _X, _Y, ...), moves it each tick (L1_AMPIRE_BOT $0CA8) and draws it in the

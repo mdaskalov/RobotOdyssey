@@ -2,14 +2,15 @@ import SwiftUI
 
 /// The selected room's properties, the running game (tick, what is
 /// under the pointer or the keys, how the room is drawn, the native
-/// routines), then the room's objects, the other sprites
-/// drawn, wires and texts (folded; select a sprite or wire to highlight it),
-/// as the loop last drew it (`ViewerModel.contents`).
+/// routines), then the room's objects, what the player carries, the other
+/// sprites drawn, wires and texts (folded; select a sprite or wire to
+/// highlight it), as the loop last drew it (`ViewerModel.contents`).
 struct RoomInspector: View {
     @Bindable var model: ViewerModel
     let world: World
     @AppStorage("showNatives") private var showNatives = false
     @AppStorage("showObjects") private var showObjects = false
+    @AppStorage("showCarried") private var showCarried = false
     @AppStorage("showWires") private var showWires = false
     @AppStorage("showTexts") private var showTexts = false
 
@@ -62,8 +63,9 @@ struct RoomInspector: View {
         LabeledContent(label) { Text(value).monospaced() }
     }
 
-    /// The room's objects, and the other sprites drawn: recorded only while
-    /// open (`ViewerModel.showSprites`).  Both folded by default.
+    /// The room's objects, what the player carries (with their room where
+    /// it is another), and the other sprites drawn: recorded only while
+    /// open (`ViewerModel.showSprites`).  All folded by default.
     @ViewBuilder
     private func sprites(_ contents: RoomContents) -> some View {
         DisclosureGroup(isExpanded: $showObjects) {
@@ -71,10 +73,23 @@ struct RoomInspector: View {
                 SpriteRow(world: contents.world, sprite: s, drawn: contents.recorded).tag(s.id)
             }
         } label: {
-            LabeledContent("Objects") {
+            LabeledContent("Objects in the room") {
                 Text("\(contents.objects.count)" + (contents.live ? "" : " · as the world starts")).monospacedDigit()
             }
         }
+        let carried = contents.carried
+        DisclosureGroup(isExpanded: $showCarried) {
+            ForEach(carried) { s in
+                if s.object?.room == contents.room {
+                    SpriteRow(world: contents.world, sprite: s, drawn: contents.recorded).tag(s.id)
+                } else {
+                    SpriteRow(world: contents.world, sprite: s, drawn: false, room: s.object?.room)
+                }
+            }
+        } label: {
+            LabeledContent("Carried objects") { Text("\(carried.count)").monospacedDigit() }
+        }
+        .help("HELD_OBJECT and the objects that follow it or the player (OBJ_LINK); those in another room with its number")
         DisclosureGroup(isExpanded: $model.showSprites) {
             ForEach(contents.others) { s in
                 SpriteRow(world: contents.world, sprite: s, drawn: true).tag(s.id)
@@ -200,13 +215,16 @@ private struct WireRow: View {
     }
 }
 
-/// A sprite as drawn: an object with its number, sprite, colour, place, flags
-/// and link, or another sprite with the routine that drew it.
+/// A sprite as drawn: an object with its number, sprite, colour, place, flags,
+/// link and whether the player holds it, or another sprite with the routine
+/// that drew it.
 private struct SpriteRow: View {
     let world: World
     let sprite: RoomSprite
     /// The sprites drawn were recorded: an object without a draw was not on the page.
     let drawn: Bool
+    /// The room of an object not in the one shown.
+    var room: Int?
 
     var body: some View {
         HStack(spacing: 8) {
@@ -234,7 +252,7 @@ private struct SpriteRow: View {
     }
 
     private var details: String {
-        var s = String(format: "at ($%02X,$%02X)", sprite.x, sprite.y)
+        var s = (room.map { "room \(hex($0)) " } ?? "") + String(format: "at ($%02X,$%02X)", sprite.x, sprite.y)
         guard let object = sprite.object else {
             return s + " · " + (sprite.drawnBy(in: world) ?? "?")
         }
@@ -243,6 +261,7 @@ private struct SpriteRow: View {
             s += String(format: " · follows $%02X %+d,%+d", object.link, Int8(truncatingIfNeeded: object.dx),
                         Int8(truncatingIfNeeded: object.dy))
         }
+        if object.id == Int(world.mem[\.heldObject]) { s += " · held" }
         if drawn && sprite.drawn == nil { s += " · not drawn" }
         return s
     }

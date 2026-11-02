@@ -51,6 +51,14 @@ struct RoomContents {
     /// The wires of the room's objects (DRAW_WIRES draws them after the robots).
     let wires: [RoomWire]
 
+    /// What the player carries (`World.carried`, the player left out), those
+    /// in the room as drawn.
+    var carried: [RoomSprite] {
+        world.carried.filter { $0 != 0 }.map { o in
+            sprite(.object(o)) ?? RoomSprite(id: .object(o), object: world.object(o), drawn: nil)
+        }
+    }
+
     func sprite(_ item: RoomItem) -> RoomSprite? {
         switch item {
         case .object: objects.first { $0.id == item }

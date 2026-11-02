@@ -148,7 +148,80 @@ GameSymbols.
 
 ## Symbol files
 
-`Data/ro_symbols.sh` writes `RobotOdyssey.sym` (the levels, v1.1, with Level
-1's code), `RobotOdyssey_v1.0.sym`, `RobotOdysseyKit.sym`,
-`RobotOdysseyLab.sym` (v1.1; v1.0's differ only where no symbol is yet) and
-`RobotOdysseyLoader.sym` in the AppleWin/Mariani format (`ADDR NAME`, CRLF).
+`Data/ro_symbols.sh` writes them in the AppleWin/Mariani format (`ADDR NAME`,
+CRLF; lines starting with `;` are comments):
+
+| File | Names for |
+|---|---|
+| `RobotOdyssey.sym` | Levels 1‑5 and their saved games, v1.1. The `L1_` names fit Level 1's code only: levels 2‑5 have other code at $0800‑$1FFF and $8EF0 |
+| `RobotOdyssey_v1.0.sym` | the same for v1.0 |
+| `RobotOdysseyKit.sym` | Robot Anatomy, Toolkit (v1.1; v1.0's differ only where no symbol is yet) |
+| `RobotOdysseyLab.sym` | the Innovation Lab and its tutorial (likewise) |
+| `RobotOdysseyLoader.sym` | boot stage 2, the loader, the menu, saving and restoring ($4000‑$5DFF). During play that area is hi‑res page 2, so keep these names off there |
+
+### In Mariani
+
+Mariani (1.5) has AppleWin's debugger: *Window → Show Debugger* (F7). Its
+*Debugger Command Line* takes AppleWin's commands, and the console shows
+their output. How it finds symbol files (Mariani's source,
+[sh95014/AppleWin](https://github.com/sh95014/AppleWin): `CmdSymbolsLoad`,
+`DebugInitialize`, `source/frontends/mariani`):
+
+* Its program folder is `~/Library/Application Support/<bundle id>/`. For
+  the installed Mariani that is `com.applewin.marianipro`
+  (`CFBundleIdentifier` in the app's Info.plist).
+* `SYMUSER LOAD "name"` reads *name* in that folder. The name is appended to
+  the folder's path, so an absolute path doesn't work (`RUN` takes one,
+  `SYM… LOAD` doesn't).
+* When the emulator starts, it loads `A2_USER1.SYM` from that folder into
+  the User 1 table, next to its own `APPLE2E.SYM` (ROM, I/O, zero page) and
+  `A2_BASIC.SYM` (Applesoft), and runs `DebuggerAutoRun.txt` from there once.
+
+**Setting up:** run `Data/ro_mariani.sh` once (with the app's path if it
+isn't in /Applications or ~/Applications), then restart Mariani. It finds
+the program folder from the app's bundle id and puts there:
+
+* links to the five `.sym` files, so Mariani always reads what
+  `ro_symbols.sh` last wrote;
+* `A2_USER1.SYM`, a link to `RobotOdyssey.sym`: the levels' names load by
+  themselves;
+* a `DebuggerAutoRun.txt` with the loader's names in the second user table,
+  off until needed, and Applesoft's names off:
+
+  ```
+  SYMUSER2 LOAD "RobotOdysseyLoader.sym"
+  SYMUSER2 OFF
+  SYMBASIC OFF
+  ```
+
+It leaves an `A2_USER1.SYM` that isn't a link and an existing
+`DebuggerAutoRun.txt` alone.
+
+**Commands** (the debugger takes a name wherever it takes an address):
+
+| Command | |
+|---|---|
+| `SYMUSER CLEAR`, then `SYMUSER LOAD "RobotOdysseyKit.sym"` | another world's names, or the levels' again after `ro_symbols.sh`. LOAD adds to a table: without CLEAR, names dropped since stay and every name already there is listed as a duplicate |
+| `SYMUSER2 LOAD "RobotOdysseyLoader.sym"` | the loader's names in a second table |
+| `SYMUSER2 ON` / `SYMUSER2 OFF` | show them in the loader, hide them during play |
+| `SYMBASIC OFF` | hides Applesoft's names. They cover $D000‑$F7FF, where the game runs its language‑card code, and would name addresses our files don't |
+| `SYM L1_SHUFFLE_OBJECTS` | look up a name (or an address) |
+| `BPX L1_MAIN_LOOP` | breakpoint: one stop per tick |
+| `BPMW L1_SHUFFLED`, `BPM CURRENT_ROOM` | stop when a variable is written, or read or written |
+
+Notes:
+
+* The user tables are searched before the ROM's and Applesoft's (AppleWin
+  looks from the last table to the first), so where two tables name an
+  address, ours wins. A table turned OFF names nothing in the disassembly.
+  `APPLE2E.SYM`'s monitor names ($F800‑$FFFF) still label the engine's
+  code there wherever our files have no name; its I/O names ($C0xx) are
+  worth keeping.
+* Loading prints a line for each of our names on an address another table
+  names (`Info.: … aliases …`), and a warning for names longer than 20
+  characters (23 in `RobotOdyssey.sym`, e.g. SHIFTED_SPRITE_ROUTINES). Both
+  are only notes: the names load.
+* *Go to Symbol* (top of the window) lists the names of every table, ON or
+  OFF. It copies them the first time the window opens: names loaded later
+  show in the disassembly at once, but in that list only after Mariani
+  restarts. Hence the `A2_USER1.SYM` link.

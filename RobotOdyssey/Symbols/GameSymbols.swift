@@ -134,6 +134,14 @@ nonisolated final class GameSymbols: Sendable {
     // The robot drawing's tables (Docs/Robots.md).
     let grabberDX = Table(levels: 0x82D7, kit: 0x1CC4, lab: 0x14A0)
     let grabberDY = Table(levels: 0x82DB, kit: 0x1CC8, lab: 0x14A4)
+    /// The tools (TAKE_TOOL), 3 each: the object ($00 the player's own
+    /// look, $FD the soldering pen, $FC the remote control), the key that
+    /// takes it (C, S, R), and the colour and sprite of the tool's tip
+    /// (object $FE, on the player: the pen's, blank for the others).
+    let toolObjects = Table(levels: 0x82F7)
+    let toolKeys = Table(levels: 0x82FA)
+    let toolTipColours = Table(levels: 0x82FD)
+    let toolTipSprites = Table(levels: 0x8300)
     let scanDX = Table(levels: 0x831B, kit: 0x1D04, lab: 0x14E4)
     let sparkDX = Table(levels: 0x8329, kit: 0x1D12, lab: 0x14F2)
     let sparkDY = Table(levels: 0x832C, kit: 0x1D15, lab: 0x14F5)
@@ -167,10 +175,14 @@ nonisolated final class GameSymbols: Sendable {
     let wireBY = Table(levels: 0x8A1C, kit: 0x18C0, lab: 0x0F00)
     let pinLine = Table(levels: 0x8A82, guess: true)
     let gateType = Table(levels: 0x8CB7, guess: true)
-    /// The tool in the player's hand, set by grabbing from a table at $82F7
-    /// ($BE6D): $FD the soldering pen (Docs/CopyProtection.md).
+    /// The tool in the player's hand, from TOOL_OBJECTS (TAKE_TOOL at
+    /// $BE6D): $00 none, $FD the soldering pen (Docs/CopyProtection.md), $FC
+    /// the remote control.
     let toolMode = Byte(levels: 0x8DAA, kit: 0x1ACE, lab: 0x128E, guess: true)
-    let mode8DAB = Byte(levels: 0x8DAB, guess: true)
+    /// The remote control's switch, the player's colour as its button left
+    /// it (REMOTE_CONTROL): 5 (orange) the robots and the circuits run, 7
+    /// (white) they stand still.
+    let remoteSwitch = Byte(levels: 0x8DAB)
     /// The robots' state: 4 grabbers per robot, then $1A bytes per robot
     /// (`Robot.stateSize`) with the thrusters, bumper colours, battery and switch.
     let robotGrabbers = Table(levels: 0x8DBD, kit: 0x1ADF, lab: 0x129F)
@@ -241,12 +253,21 @@ nonisolated final class GameSymbols: Sendable {
     /// The move of CUR_OBJECT.
     let moveDX = Byte(0x9C22)
     let moveDY = Byte(0x9C23)
+    /// What the player holds, $FF nothing: the first object of the link
+    /// chain from GRABBED_OBJECT on, the one GRAB_AND_CARRY moves along.
     let heldObject = Byte(0x9C26)
-    let held9C27 = Byte(0x9C27, guess: true)
+    /// The object the player took hold of, $FF nothing.
+    let grabbedObject = Byte(0x9C27)
+    /// FOLLOW_AT's offset from the object followed.
+    let followDX = Byte(0x9C24)
+    let followDY = Byte(0x9C25)
     let currentRoom = Byte(0x9C2D)
     let destinationRoom = Byte(0x9C2E)
     let currentObject = Byte(0x9C2F)
     let wallsOn = Byte(0x9C30)
+    /// The objects OBJECTS_TOUCH compares.
+    let touchFirst = Byte(0x9C31)
+    let touchSecond = Byte(0x9C32)
     /// Lines and boxes: colour and ends.
     let lineColour = Byte(0x9C34)
     let lineX1 = Byte(0x9C35)
@@ -280,6 +301,8 @@ nonisolated final class GameSymbols: Sendable {
     let flag9C51 = Byte(0x9C51, guess: true)
     let linkIndex = Byte(0x9C52)
     let moveLinkedObjects = Routine(0x9C53)
+    /// Object X to object Y's place moved by (FOLLOW_DX, FOLLOW_DY): as FOLLOW_LINK.
+    let followAt = Routine(0x9C7C)
     let followLink = Routine(0x9C88)
     let gfxInit = Routine(0x9CA1)
     let drawSpriteColour = Routine(0x9CC3, code: 0x9CC3 ..< 0x9CD0, md5: "22349f547a0bf905106ac2cc674e28d6")
@@ -351,11 +374,23 @@ nonisolated final class GameSymbols: Sendable {
     let bigTextPatternEven = Table(0xA4B9)
     let bigTextPatternOdd = Table(0xA4C1)
     let bitReverseTable = Table(0xA4C9)
-    /// Restored from a saved game's header after HELD_OBJECT (BUTTON_EDGES' variables?).
-    let buttonEdgesA5C9 = Byte(0xA5C9, guess: true)
-    let buttonEdgesA5CA = Byte(0xA5CA, guess: true)
-    let buttonEdges = Routine(0xA5CD, guess: true)
+    /// Where HELD_OBJECT is from the player (saved with the game).
+    let heldDX = Byte(0xA5C9)
+    let heldDY = Byte(0xA5CA)
+    /// GRABBED_OBJECT at the last press of a button.
+    let grabbedAtPress = Byte(0xA5CB)
+    /// A button down in each of the last ticks, the latest in bit 0.
+    let grabButtonHistory = Byte(0xA5CC)
+    /// The player's hand, every tick: a button pressed with something held
+    /// drops it (as long as it stays down), with nothing held takes the
+    /// object touched, if any; then the world's hook (JSR at $A66D) and
+    /// HELD_OBJECT follows the player (FOLLOW_AT).  What follows that through
+    /// OBJ_LINK comes along in MOVE_LINKED_OBJECTS.
+    let grabAndCarry = Routine(0xA5CD)
     let engA6AD = Routine(0xA6AD)
+    /// Z clear when TOUCH_FIRST and TOUCH_SECOND are in the same room with
+    /// their boxes overlapping.
+    let objectsTouch = Routine(0xA835, guess: true)
 
     // Input (Docs/Engine.md "Input").
     let mouseMoved = Byte(0xA909)
@@ -448,12 +483,29 @@ nonisolated final class GameSymbols: Sendable {
 
     let engB8E6 = Routine(levels: 0xB8E6)
     let engB8ED = Routine(levels: 0xB8ED)
-    let grabLogic = Routine(levels: 0xBDE1, guess: true)
+    /// The tools, with nothing held: a key of TOOL_KEYS, or a new press of
+    /// the button on a tool lying about (TOUCHED_TOOL), takes that tool (its
+    /// own again puts it away): the player and the tool object swap sprite
+    /// and colour (SWAP_WITH_PLAYER), so the player looks like the tool and
+    /// the tool object keeps the player's look; the tip, object $FE, takes
+    /// the tool's (TOOL_TIP_COLOURS, TOOL_TIP_SPRITES).
+    let takeTool = Routine(levels: 0xBDE1)
+    /// TOOL_OBJECTS' index of the tool asked for.
+    let toolIndex = Byte(levels: 0x8E3F)
+    /// TOOL_INDEX = 2 or 1 if the player touches the remote control or the
+    /// pen (OBJECTS_TOUCH), else 0.
+    let touchedTool = Routine(levels: 0xBE76)
+    let putToolAway = Routine(levels: 0xBE97)
+    /// Swaps the sprite and colour of the player (object 0) and object Y.
+    let swapWithPlayer = Routine(levels: 0xBEA3)
     /// GRAB_STATE from the buttons; the kit's and the lab's own copies
     /// (their code unchecked, so the native runs in the levels only).
     let grabButton = Routine(levels: 0xBEBC, kit: 0xBEDB, lab: 0x185A,
                              code: [.levels(0xBEBC ..< 0xBED6, md5: "901b150e06b79c82488a264e17b0a4d8")])
-    let engBED6 = Routine(levels: 0xBED6)
+    /// With the remote control in hand, a new press of the button (not on
+    /// the remote's object) toggles the player's colour and REMOTE_SWITCH
+    /// between 5 and 7.
+    let remoteControl = Routine(levels: 0xBED6)
     /// The player's 8 walking frames.
     let playerSprites = Table(levels: 0xBF30)
 

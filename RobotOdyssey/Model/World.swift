@@ -164,6 +164,27 @@ nonisolated struct World: Identifiable {
         return (Int(mem[w + 0x0F]), Int(mem[w + 0x2D]), Int(mem[w + 0x1E]), Int(mem[w + 0x3C]))
     }
 
+    /// The player (object 0) and what moves with it: HELD_OBJECT, the root of
+    /// what it holds (GRAB_AND_CARRY moves it along), and every object that
+    /// follows one of them through OBJ_LINK, also via others (a robot's other
+    /// half, a gate's pins).  MOVE_LINKED_OBJECTS goes by object number, so an
+    /// object that follows a higher one lags a tick behind it.
+    var carried: [Int] {
+        let held = Int(mem[\.heldObject])
+        let roots: Set<Int> = held == World.noObject ? [0] : [0, held]
+        func follows(_ o: Int) -> Bool {
+            var o = o
+            for _ in 0 ..< World.objectCount {
+                if roots.contains(o) { return true }
+                let link = m(\.objLink, o)
+                if link == World.noObject || link == o { return false }
+                o = link
+            }
+            return false
+        }
+        return (0 ..< World.objectCount - 1).filter(follows)
+    }
+
     /// ROBOT_BODY and ROBOT_INTERIOR: body object and interior room of each of the 4 robots.
     var robots: [(object: Int, interior: Int)] {
         (0 ..< 4).map { (m(\.robotBody, $0), m(\.robotInterior, $0)) }

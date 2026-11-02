@@ -13,7 +13,7 @@ faithful Swift version.
 | [Sound.md](Sound.md) | the sound player: the queue, tone and noise loops, every world's sounds, the native port and the speaker |
 | [CopyProtection.md](CopyProtection.md) | the copy protection: the E7 bitstream on track 1, the checks, the flag that turns off the soldering pen, the cracked dumps |
 | [Loader.md](Loader.md) | the loader in the app: boot stage 2, the loader and the menu as 6502 code with a native boot, RWTS and disk drive; the storage disk; following the game into the next world |
-| [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine |
+| [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine, the `.sym` files in Mariani's debugger |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
 ## Current status (2026‑11‑01)

@@ -60,6 +60,22 @@ nonisolated final class GameLoop {
     private var nextWorld: (phase: DrawPhase, natives: [Native])?
     /// START_WORLD ran: its jump to WORLD_START starts a world.
     private var startingWorld = false
+    /// Each room's last preview (`preview`).
+    private var previews: [Int: Preview] = [:]
+
+    /// A room drawn on a copy, and the draw state it started from and left:
+    /// what its draw phase wrote besides the page (`drawStateRanges`), as
+    /// the byte and what the start of its tick had there.
+    private struct Preview {
+        typealias State = [(address: Int, value: UInt8, was: UInt8)]
+        let tick: Int
+        let screen: HiresScreen
+        let from, left: State
+    }
+
+    /// Where a preview's draw state is taken from: memory but the stack, the
+    /// hi-res pages and the I/O.
+    private static let drawStateRanges = [0x0000 ..< 0x0100, 0x0200 ..< 0x2000, 0x6000 ..< 0xC000, 0xD000 ..< 0x10000]
 
     /// The world's request to the loader.
     struct Exit: CustomStringConvertible {
@@ -166,16 +182,42 @@ nonisolated final class GameLoop {
     }
 
     /// `room` drawn by the draw phase from the state at the start of the
-    /// current tick, on a copy: what the loop shows once it gets there.
+    /// current tick, on a copy: what the loop shows once it gets there.  The
+    /// draw starts from what the room's preview in an earlier tick drew
+    /// where the game left those bytes alone since (`previewStart`): the
+    /// robots' scanner, sparks and rainbow, the random numbers, the world's
+    /// own animations go on as if the game drew the room tick after tick,
+    /// rather than each tick showing the game's frozen values.  Once a tick.
     func preview(room: Int) throws -> HiresScreen {
         guard let phase else { throw Failure.inLoader }
-        return try phase.draw(room: room, on: tickStart.copy())
+        if let last = previews[room], last.tick == ticks { return last.screen }
+        let (machine, from) = previewStart(room)
+        let screen = try phase.draw(room: room, on: machine)
+        let start = tickStart.cpu.mem, end = machine.cpu.mem
+        var left: Preview.State = []
+        for range in GameLoop.drawStateRanges {
+            for a in range where end[a] != start[a] { left.append((a, end[a], start[a])) }
+        }
+        previews[room] = Preview(tick: ticks, screen: screen, from: from, left: left)
+        return screen
     }
 
-    /// Where the draw phase starts drawing `room`: the draw of the page on
-    /// screen if that shows `room`, else the start of the current tick (as `preview`).
+    /// A copy of the start of the current tick with `room`'s draw state
+    /// where the game hasn't changed those bytes since: what its preview in
+    /// an earlier tick left, in this tick what it started from.
+    private func previewStart(_ room: Int) -> (machine: Machine, state: Preview.State) {
+        let machine = tickStart.copy()
+        let last = previews[room]
+        let state = (last?.tick == ticks ? last?.from : last?.left)?.filter { machine.cpu.mem[$0.address] == $0.was } ?? []
+        for s in state { machine.cpu.mem[s.address] = s.value }
+        return (machine, state)
+    }
+
+    /// Where the draw phase starts drawing `room`, a copy: the draw of the
+    /// page on screen if that shows `room`, else as `preview`.
     private func drawStart(room: Int) -> Machine {
-        (room == shownRoom ? shownDrawStart : nil) ?? tickStart
+        if room == shownRoom, let shownDrawStart { return shownDrawStart.copy() }
+        return previewStart(room).machine
     }
 
     /// Memory and bank 1 as the draw phase finds them when it draws `room` (`drawStart`).
@@ -184,10 +226,15 @@ nonisolated final class GameLoop {
         return (machine.cpu.mem, machine.bank1)
     }
 
+    /// Memory and bank 1 at the start of the current tick, what `preview` draws from.
+    var tickStartMemory: (memory: [UInt8], bank1: [UInt8]) {
+        (tickStart.cpu.mem, tickStart.bank1)
+    }
+
     /// Every sprite the draw phase draws of `room` from there (`DrawPhase.sprites`).
     func sprites(room: Int) throws -> [DrawnSprite] {
         guard let phase else { throw Failure.inLoader }
-        return try phase.sprites(room: room, on: drawStart(room: room).copy())
+        return try phase.sprites(room: room, on: drawStart(room: room))
     }
 
     private func step() throws {
@@ -274,6 +321,7 @@ nonisolated final class GameLoop {
         exit = nil
         loadedWorld = world
         worldsLoaded += 1
+        previews = [:]
         ticks = 0
         tickCycles = 0
     }

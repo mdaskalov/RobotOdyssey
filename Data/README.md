@@ -12,6 +12,7 @@ python3 ro_verify.py "$STATE"        # renderer vs. the original drawing code: 6
 python3 ro_timing.py "$STATE" 20     # cycles per tick of the Level 1 main loop
 ./ro_symbols.sh                      # writes the .sym files from the app's symbol maps
 ./ro_symbols.sh --code "$A" "$B"     # each mapped routine's fingerprint in every world
+./ro_mariani.sh                      # once: the .sym files into Mariani's debugger
 python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml or a STORAGE.dsk)
 ./native_check.sh "$A" "$B" [STORAGE.dsk]   # native Swift routines vs. the original code
 ./ro_sounds.sh [--wav DIR] "$A" "$B"   # the worlds' sound tables, every sound native vs. original (WAVs)
@@ -19,6 +20,7 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 ./loader_check.sh [--png DIR] "$A" "$B"   # the loader on the emulator: next levels, menu, save, restore, new storage disk
 python3 ro_title.py "$A" Extracted/v1.1 [--verify]   # title screens -> title_N.png/.bin
 python3 ro_icon.py "$STATE" ../RobotOdyssey/Assets.xcassets/AppIcon.appiconset   # app icon
+python3 ro_shuffle.py "$A" "$B" ../Docs/crystal_spots.png   # Level 1: the black crystal's six spots
 ```
 
 ## Scripts
@@ -33,6 +35,7 @@ python3 ro_icon.py "$STATE" ../RobotOdyssey/Assets.xcassets/AppIcon.appiconset  
 | `ro_verify.py` | run the original drawing routines on the emulator and compare with `ro_render` |
 | `ro_timing.py` | run the main loop of a save state on the emulator and measure cycles per tick |
 | `ro_symbols.sh`, `ro_symbols.swift` | build the app's symbol maps (`RobotOdyssey/Symbols`, Docs/Symbols.md) with a writer: the Mariani/AppleWin symbol files, or with `--code` the MD5 of every mapped routine's code in every world on the given disks (to map a new routine) |
+| `ro_mariani.sh` | run once: links the `.sym` files into Mariani's program folder (`RobotOdyssey.sym` also as `A2_USER1.SYM`, loaded at start‑up) and writes a `DebuggerAutoRun.txt` (Docs/Symbols.md, *Symbol files*) |
 | `ro_chips.py` | find the chips (program disks: the loaders' set‑up; save state; storage disk: every saved game) and disassemble them |
 | `ro_chip_disasm.py` | Micah Dowty's chip disassembler (PC CHP/CSV files, same bytecode as the Apple II; MIT licence, ported to Python 3) |
 | `native_check.sh`, `native_check.swift` | build the app's engine sources with a checker and compare the native routines with the original 6502 code: every room's draw phase with and without them, every world's main loop tick by tick (without input, and 300 ticks with the same keys, joystick moves and buttons fed to both), and direct calls on random robot states and on random objects, moves, walls, keys and joystick positions (memory byte for byte; registers and flags too for the object motion and input routines); fails too where a world's engine code doesn't match the symbols' fingerprints |
@@ -45,6 +48,7 @@ python3 ro_icon.py "$STATE" ../RobotOdyssey/Assets.xcassets/AppIcon.appiconset  
 | `aws_state.py` | extract main/aux RAM from a Mariani/AppleWin `.yaml` save state |
 | `ro_title.py` | unpack the title pictures like the menu ($0A71) and write the three title screens; `--verify` compares with the original unpacker and wipe on the emulator (format: `Docs/DiskLayout.md`, *Title pictures*) |
 | `ro_icon.py` | the app icon: robot 2 (the blue one) drawn by the engine ($9D18, $D2BC) from the save state, 20× on a dark background, all macOS sizes |
+| `ro_shuffle.py` | Level 1's shuffled black crystal (L1_SHUFFLE_OBJECTS, Docs/Engine.md): its six maze spots drawn like the engine, the crystal in white, in one PNG (`Docs/crystal_spots.png`) |
 | `hires.py` | hi‑res address mapping, simple PNG writer and screen dump: `hires.py MEM.bin OUT.png [2000]` |
 
 ## Extracted/v1.1
@@ -83,4 +87,5 @@ $D000 routines a few bytes later). `RobotOdysseyKit.sym`,
 menu and save/restore at $4000‑$5DFF. Keep it separate: during play that
 area is hi‑res page 2, and loader names there would mislabel screen writes.
 Names ending in `_Q` are guesses. Add names to `RobotOdyssey/Symbols` and
-rerun `ro_symbols.sh`.
+rerun `ro_symbols.sh`. For Mariani's debugger run `ro_mariani.sh` once
+(Docs/Symbols.md, *Symbol files*).

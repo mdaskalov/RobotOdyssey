@@ -36,7 +36,9 @@ and wraps (engine $9DB3).
 | $6800 | dy | |
 | $6900 | flags | $00/$FF |
 
-Object 0 is the player (sprite 0), $FE is linked to it. Robots are pairs of
+Object 0 is the player (sprite 0), $FE is linked to it: the tip of the
+tool in hand (blank but for the soldering pen's). $FD is the soldering pen,
+$FC the remote control (Engine.md, TAKE_TOOL). Robots are pairs of
 objects (sprites $2A/$2B, left/right half); the robot table at **$8200** lists
 the body object of each of the 4 robots (`$8200‑$8203`, Level 1: F0 F2 F4 01)
 and its interior room (`$8204‑$8207`: 09 0A 0B 0D).

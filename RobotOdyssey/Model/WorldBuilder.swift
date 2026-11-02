@@ -239,7 +239,7 @@ nonisolated struct WorldBuilder {
             if header[0 ..< 0x44].contains(where: { $0 != 0 }) {
                 let chipPins = GameSymbols.address(\.chipPins)
                 mem.replaceSubrange(chipPins ..< chipPins + 0x40, with: header[0 ..< 0x40])
-                let restored: [ByteSymbol] = [\.heldObject, \.held9C27, \.buttonEdgesA5C9, \.buttonEdgesA5CA]
+                let restored: [ByteSymbol] = [\.heldObject, \.grabbedObject, \.heldDX, \.heldDY]
                 for (i, variable) in restored.enumerated() {
                     mem[variable] = header[0x40 + i]
                 }

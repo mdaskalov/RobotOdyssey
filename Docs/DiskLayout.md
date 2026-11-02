@@ -240,7 +240,7 @@ letters (high‑bit ASCII, padded with spaces; DIRECTORY_OFFSETS $4D50), e.g.
 | +0…+31 | $D000‑$EFFF | language‑card RAM (bank 1 $D000‑$DFFF, then $E000‑$EFFF) |
 | +32…+84 | $6000‑$94FF | the world |
 | +85…+105 | $0B00‑$1FFF | level code and state |
-| +106 | $5E00 | header: $00‑$3F = chip table $F008‑$F047; $40‑$43 = $9C26 (HELD_OBJECT), $9C27, $A5C9, $A5CA; $44 = WORLD_INDEX ($02D2) |
+| +106 | $5E00 | header: $00‑$3F = chip table $F008‑$F047; $40‑$43 = $9C26 (HELD_OBJECT), $9C27 (GRABBED_OBJECT), $A5C9/$A5CA (HELD_DX/DY); $44 = WORLD_INDEX ($02D2) |
 
 So slot 0's header is page 224, slot 1's page 331. Saving
 (SAVE_GAME_WRITE $4166) builds the header from those addresses and writes

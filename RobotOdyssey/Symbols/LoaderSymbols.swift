@@ -327,7 +327,29 @@ nonisolated final class Level1Symbols: Sendable {
     let countAmpireRest = Routine(0x1007)
     /// Room $2A's code: the way out of the sewer, with its falling tones (GameSounds.exitTones).
     let tick101A = Routine(0x101A)
-    let welcomeRoom = Routine(0x10F8, guess: true)
+    /// Each tick until SHUFFLED: while the player is in room $28 or $02 it
+    /// counts SHUFFLE_TICKS3/6 on and draws SHUFFLE_PAIR and SHUFFLE_CRYSTAL
+    /// (RANDOM_BELOW_A); the first tick elsewhere it places the key $FA in a
+    /// robot's interior, $F6/$03 in rooms $22/$23, chip $E7 and the black
+    /// crystal $04 in the maze, and sets SHUFFLED (Engine.md, Level 1).
+    let shuffleObjects = Routine(0x10F8)
+    /// x = A for object Y, then PLACE_OBJECT.
+    let placeObjectAtX = Routine(0x11AC)
+    /// Object Y into room X (SET_OBJECT_ROOM).
+    let placeObject = Routine(0x11AF)
+    /// The key's rooms, by SHUFFLE_TICKS3: $09 $0A $0B (the interiors of
+    /// robots $F0 $F2 $F4).
+    let shuffleKeyRooms = Table(0x11B9)
+    /// The maze rooms of chip $E7 and the black crystal: $08 $0C $07 $06 $17 $16.
+    let shuffleMazeRooms = Table(0x11BC)
+    let shuffleChipX = Table(0x11C2)
+    let shuffleChipY = Table(0x11C8)
+    let shuffleCrystalX = Table(0x11CE)
+    let shuffleCrystalY = Table(0x11D4)
+    /// Where SHUFFLE_PAIR's pair starts in SHUFFLE_PAIRS: 0 or 2.
+    let shufflePairStart = Table(0x11DA)
+    /// $F6 $03 $03 $F6: the first goes to room $22, the second to room $23.
+    let shufflePairs = Table(0x11DC)
     /// The Ampire Bot's 4 frames: sprite pointers, low and high bytes.
     let ampireFramesLow = Table(0x1212)
     let ampireFramesHigh = Table(0x1216)
@@ -344,6 +366,17 @@ nonisolated final class Level1Symbols: Sendable {
     let soundTableLengths = Table(0x18BE)
     let soundTableSweeps = Table(0x18CA)
     let soundTablePitches = Table(0x18D6)
+    /// 0 on the disk; 1 once SHUFFLE_OBJECTS has placed the objects (kept in
+    /// a saved game, so a restored one isn't shuffled again).
+    let shuffled = Byte(0x8F46)
+    /// Ticks in the start rooms modulo 3 (the key's room) and modulo 6 (chip
+    /// $E7's spot).
+    let shuffleTicks3 = Byte(0x8F47)
+    let shuffleTicks6 = Byte(0x8F48)
+    /// RANDOM_BELOW_A 2: $F6/$03 in rooms $22/$23 (0) or the other way round.
+    let shufflePair = Byte(0x8F49)
+    /// RANDOM_BELOW_A 6: the black crystal's spot.
+    let shuffleCrystal = Byte(0x8F4A)
     /// The Ampire Bot (AMPIRE_BOT): ticks it has drained its target (20 drain it).
     let ampireDrain = Byte(0x8F4B)
     /// Animation frame, 3 down to 0.

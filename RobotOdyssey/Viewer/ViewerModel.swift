@@ -133,9 +133,10 @@ final class ViewerModel {
     @ObservationIgnored private var worldsLoaded = 0
     /// Storage disks loaded from the app's own copies (`StorageDisks`).
     @ObservationIgnored private var ownCopies: Set<String> = []
-    /// Rooms the player left while playing, with the tick they left in: their
-    /// last live frame shows the player at the exit (`redrawLeftRooms`).
-    @ObservationIgnored private var leftRooms: [Int: Int] = [:]
+    /// The player and what it carries (`World.carried`) as the tick last
+    /// looked at started: the rooms they are in, but the player's, are drawn
+    /// again every tick, those they leave once more (`redrawCarriedRooms`).
+    @ObservationIgnored private var carried: (world: World.ID, tick: Int, objects: [GameObject])?
     /// Source of `liveFrame`: room, display mode, on screen or preview; and the page shown.
     @ObservationIgnored private var liveSource: (key: String, bytes: [UInt8])?
     /// Source of `liveContents`: room and the draw on screen, or the preview.
@@ -466,7 +467,7 @@ final class ViewerModel {
         lastSound = nil
         soundPlayer.stop()
         thumbnails = [:]                            // the rooms as the world starts
-        leftRooms = [:]
+        carried = nil
         guard let world = selectedWorld, let game = gameScreen(world) else { return }
         let drive = groups.first { $0.worlds.contains { $0.id == world.id } }.map {
             DiskDrive(program: $0.disks, storage: storageDisk, inserted: world.engine == .levels ? .sideA : .sideB)
@@ -644,12 +645,12 @@ final class ViewerModel {
             return
         }
         if loaderImage != nil { loaderImage = nil }
-        redrawLeftRooms(world, loop)
         if playing, let shown = loop.shownRoom, shown != selectedRoom {
-            leftRooms[selectedRoom] = loop.ticks
             selectedRoom = shown                    // shows it
             return
         }
+        // Once the live frame is set: a room left keeps its last one as its thumbnail till then.
+        defer { redrawCarriedRooms(world, loop) }
         let room = selectedRoom
         guard playing || loop.room == room else {
             liveFrame = nil
@@ -695,15 +696,28 @@ final class ViewerModel {
         liveContents = RoomContents(world: live, room: room, live: true, sprites: sprites)
     }
 
-    /// The thumbnails of the rooms the player left in an earlier tick, drawn
-    /// from the state at the start of this one: the player is in the new room
-    /// by then.  (At the room change, the start of the tick still has the
-    /// player at the exit.)
-    private func redrawLeftRooms(_ world: World, _ loop: GameLoop) {
-        for (room, tick) in leftRooms where tick < loop.ticks {
-            leftRooms[room] = nil
-            guard room != selectedRoom, world.codeRooms[room] == nil,
-                  let screen = try? loop.preview(room: room),
+    /// Each tick, the thumbnails of the rooms the player and what it carries
+    /// are in, but the player's and the selected one, drawn as the loop's
+    /// preview (the room's own animations going on), and once they moved,
+    /// of the rooms they were in.  So a room left is drawn again tick by tick
+    /// until all of it is out: what the player carries can stay behind,
+    /// partly or all, until the player gets far enough, or follow a tick late
+    /// (`World.carried`); and a room it pokes into ahead of the player shows
+    /// it.  (In the tick the player changes room, its start still has the
+    /// player at the exit: the next one has it in the new room.)
+    private func redrawCarriedRooms(_ world: World, _ loop: GameLoop) {
+        guard carried?.world != world.id || carried?.tick != loop.ticks else { return }
+        let start = loop.tickStartMemory
+        let now = world.with(mem: start.memory, bank1: start.bank1)
+        let objects = now.carried.map(now.object)
+        let last = carried
+        carried = (world.id, loop.ticks, objects)
+        guard let last, last.world == world.id else { return }
+        var rooms = Set(objects.map(\.room))
+        if last.objects != objects { rooms.formUnion(last.objects.map(\.room)) }
+        rooms.subtract([now.object(0).room, selectedRoom])
+        for room in rooms where world.codeRooms[room] == nil {
+            guard let screen = try? loop.preview(room: room),
                   let image = HiresImage.make(screen, mode: mode, scale: 1) else { continue }
             thumbnails[room] = image
         }
