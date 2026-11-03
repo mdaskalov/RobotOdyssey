@@ -7,8 +7,9 @@
 //   frames: each room drawn by the world's draw phase with the native routines
 //           and with all 6502 code -- memory, bank 1 and screen must match;
 //   ticks:  the world's main loop run as in the game (GameLoop, no input) with
-//           the native routines and with all 6502 code -- memory, bank 1 and
-//           the page on screen must match after every tick;
+//           the native routines, with all 6502 code, and with the natives
+//           switched on and off at random within the ticks -- memory, bank 1
+//           and the page on screen must match after every tick;
 //   input:  the same with input before every tick: keys held for a while
 //           (movement keys, lower case, Ctrl, space, others), then a joystick
 //           moved around with its buttons, now and then a key or unplugged --
@@ -29,6 +30,7 @@
 // Every world's engine code must match the symbols' fingerprints (the
 // loader's CodeCheck), and still match after the ticks.
 import Foundation
+import MOS6502
 
 struct SplitMix {
     var state: UInt64
@@ -143,32 +145,43 @@ struct NativeCheck {
         return n
     }
 
-    /// The main loop with and without the native routines, tick by tick.
+    /// The main loop with and without the native routines, tick by tick;
+    /// and with them switched on and off at random, in the middle of a tick
+    /// (`GameLoop.switchedOff`).
     static func checkTicks(_ world: World, _ screen: GameScreen, count: Int = 40) -> Int {
         let native = screen.loop(room: nil)
         let original = screen.loop(room: nil, nativesEnabled: false)
+        let mixed = screen.loop(room: nil)
+        let names = screen.natives.map(\.name)
+        var rng = SplitMix(state: UInt64(world.name.utf8.count))
         var sounds = 0
         defer { if sounds > 0 { print("  \(sounds) sounds in the ticks") } }
         for tick in 0 ..< count {
             do {
                 try native.runTick()
                 try original.runTick()
+                // Well within a tick (natives on, the shortest take some 50,000 cycles).
+                try mixed.run(until: mixed.cycles + rng.next() % 20_000)
+                mixed.switchedOff = Set(names.filter { _ in rng.chance(2) })
+                if mixed.ticks == tick { try mixed.runTick() }
             } catch {
                 fail("\(world.name) tick \(tick): \(error)")
                 return tick
             }
-            sounds += checkMapped(native.takeSounds(), "\(world.name) tick \(tick)")
+            sounds += checkMapped(native.takeSpeaker().sounds, "\(world.name) tick \(tick)")
             // Native routines leave no return addresses on the stack page.
             let deadStack = 0x0100 ... 0x01FF
-            if let d = firstDifference(native.memory, original.memory, ignoring: deadStack) {
-                fail("\(world.name) tick \(tick): memory \(hex(d)) native \(native.memory[d]) original \(original.memory[d])")
-                return tick
-            } else if native.bank1 != original.bank1 {
-                fail("\(world.name) tick \(tick): bank 1 differs")
-                return tick
-            } else if native.screen().bytes != original.screen().bytes {
-                fail("\(world.name) tick \(tick): screen differs")
-                return tick
+            for (loop, what) in [(native, "native"), (mixed, "switched")] {
+                if let d = firstDifference(loop.memory, original.memory, ignoring: deadStack) {
+                    fail("\(world.name) tick \(tick): memory \(hex(d)) \(what) \(loop.memory[d]) original \(original.memory[d])")
+                    return tick
+                } else if loop.bank1 != original.bank1 {
+                    fail("\(world.name) tick \(tick): bank 1 differs (\(what))")
+                    return tick
+                } else if loop.screen().bytes != original.screen().bytes {
+                    fail("\(world.name) tick \(tick): screen differs (\(what))")
+                    return tick
+                }
             }
         }
         print("  \(count) ticks")
@@ -219,7 +232,7 @@ struct NativeCheck {
                 fail("\(world.name) input tick \(tick): \(error)")
                 return tick
             }
-            sounds += checkMapped(native.takeSounds(), "\(world.name) input tick \(tick)")
+            sounds += checkMapped(native.takeSpeaker().sounds, "\(world.name) input tick \(tick)")
             let position: [KeyPath<GameSymbols, Table>] = [\.objRoom, \.objX, \.objY]
             let at = position.map { native.memory[$0, 0] }
             if at == player { hold = 0 }            // stuck at a wall: another direction

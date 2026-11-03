@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// Native port of the engine's sound (Docs/Sound.md): PLAY_SOUNDS ($9F3C)
 /// plays the queued sounds with PLAY_TONE ($9EBB) and PLAY_NOISE ($9E7A),
@@ -11,7 +12,7 @@ import Foundation
 /// The native leaves memory and registers as the original does and takes
 /// its time, to the cycle (`elapsed`): the loops run as they do, counting
 /// cycles, and note each click by the cycle the original reads the speaker
-/// at (`sounds`), for `SpeakerRenderer`.
+/// at, the last of `LDA SPEAKER` (`sounds`), for `SpeakerRenderer`.
 nonisolated extension Engine {
     /// PLAY_SOUNDS ($9F3C): Ctrl-S turns the sound off and on.  While it is
     /// on, plays the queued sounds from SOUND_QUEUE on, each that is for
@@ -114,7 +115,7 @@ nonisolated extension Engine {
         var x = period
         var y = sweep & 0x7F
         var cycles: UInt64 = 14                         // LDA, AND, TAY, LDX, LDA SPEAKER
-        clicks.append(UInt32(cycles))
+        clicks.append(UInt32(cycles - 1))               // the read: LDA SPEAKER's last cycle
         repeat {
             repeat {
                 x &-= 1
@@ -123,7 +124,7 @@ nonisolated extension Engine {
                 } else {
                     x = period
                     cycles += 2 + 2 + 3 + 4             // DEX, BNE, LDX TONE_PERIOD, LDA SPEAKER
-                    clicks.append(UInt32(cycles))
+                    clicks.append(UInt32(cycles - 1))
                 }
                 cycles += 3                             // LDA SOUND_SWEEP
                 if sweep == 0 {
@@ -188,7 +189,7 @@ nonisolated extension Engine {
                 } else if out {
                     x = period
                     cycles += 2 + 2 + 4                 // BNE, BCC, LDA SPEAKER
-                    clicks.append(UInt32(cycles))
+                    clicks.append(UInt32(cycles - 1))
                     cycles += 3                         // LDX NOISE_PERIOD
                 } else {
                     cycles += 2 + 3                     // BNE, BCC
@@ -239,5 +240,60 @@ nonisolated extension Engine {
     /// 1 when `LDA table,X` crosses a page, which takes a cycle more.
     private func crossing(_ table: KeyPath<GameSymbols, Table>, _ x: Int) -> UInt64 {
         (m.address(table) & 0xFF) + x > 0xFF ? 1 : 0
+    }
+}
+
+// MARK: a sound alone
+
+nonisolated extension Machine {
+    /// A machine with `world`'s memory and the sound `p` alone in the queue
+    /// (slot 7), as a main loop calls PLAY_SOUNDS with it: the sound on, for
+    /// every room.  A noise starts with the shift register at 0 and the
+    /// sweep counter (Y) at 0, as FLIP_PAGE leaves it every other tick; in
+    /// the game both go on from what came before.
+    static func playing(_ p: Sound.Parameters, in world: World, variant: Variant?) -> Machine {
+        let machine = Machine(memory: world.mem, bank1: world.bank1, variant: variant)
+        let cpu = machine.cpu
+        let slot = 7
+        cpu.mem[\.soundFlags, slot] = p.kind.rawValue
+        cpu.mem[\.soundLengths, slot] = p.length
+        cpu.mem[\.soundSweeps, slot] = p.sweep
+        cpu.mem[\.soundPitches, slot] = p.pitch
+        cpu.mem[\.soundRooms, slot] = 0xFF
+        cpu.mem[\.soundQueue] = UInt8(slot)
+        cpu.mem[\.soundOn] = 1
+        cpu.mem[\.lastKey] = 0
+        cpu.mem[\.noiseLow] = 0
+        cpu.mem[\.noiseHigh] = 0
+        cpu.y = 0
+        cpu.sp = 0xF0
+        return machine
+    }
+}
+
+nonisolated extension Sound {
+    /// `p` as PLAY_SOUNDS plays it alone in `world` (`Machine.playing`), to
+    /// listen to: by the native if the world has it, else by the original code.
+    static func play(_ p: Parameters, in world: World) throws -> Played {
+        if let check = world.codeCheck, let native = check.natives.first(where: { $0.routine == \.playSounds }) {
+            let machine = Machine.playing(p, in: world, variant: check.variant)
+            if machine.call(native.run), let played = machine.takeSounds().first { return played }
+        }
+        return try playOriginal(p, in: world)
+    }
+
+    /// `p` by the original code: its clicks by cycle from the entry of
+    /// PLAY_TONE or PLAY_NOISE, and the cycles up to its RTS.
+    static func playOriginal(_ p: Parameters, in world: World) throws -> Played {
+        let machine = Machine.playing(p, in: world, variant: nil)
+        let cpu = machine.cpu
+        let generators = [GameSymbols.address(\.playTone), GameSymbols.address(\.playNoise)].map { UInt16($0) }
+        try cpu.call(UInt16(GameSymbols.address(\.playSounds)), stopAt: Set(generators))
+        let start = cpu.cycles
+        let sp = cpu.sp
+        machine.clicks = []
+        while cpu.sp <= sp { try cpu.step() }          // up to its RTS
+        return Played(parameters: p, name: GameSounds.name(for: p), start: 0, cycles: cpu.cycles - start,
+                      clicks: machine.clicks!.map { UInt32($0 - start) })
     }
 }

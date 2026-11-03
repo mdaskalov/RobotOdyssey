@@ -8,3 +8,7 @@ RobotOdyssey/Resources/*.dsk
 
 # Raw data extracted from the game disks (written by ro_extract.py / ro_title.py)
 Data/Extracted/**/*.bin
+
+# Swift package build output
+.build/
+.swiftpm/

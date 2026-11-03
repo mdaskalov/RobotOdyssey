@@ -222,7 +222,7 @@ nonisolated extension Engine {
     // MARK: walls in the way
 
     /// What TEST_MOVE finds at the object's corners.
-    private static let wallHit: UInt8 = 1, offRight: UInt8 = 2, offTop: UInt8 = 4
+    static let wallHit: UInt8 = 1, offRight: UInt8 = 2, offTop: UInt8 = 4
 
     /// STOP_AT_WALLS ($AD40): stops CUR_OBJECT's move at walls.  If one of
     /// the object's corners (a 7 × 16 box) would end on a wall, it first keeps
@@ -271,7 +271,7 @@ nonisolated extension Engine {
     /// TEST_MOVE ($AE69): what CUR_OBJECT's four corners would meet after
     /// moving by (TRY_DX, TRY_DY): a wall, the right edge (x $8C and more), the
     /// top (y $C0 and more).  In A and TEST_RESULT.
-    private mutating func testMove() -> UInt8 {
+    mutating func testMove() -> UInt8 {
         r.a = m.objRoom[m.currentObject]
         roomWallsPointer()
         m.testCorner = 3

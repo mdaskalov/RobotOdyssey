@@ -43,7 +43,7 @@ $D000 ROBOTS_RESET_Q      (if $8DAB = 5 – which it is on every tick of normal 
                            $F56B chips)
 $F5A9  $1740 (level)      $DD59 PLAYER_IN_ROBOT
 --- draw on the hidden page ---
-$9D03 DRAW_ROOM_TILES     $A2A2 DRAW_ROOM_TEXTS      $1305 (level)
+$9D03 DRAW_ROOM_TILES     $A2A2 DRAW_ROOM_TEXTS      $1305 L1_SENTRIES (level)
 $9D18 DRAW_ROOM_OBJECTS   $101A (level)  $D2BC DRAW_ROBOTS  $D72B DRAW_ROBOT_INTERIOR
 $187C $0C06 $8F69 $0F93 (level)  $DDD0  $1E3B
 $F7BE SOLDER_WIRE_Q / $F5C2 SOLDER_TOUCH_Q (pen in hand, CopyProtection.md)
@@ -66,16 +66,21 @@ disk are at 7.
 
 ## Input
 
-**Devices.** At start‑up every world calls DETECT_JOYSTICK ($AC24): if paddle
-0's timer runs out after the $C070 strobe, INPUT_DEVICE ($9C3E) = 1
-(joystick); else if a slot holds an Apple mouse card ($Cn0C = $20, $CnFB =
-$D6), 2; else 0 (keyboard). The keyboard is always read, and in keyboard
-mode the paddles are too: the first change of the paddle values switches to
-the joystick, a key back to the keyboard. The mouse is read through the
-card's firmware ($ACD6).
+**Devices.** At start‑up every world calls DETECT_JOYSTICK ($AC24, from
+$0819): if paddle 0's timer runs out after the $C070 strobe (it reads $C064
+up to 1280 times, every 11 cycles), INPUT_DEVICE ($9C3E) = 1 (joystick);
+else if a slot holds an Apple mouse card ($Cn0C = $20, $CnFB = $D6, from
+slot 7 down through SLOT_POINTER $1B), 2; else 0 (keyboard). The keyboard
+is always read, and in keyboard mode the paddles are too: the first change
+of the paddle values switches to the joystick, a key back to the keyboard.
+The mouse is set up and read through the card's firmware: CALL_MOUSE
+($ACD6) calls the routine at offset ($Cn00+Y) with X = $Cn, Y = n × 16
+(MOUSE_SLOT $A9D2, MOUSE_SLOT_16 $A9D3), patching the JMP at $ACE6;
+DETECT_JOYSTICK turns it on, clamps it and puts it at (0, 0) (HOME_MOUSE
+$ACC9; CLEAR_MOUSE_POSITION $AC12 clears the position's screen holes).
 
 **READ_INPUT ($A90C)**, the first call of every world's main loop (Level 1
-skips it while FLAG_8ED8 is 0):
+skips it while SENTRY_HELD is 0: a sentry holds the player):
 
 1. READ_KEY ($AA25): one key per tick from $C000 (strobe cleared), lower‑case
    letters made capitals (AND CASE_MASK $9C21 = $DF) → LAST_KEY ($9C3D), 0 if
@@ -86,8 +91,12 @@ skips it while FLAG_8ED8 is 0):
    loop keeps timing the other). The counts are doubled: PADDLE_X/Y
    ($AAC9/$AACA), STICK_X ($9C39) and STICK_Y ($9C3A, upside down). Buttons:
    button 1 alone → BUTTON_A ($9C3B), button 0 alone → BUTTON_B ($9C3C), both
-   → neither. A timer's 2816 cycles at position 255 give 116 rounds, so a
-   joystick reaches table entries 0‑14 only.
+   → neither. The counts run 0‑127 and the tables below take the centre at
+   64 ($80), so the game wants a timer of about 3,060 cycles all the way
+   (a PREAD of about 278). `InputDevices` gives 3072 cycles at position
+   255 (12 a step): 128 is the centre, 0 and 255 the full moves. With a
+   PREAD's 11 cycles a step (AppleWin: 2816 at 255) the counts reach only
+   117, table entry 14: right 4 instead of 7, down 8 instead of 15.
 3. Keyboard: KEY_AS_STICK ($AA40) centres the stick ($80/$80) and looks the
    key up in MOVE_KEYS ($9C13, ten keys each world copies there at start‑up;
    Level 1 from $080B): up, down, left, right, button A, button B, then
@@ -110,7 +119,10 @@ skips it while FLAG_8ED8 is 0):
    $ABBE (joystick: −7 −4 −2 −1 −1 −1 0 0 0 0 1 1 1 2 4 7), MOVE_DY ($9C23)
    from $AB81 (±16, ±1) or $ABCE (−15 −8 −4 −1 … 1 4 8 15). A held key
    moves once per tick, since the Apple repeats keys faster than the 4‑7
-   ticks per second.
+   ticks per second. So the joystick moves by how far it is pushed: within
+   a quarter of the way out not at all (entries 6‑9), up to five eighths
+   1 step, as Ctrl‑I J K M (3‑5, 10‑12), then 2 and 4 across (4 and 8 up
+   or down), the last eighth 7 across (15).
 5. LIMIT_MOVE ($ACF8, X = Y = $FF: no limit), then for the player (CURRENT_OBJECT
    = 0): STOP_AT_WALLS ($AD40) unless WALLS_ON ($9C30) is 0 (the easter egg
    below), KEEP_ON_SCREEN ($A934), MOVE_OBJECT ($9DB3).
@@ -369,10 +381,52 @@ The wall‑clock rate is a separate, user‑visible choice:
 
 * **Authentic** – compute each tick's cycle cost (or run the original code)
   and pace ticks at 1.0205 MHz, reproducing the room‑dependent speed. The
-  viewer does this.
+  viewer does this (below: each tick shown as it starts).
 * **Fixed** – a constant rate (e.g. 5 or 6 ticks/s), smoother but not
   identical in feel.
 * **Fast** – for testing circuits.
+
+**Latency and smoothness in the viewer.** On the Apple a key waits for the
+next tick's READ_INPUT, and the tick then draws the back page for its whole
+length before FLIP_PAGE shows it: up to two ticks (about 0.4 s) from key to
+screen, the picture changing 4‑7 times a second. The viewer keeps the
+ticks' pace but shows them earlier and in between (`GameLoop`):
+
+* **A tick at once.** `run(until:finishingTick:)` runs to the clock, then
+  the tick under way to its end, so the page is on screen as the tick
+  starts; the next tick starts when the clock reaches its first cycle. It
+  stops early where the game waits: for a key (`Machine.waitsForKey`, the
+  keyboard read again and again within 256 cycles without a key, as the
+  message boxes' $0A77 does), 500,000 cycles past the clock (a sound), or
+  10,000 cycles after the tick's flip (a world flipping pages itself); from
+  there the tick runs by the clock as before. PLAY_SOUNDS as 6502 code
+  (its native switched off) runs on past the flip, as the native takes a
+  sound's cycles at once: otherwise only the sound's first clicks came with
+  the page and the rest once the clock had caught up, about 150 ms later
+  (Sound.md, *The stream*).
+* **In‑between frames** (*Smooth*). Each flip keeps the machine where its
+  draw phase started. Between two pages of the same room, `inBetween(at:)`
+  takes the newer one's draw start, sets what moved since the page before
+  part of the way back – object x/y of the objects in the room, the wires'
+  and loose wires' ends, each where it moved at most 8 across and 16 up or
+  down (the player's step) – and runs the draw phase on that copy. Redrawing
+  from a page's draw start gives the page byte for byte (all nine worlds,
+  walking), so an in‑between frame is the game's own drawing with only the
+  positions moved; robots' parts follow their body's x/y. The glide runs
+  over the tick, from the tick's start to the next's, so a page is reached
+  when the Apple would have shown it. It costs one draw phase per changed
+  frame: about 0.7 ms in a Release build, 6 ms in a Debug one.
+* **Held keys.** A movement key held down (`InputDevices.held`, one of
+  MOVE_KEYS' movement keys) is typed again as each tick starts, where
+  READ_INPUT reads it, until it is let go: one step per tick from the first,
+  without the Mac's repeat delay, and never typed into a message's wait.
+* **Game controller** (`GameControllers`, read every display frame): the
+  joystick, its left stick or d‑pad as the paddles (the round gate
+  stretched to the Apple's square one, 0.2 around the centre the centre)
+  and A/X, B/Y as buttons 0 and 1. A button press reads as down until a
+  tick has started with it (`InputDevices.set(button:down:)`), so a press
+  shorter than a tick still reaches READ_INPUT, once. Without *Play* the
+  joystick stays plugged in, centred.
 
 ## The draw phase
 
@@ -386,7 +440,13 @@ these bounds and the main loop's first instruction in any world.
 
 ## The hybrid engine (Swift)
 
-The game runs as the original 6502 code on `CPU6502`, inside `Machine`:
+The game runs as the original 6502 code on `CPU6502`, inside `Machine`.
+`CPU6502` is the `MOS6502` package (`Packages/MOS6502`, its README): the
+NMOS 6502 of the Apple //e as AppleWin/Mariani runs it, all 256 opcodes, its
+cycle counts, every read or write on the cycle the 6502 makes it (a click is
+the cycle `LDA SPEAKER` reads $C030, its last); checked against AppleWin's
+own code (`Data/cpu_check.sh`). A BRK stops with an error (`stopsAtBRK`):
+there is no ROM behind its vector.
 
 * 64K main RAM plus language card bank 1 (engine data, chips): a switch via
   $C080‑$C08F swaps $D000‑$DFFF. The chips ($F56B) and sensors ($F44D) use
@@ -399,10 +459,12 @@ The game runs as the original 6502 code on `CPU6502`, inside `Machine`:
 * soft switches: keyboard $C000/$C010, display page $C054/$C055, speaker
   $C030, and the input devices (`InputDevices`): buttons $C061/$C062, paddle
   timers $C064/$C065 started by $C070 and timed by the CPU's cycle counter
-  (2816 cycles at position 255, as AppleWin). Without a joystick (the
-  default) the timers never run out, so the engine finds none and plays by
-  keyboard; a joystick can be plugged in at any time. (Timers that run out
-  at once read as a joystick held up‑left: the player walks off.)
+  (3072 cycles at position 255, the range READ_JOYSTICK measures; "Input").
+  Without a joystick (the default) the timers never run out, so the engine
+  finds none and plays by keyboard; a joystick can be plugged in at any
+  time (the viewer's game controller). Timers that run out at once read as
+  a joystick held up‑left, and timers that never do (a joystick unplugged)
+  as one held down‑right: in joystick mode the player walks off.
 * **native routines**: a Swift method of `Engine` registered at an engine
   entry point runs when the 6502 code reaches it – by JSR, JMP or falling
   through (CPU traps) – and returns like RTS. It works on the same memory
@@ -411,8 +473,8 @@ The game runs as the original 6502 code on `CPU6502`, inside `Machine`:
   where the 6502 code does and must leave memory **byte for byte** as the
   original leaves it, temporaries included, and A, X, Y and the flags where
   other code may use them (routines that the worlds' code calls). It may
-  decline a case it doesn't handle (READ_INPUT with a mouse) and the
-  original code runs. Each native names the routine it replaces and the
+  decline a case it doesn't handle (READ_INPUT with a mouse,
+  DETECT_JOYSTICK finding a mouse card) and the original code runs. Each native names the routine it replaces and the
   ones it reproduces besides (`Native.all`); every one of them has its code
   ranges and their MD5 per engine build and version in `GameSymbols`. The
   loader (`WorldBuilder`) checks them when it loads a world (`CodeCheck`),
@@ -426,18 +488,19 @@ routines become Swift one at a time. Ported so far (methods of `Engine`):
 | Routines | File | Worlds |
 |---|---|---|
 | DRAW_ROBOTS $D2BC, DRAW_ROBOT_INTERIOR $D72B (kit/lab $D2AB/$D674), with DRAW_SPRITE(_COLOUR), PLOT, the lines and DRAW_BOX (Robots.md) | `RobotDrawing`, `EngineGraphics` | all |
-| READ_INPUT $A90C | `PlayerInput` | all |
+| READ_INPUT $A90C, DETECT_JOYSTICK $AC24 (registers exact) | `PlayerInput` | all |
 | MOVE_OBJECT $9DB3, MOVE_OBJECT_XY $9DB9, SET_OBJECT_ROOM $9E07, ROOM_WALLS_POINTER $9D56, WALL_AT $B40B, STOP_AT_WALLS $AD40, KEEP_ON_SCREEN $A934, LIMIT_MOVE $ACF8 (registers exact) | `ObjectMotion` | all |
 | PLAYER_WALK_SPRITE $DFA3 (v1.0 $DFA4), GRAB_BUTTON $BEBC, KEEP_MOVE $FE18 | `PlayerInput` | levels |
 | PLAY_SOUNDS $9F3C with PLAY_TONE $9EBB, PLAY_NOISE $9E7A (registers, cycles and clicks exact; Sound.md) | `Speaker` | all |
 
 A native routine takes no CPU cycles unless it reports them
 (`Engine.elapsed`, added to the CPU's when it returns). PLAY_SOUNDS does, to
-the cycle, as a sound stops the game for up to 2 s; the others don't yet, so a
+the cycle, as a sound stops the game for up to 2 s; the others don't, so a
 tick with natives is shorter than the original's (READ_INPUT's paddle loop
 alone is about 3,000 cycles): the tick's work is identical, but the
-*Authentic* pacing runs a little fast where natives run. To be fixed by
-giving natives the original's cycle count.
+*Authentic* pacing runs faster where natives run. That is what they are for
+(decided 2026‑11‑03): the original slows down with many objects in a room;
+only what a tick does must stay the original's.
 
 `GameScreen` uses this for the viewer: it runs the world's start‑up code
 ($0803 up to the main loop) once, then for any room sets $9C2D and runs the

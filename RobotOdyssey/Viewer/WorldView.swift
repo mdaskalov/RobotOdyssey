@@ -1,37 +1,34 @@
 import SwiftUI
 
-/// How the rooms below the selected one are arranged.
-enum RoomsLayout: String, CaseIterable, Identifiable {
-    /// Room n at column n % 8, row n / 8.
-    case grid = "Grid"
-    /// As they connect (WorldMap).
-    case map = "Map"
-    var id: String { rawValue }
-}
-
-/// The selected room large, and below it, if shown, all rooms in an 8x8 grid
-/// or on the map of how they connect (`RoomBrowser`).
+/// The selected room large, and below it, if shown, the world: its rooms,
+/// sprites, sounds… (`WorldPanel`).
 struct WorldView: View {
     @Bindable var model: ViewerModel
     let world: World
     @FocusState private var focused: Bool
-    @AppStorage("roomsHeight") private var roomsHeight = 320.0
+    @AppStorage("worldHeight") private var worldHeight = 320.0
 
     var body: some View {
         GeometryReader { geo in
             // The canvas keeps at least 160 points.
-            let maxRooms = max(geo.size.height - 160, 100)
+            let maxWorld = max(geo.size.height - 160, 100)
             VStack(spacing: 0) {
                 RoomCanvas(model: model, world: world)
                     .focusable()
                     .focused($focused)
                     .focusEffectDisabled()
-                    .onKeyPress(phases: [.down, .repeat]) { press in
+                    .onKeyPress(phases: [.down, .repeat, .up]) { press in
                         if model.playing {
+                            let key = press.key.character.lowercased()
+                            if press.phase == .up {
+                                model.release(key)
+                                return .handled
+                            }
                             guard let code = AppleKeyboard.code(for: press, appleArrows: model.inLoader) else { return .ignored }
-                            model.type(code)
+                            model.type(code, key: key, repeated: press.phase == .repeat)
                             return .handled
                         }
+                        guard press.phase != .up else { return .ignored }
                         switch press.key {
                         case .upArrow: model.go(.up)
                         case .downArrow: model.go(.down)
@@ -42,82 +39,48 @@ struct WorldView: View {
                         }
                         return .handled
                     }
+                    // Key ups go elsewhere then: a key held would walk on.
+                    .onChange(of: focused) {
+                        if !focused { model.releaseKeys() }
+                    }
+                    #if os(macOS)
+                    .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+                        model.releaseKeys()
+                    }
+                    #endif
                     .task(id: model.session) {
                         await model.runGame()
                     }
                     .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if model.showRooms {
+                if model.showWorld {
                     VStack(spacing: 0) {
-                        ResizeHandle(size: $roomsHeight, range: 100 ... maxRooms, panel: .bottom)
-                        RoomBrowser(model: model, world: world)
-                            .frame(height: min(roomsHeight, maxRooms))
+                        ResizeHandle(size: $worldHeight, range: 100 ... maxWorld, panel: .bottom)
+                        WorldPanel(model: model, world: world)
+                            .frame(height: min(worldHeight, maxWorld))
                     }
                     .transition(.move(edge: .bottom))
                 }
             }
-            .animation(.default, value: model.showRooms)  // as the inspector slides
+            .animation(.default, value: model.showWorld)  // as the inspector slides
         }
         .onAppear { focused = true }
     }
 }
 
-/// All rooms, in an 8x8 grid or on the map of how they connect; click one to select it.
-private struct RoomBrowser: View {
-    var model: ViewerModel
-    let world: World
-    @AppStorage("roomsLayout") private var layout = RoomsLayout.grid
-    /// Map tiles as a fraction of a full-size thumbnail.
-    @AppStorage("mapZoom") private var zoom = 0.5
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                Text("Rooms").font(.headline)
-                Picker("Rooms", selection: $layout) {
-                    ForEach(RoomsLayout.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .help("Grid: room n at column n % 8, row n / 8. Map: the rooms as they connect.")
-                Spacer()
-                if layout == .map {
-                    Slider(value: $zoom, in: 0.35 ... 1) { Text("Zoom") }
-                        .frame(maxWidth: 200)
-                }
-            }
-            .padding(.horizontal)
-            .padding(.vertical, 8)
-            if !model.thumbnailsReady {
-                loading("Drawing the rooms…")
-            } else if layout == .grid {
-                ScrollView {
-                    RoomGrid(model: model, world: world).padding([.horizontal, .bottom])
-                }
-            } else if let map = model.map(world) {
-                WorldMapView(model: model, world: world, map: map, zoom: zoom)
-            } else {
-                loading("Laying out the map…")
-            }
-        }
-        .task(id: "\(world.id)#\(model.mode.rawValue)#\(layout.rawValue)") {
-            await model.prepareRooms(world: world, withMap: layout == .map)
-        }
-    }
-
-    /// In place of the rooms while `prepareRooms` makes them.
-    private func loading(_ title: String) -> some View {
-        ProgressView(title)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
 /// The room at 560x384 (scaled to fit), with selection of sprites and wires,
 /// and tile grid; the point under the pointer goes to `ViewerModel.pointer`.
+/// A click selects (in Play, on the player, it is the game's button too), a
+/// drag takes hold of the player or an object in the running game
+/// (`ViewerModel.beginDrag`, `MouseHand`).
 struct RoomCanvas: View {
     var model: ViewerModel
     let world: World
+    /// The mouse went down and moved far enough to be a drag.
+    @State private var dragged = false
+
+    /// How far the pointer moves before a click is a drag, in points.
+    private static let dragDistance: CGFloat = 3
 
     var body: some View {
         let contents = model.contents(world)
@@ -152,10 +115,28 @@ struct RoomCanvas: View {
                 if case .active(let p) = phase { point = logical(p, k: k) }
                 if model.pointer != point { model.pointer = point }
             }
-            .onTapGesture { p in
-                let point = logical(p, k: k)
-                model.selection = contents.item(atX: point.x, y: point.y)
-            }
+            // One gesture for both, so a click doesn't wait for the drag to fail.
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { value in
+                        let t = value.translation
+                        if !dragged, hypot(t.width, t.height) >= RoomCanvas.dragDistance {
+                            dragged = true
+                            model.beginDrag(at: logical(value.startLocation, k: k))
+                        }
+                        // Object units: 4 image pixels across, 2 up (y up).
+                        if dragged { model.drag(by: t.width / k / 4, -t.height / k / 2) }
+                    }
+                    .onEnded { value in
+                        if dragged {
+                            model.endDrag()
+                        } else {
+                            model.click(at: logical(value.startLocation, k: k), in: world)
+                        }
+                        dragged = false
+                    }
+            )
+            .pointerStyle(model.dragging ? .grabActive : model.pointer.map(model.canHold) == true ? .grabIdle : nil)
         }
         .aspectRatio(560.0 / 384.0, contentMode: .fit)
         .frame(maxWidth: 1120)
@@ -185,21 +166,6 @@ private struct TileGrid: View {
             ctx.stroke(path, with: .color(.gray.opacity(0.5)), lineWidth: 0.5)
         }
         .allowsHitTesting(false)
-    }
-}
-
-/// All 64 rooms as thumbnails; room n is at column n % 8, row n / 8.
-private struct RoomGrid: View {
-    var model: ViewerModel
-    let world: World
-
-    var body: some View {
-        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 8), spacing: 6) {
-            ForEach(0 ..< World.roomCount, id: \.self) { r in
-                RoomCell(model: model, world: world, room: r)
-                    .onTapGesture { model.selectedRoom = r }
-            }
-        }
     }
 }
 

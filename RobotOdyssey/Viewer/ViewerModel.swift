@@ -1,5 +1,6 @@
 import SwiftUI
 import UniformTypeIdentifiers
+import MOS6502
 
 struct WorldGroup: Identifiable {
     let id: String
@@ -45,12 +46,13 @@ final class ViewerModel {
     }
     var showEmptyRooms = false
     var showGrid = false
-    /// The panels: the worlds on the left, the rooms below the canvas, the inspector on the right.
+    /// The panels: the worlds on the left, the world's rooms, sprites, sounds…
+    /// below the canvas, the inspector on the right.
     var showLevels = UserDefaults.standard.object(forKey: "showLevels") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showLevels, forKey: "showLevels") }
     }
-    var showRooms = UserDefaults.standard.object(forKey: "showRooms") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showRooms, forKey: "showRooms") }
+    var showWorld = UserDefaults.standard.object(forKey: "showWorld") as? Bool ?? true {
+        didSet { UserDefaults.standard.set(showWorld, forKey: "showWorld") }
     }
     var showInspector = UserDefaults.standard.object(forKey: "showInspector") as? Bool ?? true {
         didSet {
@@ -61,6 +63,8 @@ final class ViewerModel {
     /// Object coordinates under the pointer on the canvas (x 0-139, y 0-191
     /// from the bottom), for the inspector's read-out.
     var pointer: RoomPoint?
+    /// A drag on the canvas holds the player or an object (`beginDrag`).
+    private(set) var dragging = false
     /// The inspector's other sprites drawn are open: while the inspector is
     /// shown, the selected room's sprites are recorded (`updateContents`).
     var showSprites = UserDefaults.standard.bool(forKey: "showSprites") {
@@ -77,7 +81,15 @@ final class ViewerModel {
     /// Play: the keyboard goes to the game and the view follows the player.
     var playing = false {
         didSet {
-            if playing { paused = false }
+            if playing { paused = false } else { releaseKeys() }
+            showLive()
+        }
+    }
+    /// In-between frames: what moves glides from one tick's page to the next
+    /// (`GameLoop.inBetween`); off, the pages alone, as on the Apple.
+    var smooth = UserDefaults.standard.object(forKey: "smooth") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(smooth, forKey: "smooth")
             showLive()
         }
     }
@@ -86,6 +98,15 @@ final class ViewerModel {
         didSet {
             UserDefaults.standard.set(sound, forKey: "sound")
             if !sound { soundPlayer.stop() }
+        }
+    }
+    /// The native routines switched off, by name, and the loader's intro
+    /// skip (`GameLoop.switchedOff`): the original 6502 code runs there,
+    /// from the running game's next instruction on.
+    var nativesOff = Set(UserDefaults.standard.stringArray(forKey: "nativesOff") ?? []) {
+        didSet {
+            UserDefaults.standard.set(nativesOff.sorted(), forKey: "nativesOff")
+            loop?.loop.switchedOff = nativesOff
         }
     }
     /// Counts the games started (a world selected, Restart): the canvas's
@@ -112,6 +133,8 @@ final class ViewerModel {
     }
     /// Tick count and speed of the running loop.
     private(set) var loopStatus = ""
+    /// The game controller that is the Apple's joystick, by name (nil: none connected).
+    private(set) var controllerName: String?
     /// The selected room as the loop last drew it (`updateContents`).
     private var liveContents: RoomContents?
 
@@ -126,7 +149,13 @@ final class ViewerModel {
     /// Each world after its start-up code ran (nil: it could not run).
     @ObservationIgnored private var gameScreens: [World.ID: GameScreen?] = [:]
     @ObservationIgnored private var loop: (world: World.ID, loop: GameLoop)?
+    /// The cycle the running game should be at by the clock (`runGame`); nil while it doesn't run.
+    @ObservationIgnored private var clockCycle: UInt64?
+    /// The movement keys held down, the newest last (`type`).
+    @ObservationIgnored private var heldKeys: [(key: String, code: UInt8)] = []
     @ObservationIgnored private let soundPlayer = SoundPlayer()
+    /// Plays the sounds of the world panel's sound table (`play`).
+    @ObservationIgnored private let soundPreview = SoundPlayer()
     /// The last sound the game played (GameSounds' name), for the status.
     @ObservationIgnored private var lastSound: String?
     /// The worlds the loader started in this game so far (`followLoader`).
@@ -312,6 +341,12 @@ final class ViewerModel {
         if target != selectedRoom { selectedRoom = target }
     }
 
+    /// Selects `room`, and in it `item` (an object, a wire).
+    func show(room: Int, item: RoomItem? = nil) {
+        selectedRoom = room
+        selection = item
+    }
+
     // MARK: images
 
     func image(world: World, room: Int) -> CGImage? {
@@ -454,9 +489,15 @@ final class ViewerModel {
     /// Runs the selected world's main loop as in the game, paced by its CPU
     /// cycles at 1.0205 MHz, plays its sounds and shows the selected room;
     /// with a drive for the loader, which takes the game on to other worlds.
-    /// Runs as the canvas's task: ends when `session` changes.
+    /// Frame by frame of the display: each tick runs as the clock reaches
+    /// it, its page on screen at once (`GameLoop.run`), and with `smooth`
+    /// the frames in between show what moves on its way.  Runs as the
+    /// canvas's task: ends when `session` changes.
     func runGame() async {
         loop = nil
+        clockCycle = nil
+        heldKeys = []
+        dragging = false
         liveFrame = nil
         loaderImage = nil
         worldsLoaded = 0
@@ -473,27 +514,28 @@ final class ViewerModel {
             DiskDrive(program: $0.disks, storage: storageDisk, inserted: world.engine == .levels ? .sideA : .sideB)
         }
         let loop = game.loop(room: viewedRoom(world), drive: drive)
+        loop.switchedOff = nativesOff
         self.loop = (world.id, loop)
         driveDisk = drive?.inserted
         showLive()
-        let clock = ContinuousClock()
-        var last = clock.now
-        // The cycle the game should be at.  A sound takes its cycles at once
-        // (the native PLAY_SOUNDS), and the loop waits here while it plays.
-        var target: UInt64?
-        while !Task.isCancelled {
-            try? await Task.sleep(for: .milliseconds(15))
-            // At most 0.1 s per step: a busy main thread slows the game down instead of skipping.
-            let elapsed = min(clock.now - last, .milliseconds(100))
-            last = clock.now
+        var last: CFTimeInterval?
+        for await time in DisplayFrames.stream() {
+            // At most 0.1 s per frame: a busy main thread slows the game down instead of skipping.
+            let elapsed = min(max(time - (last ?? time), 0), 0.1)
+            last = time
+            readController(loop)
             guard !paused, !loop.halted else {
-                target = nil
+                if clockCycle != nil {
+                    clockCycle = nil
+                    showLive()                      // the page, not an in-between frame
+                }
                 continue
             }
-            let cycles = (target ?? loop.cycles) + UInt64(elapsed / .seconds(1) * GameLoop.clock)
-            target = cycles
+            // A sound takes its cycles at once (the native PLAY_SOUNDS), and the loop waits here while it plays.
+            let cycles = (clockCycle ?? loop.cycles) + UInt64(elapsed * GameLoop.clock)
+            clockCycle = cycles
             do {
-                try loop.run(until: cycles)
+                try loop.run(until: cycles, finishingTick: true)
             } catch {
                 stopGame(error)
                 return
@@ -570,12 +612,18 @@ final class ViewerModel {
         driveDisk = drive.inserted
     }
 
-    /// The sounds the loop played since the last call.
+    /// What the speaker played since the last call, up to where the loop is.
     private func playSounds(_ loop: GameLoop) {
-        let sounds = loop.takeSounds()
-        guard let latest = sounds.last else { return }
-        lastSound = latest.name ?? latest.parameters?.description
-        if sound { soundPlayer.play(sounds) }
+        let (sounds, clicks) = loop.takeSpeaker()
+        soundPlayer.play(clicks, upTo: loop.cycles, quiet: loop.speakerQuiet, muted: !sound)
+        if let latest = sounds.last { lastSound = latest.name ?? latest.parameters?.description }
+    }
+
+    /// Plays a sound of `world`'s table, alone, as the game would
+    /// (`Sound.play`), also when the game's sounds are muted.
+    func play(_ sound: Sound.Parameters, in world: World) {
+        guard let played = try? Sound.play(sound, in: world) else { return }
+        soundPreview.play(SpeakerRenderer.samples([played]))
     }
 
     /// Runs the paused main loop to the start of the next tick.
@@ -598,10 +646,111 @@ final class ViewerModel {
         session += 1
     }
 
-    /// A key typed on the Apple's keyboard (Play): the game reads it at its next tick.
-    func type(_ code: UInt8) {
+    /// A key typed on the Apple's keyboard (Play), `key` the Mac's: the game
+    /// reads it at its next tick.  A movement key (`GameLoop.walks`) is held
+    /// until `release`, typed again every tick, so the Mac's repeats of it
+    /// are dropped.
+    func type(_ code: UInt8, key: String, repeated: Bool = false) {
         guard let running = loop, running.world == selectedWorldID else { return }
+        if running.loop.walks(code) {
+            guard !repeated else { return }
+            if running.loop.hand?.holding == .player { running.loop.letGo() }
+            heldKeys.removeAll { $0.key == key }
+            heldKeys.append((key, code))
+            running.loop.devices.held = code
+        }
         running.loop.devices.type(code)
+    }
+
+    /// A key let go: if it was held (`type`), the newest held before it walks on.
+    func release(_ key: String) {
+        heldKeys.removeAll { $0.key == key }
+        loop?.loop.devices.held = heldKeys.last?.code
+    }
+
+    /// Every key let go: the game lost the keyboard.
+    func releaseKeys() {
+        heldKeys = []
+        loop?.loop.devices.held = nil
+    }
+
+    // MARK: the mouse
+
+    /// What a drag from `point` on the canvas takes hold of in the running
+    /// game (`MouseHand`), and where that is: in Play the player, on it or on
+    /// what it carries; else the object there, by the root of its link chain
+    /// (not the player's, outside Play).  Nil: nothing there, or the canvas
+    /// doesn't show the running game's room.
+    private func hold(at point: RoomPoint) -> MouseHand? {
+        guard let running = loop, running.world == selectedWorldID, !running.loop.inLoader,
+              playing || running.loop.room == selectedRoom,
+              let live = liveContents, live.world.id == selectedWorldID, live.room == selectedRoom
+        else { return nil }
+        let world = live.world
+        let player = world.object(0)
+        let onPlayer = player.room == selectedRoom && (player.x ..< player.x + 7).contains(point.x)
+            && (player.y ..< player.y + 16).contains(point.y)
+        let object = onPlayer ? 0 : live.object(atX: point.x, y: point.y)
+        guard let object else { return nil }
+        if world.carried.contains(object) {
+            return playing ? MouseHand(holding: .player, room: player.room, x: player.x, y: player.y) : nil
+        }
+        let root = world.object(world.root(of: object))
+        return MouseHand(holding: .object(root.id), room: root.room, x: root.x, y: root.y)
+    }
+
+    /// The mouse can take hold of something at `point` (`beginDrag`).
+    func canHold(at point: RoomPoint) -> Bool {
+        hold(at: point) != nil
+    }
+
+    /// A drag on the canvas starts at `point`: the mouse takes hold of what
+    /// is there, which follows the drag from the next tick on (`MouseHand`).
+    func beginDrag(at point: RoomPoint) {
+        guard let running = loop, let hand = hold(at: point) else { return }
+        running.loop.letGo()
+        running.loop.hand = hand
+        dragging = true
+    }
+
+    /// The pointer moved by (x, y) object units (y up) since the drag started.
+    func drag(by x: Double, _ y: Double) {
+        guard dragging else { return }
+        loop?.loop.hand?.moved = (x, y)
+    }
+
+    /// The drag ends: the player walks on to where the pointer was, an object is put there.
+    func endDrag() {
+        guard dragging else { return }
+        dragging = false
+        loop?.loop.hand?.released = true
+    }
+
+    /// A click on the canvas at `point` selects what is there.  In Play, on
+    /// the player (or what it carries), it is also the game's button: grab
+    /// or drop, the soldering pen, the remote control – pressed for a tick
+    /// (button 1), once the player has walked to where a drag left it.
+    func click(at point: RoomPoint, in world: World) {
+        selection = contents(world).item(atX: point.x, y: point.y)
+        guard playing, let running = loop, hold(at: point)?.holding == .player else { return }
+        if running.loop.hand?.holding == .player {
+            running.loop.hand?.press = true
+        } else {
+            running.loop.devices.click()
+        }
+    }
+
+    /// The game controller as the Apple's joystick (`GameControllers`), every
+    /// display frame: its stick and buttons when playing, else centred with
+    /// the buttons up.  Once a controller is connected the joystick stays
+    /// plugged in: the game would read one unplugged as pushed right and down.
+    private func readController(_ loop: GameLoop) {
+        let joystick = GameControllers.read()
+        if controllerName != joystick?.name { controllerName = joystick?.name }
+        guard joystick != nil || loop.devices.joystick != nil else { return }
+        let used = playing && self.loop?.world == selectedWorldID ? joystick : nil
+        loop.devices.joystick = used?.paddles ?? GameControllers.centre
+        for i in 0 ..< 2 { loop.devices.set(button: i, down: used?.buttons[i] ?? false) }
     }
 
     /// The room drawings stay (GameScreen); only the loop stops.
@@ -661,7 +810,8 @@ final class ViewerModel {
         let key = "\(room)#\(mode.rawValue)#\(shown)"
         let screen: HiresScreen
         if shown {
-            screen = loop.screen()
+            let inBetween = smooth ? clockCycle.flatMap { try? loop.inBetween(at: $0) } : nil
+            screen = inBetween ?? loop.screen()
             if liveSource?.key == key, liveSource?.bytes == screen.bytes { return }
         } else {
             if liveSource?.key == key { return }

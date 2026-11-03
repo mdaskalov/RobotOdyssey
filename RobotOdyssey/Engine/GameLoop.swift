@@ -1,11 +1,15 @@
 import Foundation
+import MOS6502
 
 /// A world's main loop running as in the game: tick after tick, the original
 /// 6502 code with the native routines, from the state after the world's
 /// start-up code (`GameScreen.loop`).  Everything runs: the player by the
 /// keys typed (`devices`), robots, circuits and the world's own code.  Run it
 /// by CPU cycles (`run(until:)`) and show the page on screen, like the
-/// Apple II: a tick takes as long as its work.  Where the world hands back to
+/// Apple II: a tick takes as long as its work.  The viewer runs each tick at
+/// once as the clock reaches it (`finishingTick`), so its page is on screen
+/// a tick earlier than the Apple's, and between two pages shows what moved
+/// on its way (`inBetween`); the ticks themselves run as they do.  Where the world hands back to
 /// the loader (`exit`: the menu, the next level, saving...) the loader runs,
 /// with a drive (`Machine.drive`, `Loader`), until it starts a world, whose
 /// main loop runs on (`loadedWorld`); without one the loop stops there.
@@ -41,6 +45,13 @@ nonisolated final class GameLoop {
     /// of the page on screen started.
     private var drawStart: Machine?
     private var shownDrawStart: Machine?
+    /// The cycle the tick of the page on screen started, and the cycle of its flip.
+    private var shownTick: UInt64 = 0
+    private var flipCycle: UInt64 = 0
+    /// The room and draw start of the page before it (`inBetween`).
+    private var previousShown: (room: Int?, drawStart: Machine?)?
+    /// The last in-between frame: of which page, what it moved, the page it drew.
+    private var lastInBetween: (flips: Int, moves: [Int], screen: HiresScreen)?
     /// The loop's own CURRENT_ROOM while the draw phase draws `room`.
     private var loopRoom: UInt8?
     /// The world's `JMP (RESET_VECTOR)`, back to the loader.
@@ -62,6 +73,9 @@ nonisolated final class GameLoop {
     private var startingWorld = false
     /// Each room's last preview (`preview`).
     private var previews: [Int: Preview] = [:]
+    /// The canvas's mouse holding the player or an object (`MouseHand`),
+    /// applied where each tick starts; nil once it lets go.
+    var hand: MouseHand?
 
     /// A room drawn on a copy, and the draw state it started from and left:
     /// what its draw phase wrote besides the page (`drawStateRanges`), as
@@ -107,6 +121,7 @@ nonisolated final class GameLoop {
         self.phase = phase
         self.room = room
         machine.cpu.pc = UInt16(phase.loopStart)
+        machine.clicks = []
         tickStart = machine.copy()
         exitJump = GameLoop.exitJump(in: machine.cpu.mem)
     }
@@ -126,10 +141,25 @@ nonisolated final class GameLoop {
     /// The loader's disk drive.
     var drive: DiskDrive? { machine.drive }
 
+    /// The natives switched off by name, the loader's intro too
+    /// (`Machine.switchedOff`): from the next instruction on, the original
+    /// code runs there.
+    var switchedOff: Set<String> {
+        get { machine.switchedOff }
+        set { machine.switchedOff = newValue }
+    }
+
     /// The keyboard, joystick and buttons the game reads.
     var devices: InputDevices {
         get { machine.devices }
         set { machine.devices = newValue }
+    }
+
+    /// The mouse lets go at once (a movement key typed): the joystick it
+    /// steered the player with is let go too.
+    func letGo() {
+        if hand?.holding == .player { machine.devices.joystick = InputDevices.centre }
+        hand = nil
     }
 
     /// Main RAM as the CPU sees it, and language card bank 1.
@@ -142,29 +172,68 @@ nonisolated final class GameLoop {
     /// The hi-res page on screen.
     func screen() -> HiresScreen { machine.shownScreen() }
 
-    /// The cycles without a click that end a sound of the loader's (`takeSounds`).
-    private static let loaderPause: UInt64 = 50_000
-
-    /// The sounds the game played since the last call (the native
-    /// PLAY_SOUNDS); while the loader runs also the clicks of its own code
-    /// (CHAR_OUT's bell, the menu's tunes), a sound from a click to a pause
-    /// of `loaderPause`: the speaker renders a sound at a time, and a tune
-    /// taken in pieces would play broken up.
-    func takeSounds() -> [Sound.Played] {
-        var sounds = machine.takeSounds()
-        guard let clicks = machine.clicks else { return sounds }
-        if let first = clicks.first, let last = clicks.last, !inLoader || machine.cpu.cycles - last >= GameLoop.loaderPause {
-            sounds.append(Sound.Played(parameters: nil, name: "loader", start: first, cycles: last - first + 1,
-                                       clicks: clicks.map { UInt32($0 - first) }))
-            machine.clicks = []
+    /// What the speaker played since the last call: the sounds of the native
+    /// PLAY_SOUNDS (`Machine.takeSounds`), and the cycle of every click, in
+    /// order: theirs and the 6502 code's ($C030: the loader's bell, the
+    /// menu's and the intro's tunes, PLAY_SOUNDS switched off).
+    func takeSpeaker() -> (sounds: [Sound.Played], clicks: [UInt64]) {
+        let sounds = machine.takeSounds()
+        var clicks = machine.clicks ?? []
+        machine.clicks = []
+        if !sounds.isEmpty {
+            clicks += sounds.flatMap { s in s.clicks.map { s.start + UInt64($0) } }
+            clicks.sort()
         }
-        if !inLoader, machine.clicks?.isEmpty == true { machine.clicks = nil }
-        return sounds
+        return (sounds, clicks)
+    }
+
+    /// How far `run(until:finishingTick:)` runs past the clock to finish a
+    /// tick (the longest take about 270,000 cycles), and past the tick's flip.
+    private static let runAhead: UInt64 = 500_000
+    private static let afterFlip: UInt64 = 10_000
+
+    /// The code of the game's sound player: PLAY_SOUNDS, PLAY_TONE and
+    /// PLAY_NOISE (engine main, the same in every world).
+    private static let soundCode = [\GameSymbols.playSounds, \.playTone, \.playNoise].flatMap {
+        GameSymbols.map[keyPath: $0].code.flatMap(\.ranges)
     }
 
     /// Runs until the cycle counter reaches `cycles` (or the loop halts).
-    func run(until cycles: UInt64) throws {
+    /// `finishingTick` then runs the tick under way on to its end, so its
+    /// page is on screen as the tick starts rather than as its cycles run
+    /// out; the next tick starts once the clock has caught up, so the ticks
+    /// keep their pace.  It stops early where the game waits: for a key
+    /// (`Machine.waitsForKey`), past `runAhead` cycles (a sound playing), or
+    /// `afterFlip` cycles after the tick's page flip (a world's own animation
+    /// flipping pages); from there the tick runs by the clock.  A sound the
+    /// game's sound player plays as 6502 code (its native switched off) runs
+    /// on past the flip, as the native takes the sound's cycles at once: the
+    /// sound comes whole with its page, not its first clicks with the page
+    /// and the rest once the clock has caught up.
+    func run(until cycles: UInt64, finishingTick: Bool = false) throws {
         while !halted && machine.cpu.cycles < cycles { try step() }
+        guard finishingTick else { return }
+        let limit = cycles + GameLoop.runAhead
+        while !halted, let phase, Int(machine.cpu.pc) != phase.loopStart, machine.cpu.cycles < limit, !machine.waitsForKey,
+              flipCycle < tickStart.cpu.cycles || machine.cpu.cycles < flipCycle + GameLoop.afterFlip || playsSound {
+            try step()
+        }
+    }
+
+    /// The game's sound player runs as 6502 code.
+    private var playsSound: Bool {
+        let pc = Int(machine.cpu.pc)
+        return GameLoop.soundCode.contains { $0.contains(pc) }
+    }
+
+    /// Nothing clicks for a while from here: the loop is at the start of a
+    /// tick, or past the tick's page flip and out of the sound player (the
+    /// game plays its sounds right after the flip).  The viewer ends the
+    /// speaker's sound there (`SpeakerStream`): finished ahead of the clock,
+    /// the loop waits for it.
+    var speakerQuiet: Bool {
+        guard let phase, !halted else { return false }
+        return Int(machine.cpu.pc) == phase.loopStart || flipCycle >= tickStart.cpu.cycles && !playsSound
     }
 
     /// Runs to the start of the next tick (or the world's exit without a
@@ -237,12 +306,85 @@ nonisolated final class GameLoop {
         return try phase.sprites(room: room, on: drawStart(room: room))
     }
 
+    /// The most an object or a wire end moves in a tick to be shown on its
+    /// way (`inBetween`): the player walks 7 across, 16 up or down.
+    private static let maxStep = (x: 8, y: 16)
+
+    /// An in-between frame: the page on screen at the clock's `cycle` into
+    /// the tick that drew it, with what moved since the page before (the
+    /// objects in the room, wire ends; a step's worth, as the player walks)
+    /// that part of the way back where it was, drawn by the draw phase from
+    /// where it drew the page.  So the page before turns into this one over
+    /// the tick, as the Apple would show them a tick later each.  Nil where it
+    /// is the page itself: nothing moved, another room, the tick over.
+    func inBetween(at cycle: UInt64) throws -> HiresScreen? {
+        guard let phase, let room = shownRoom, let to = shownDrawStart,
+              let previousShown, previousShown.room == room, let from = previousShown.drawStart
+        else { return nil }
+        let end = tickStart.cpu.cycles > shownTick ? tickStart.cpu.cycles : machine.cpu.cycles
+        guard end > shownTick, cycle < end else { return nil }
+        let f = Double(max(cycle, shownTick) - shownTick) / Double(end - shownTick)
+        let a = from.cpu.mem, b = to.cpu.mem
+        var moves: [Int] = []
+        // The coordinates at x and y: f of the way from the page before.
+        func move(_ x: Int, _ y: Int) {
+            let dx = Int(b[x]) - Int(a[x]), dy = Int(b[y]) - Int(a[y])
+            guard abs(dx) <= GameLoop.maxStep.x, abs(dy) <= GameLoop.maxStep.y else { return }
+            for (address, d) in [(x, dx), (y, dy)] {
+                let value = Int(a[address]) + Int((Double(d) * f).rounded())
+                if value != b[address] { moves.append(address << 8 | value) }
+            }
+        }
+        let objRoom = GameSymbols.address(\.objRoom), objX = GameSymbols.address(\.objX), objY = GameSymbols.address(\.objY)
+        let inRoom = (0 ..< World.objectCount).filter { a[objRoom + $0] == room && b[objRoom + $0] == room }
+        for o in inRoom { move(objX + o, objY + o) }
+        if let engine = machine.variant?.engine, let wireTo = GameSymbols.map.wireTo.address(engine),
+           let ax = GameSymbols.map.wireAX.address(engine), let ay = GameSymbols.map.wireAY.address(engine),
+           let bx = GameSymbols.map.wireBX.address(engine), let by = GameSymbols.map.wireBY.address(engine) {
+            for o in inRoom where a[wireTo + o] != 0 && b[wireTo + o] != 0 {
+                move(ax + o, ay + o)
+                move(bx + o, by + o)
+            }
+            // Loose wires (World.looseWire).
+            let loose = wireTo + 0x466
+            for o in inRoom where (0xD1 ... 0xDF).contains(o) && a[loose + o] != 0 && b[loose + o] != 0 {
+                move(loose + 0x0F + o, loose + 0x2D + o)
+                move(loose + 0x1E + o, loose + 0x3C + o)
+            }
+        }
+        guard !moves.isEmpty else { return nil }
+        if let last = lastInBetween, last.flips == flips, last.moves == moves { return last.screen }
+        let machine = to.copy()
+        for m in moves { machine.cpu.mem[m >> 8] = UInt8(m & 0xFF) }
+        let screen = try phase.draw(room: room, on: machine)
+        lastInBetween = (flips, moves, screen)
+        return screen
+    }
+
+    /// Whether `code` is one of the world's movement keys (MOVE_KEYS: up,
+    /// down, left, right, each also slowly), lower case as capitals as
+    /// READ_KEY takes them: a key the player walks with while it is held.
+    func walks(_ code: UInt8) -> Bool {
+        guard !inLoader else { return false }
+        let mem = machine.cpu.mem
+        var key = code | 0x80
+        if (0xE1 ..< 0xFB).contains(key) { key &= mem[\.caseMask] }
+        return [0, 1, 2, 3, 6, 7, 8, 9].contains { mem[\.moveKeys, $0] == key }
+    }
+
     private func step() throws {
+        if let phase, Int(machine.cpu.pc) == phase.loopStart {
+            if let hand { self.hand = machine.apply(hand) }   // may press the button for this tick
+            machine.devices.startTick()             // as the tick starts, where READ_INPUT reads it
+        }
         let page = machine.shownPage
         try machine.cpu.step()
         if machine.shownPage != page {
+            previousShown = (shownRoom, shownDrawStart)
             shownRoom = drawing
             shownDrawStart = drawStart
+            shownTick = tickStart.cpu.cycles
+            flipCycle = machine.cpu.cycles
             flips += 1
         }
         let pc = Int(machine.cpu.pc)
@@ -295,13 +437,15 @@ nonisolated final class GameLoop {
     /// until it starts a world.
     private func leaveWorld() {
         restoreRoom()
-        machine.clicks = []
+        letGo()
         phase = nil
         exitJump = nil
         drawing = nil
         drawStart = nil
         shownRoom = nil
         shownDrawStart = nil
+        previousShown = nil
+        lastInBetween = nil
     }
 
     /// The loader jumps to WORLD_START: the world it loaded starts, its

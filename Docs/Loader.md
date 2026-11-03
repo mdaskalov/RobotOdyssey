@@ -37,11 +37,14 @@ While the loader runs (and while a world it started runs its start‑up code)
 the canvas shows the page on screen, the inspector's status the request
 (“The loader: on to the next level…”), and the arrow keys are the Apple's
 (← $88, → $95, ↑ $8B, ↓ $8A: the menu's cursor) instead of I J K M. The
-speaker's clicks of the loader's own code (CHAR_OUT's bell, the menu's tunes)
-are played a sound at a time: from a click to a pause of 50,000 cycles
-(`GameLoop.takeSounds`), since the speaker renders each sound by itself;
-taken in pieces of the viewer's 15 ms steps, a tune played broken up and
-slowed down (until 2026‑11‑01, when the intro still played).
+speaker's clicks of the loader's own code (CHAR_OUT's bell, the menu's and
+the intro's tunes) are streamed to the cycle as the loader runs
+(`GameLoop.takeSpeaker`, `SpeakerStream`, Sound.md *The port*). Before
+2026‑11‑03 they were played a sound at a time, from a click to a pause of
+50,000 cycles: a tune was heard only once it had ended, the intro's
+seconds after their pictures and its last (7 s) over Robotropolis; and
+before 2026‑11‑01, in pieces of the viewer's steps, broken up and slowed
+down.
 
 ## The natives (`Loader.install`)
 
@@ -52,7 +55,20 @@ slowed down (until 2026‑11‑01, when the intro still played).
 | $5D58 BOOT_COPY_CHECK | the nibble check at boot | goes on at BOOT_COPY_DONE ($5DD3) with the carry set: the check passed |
 | $6255 MENU_COPY_CHECK | the menu's check | returns with the carry set |
 | $4B85 AWAIT_SIDE | swapping disks | puts the disk WANTED_SIDE ($0E) asks for in the drive, then the original code runs: it reads the side and finds it |
-| $4550 PLAY_INTRO | – | steps over START_CHOSEN_WORLD's `JSR $6000`: Robotropolis' intro (pictures, wipes and tunes in the menu's bytecode, about 40 s) doesn't play; a key press ends it on the Apple too |
+| $4550 PLAY_INTRO | – | steps over START_CHOSEN_WORLD's `JSR $6000`: Robotropolis' intro (pictures, wipes and tunes in the menu's bytecode, 26 s) doesn't play; a key press ends it on the Apple too. The one with original code to fall back to: switched off in the inspector (`Machine.switchedOff`, `Loader.skipIntro`), the intro plays – 7 tunes, 25,966 clicks in v1.1 |
+| $0A71 DRAW_PICTURE | the menu interpreter's op 00 | the picture in Swift, at once (`Loader.menuNatives`, Engine/MenuDrawing.swift): the menu's frame, the title's five pictures (into the wipe's buffer), the intro's eight. On the Apple 0.07‑0.34 s each, while the intro's tunes wait |
+| $0D21 XOR_BLOCK | op 06 | the block XORed onto page 1 at once: the menu's highlight, the intro's flashing between its short tunes (22 ms each on the Apple, two in a row) |
+
+DRAW_PICTURE and XOR_BLOCK run where the routine's code is the menu's
+(`Routine.code`, the same in v1.0 and v1.1): at those addresses a world has
+code of its own (the hooks stay; the bytes last checked are kept, so a
+world's code is hashed once). Like the engine's natives they leave memory as
+the original (`loader_check`'s *menu natives*: each call against the
+original run on a copy), take no time and have switches under *Loader*;
+off, the original draws. With them the intro takes 24.0 s instead of 26.0:
+its tunes no longer wait for the pictures (Sound.md). The wipe (op 01, 1.2 s
+at the intro's start, its iris of circles) stays the original's: its time
+is the effect.
 
 The disks are what `DiskDrive` has: the program disk's two sides of the
 world's version and one storage disk. The program disk is write‑protected,

@@ -21,15 +21,132 @@ nonisolated final class LoaderSymbols: Sendable {
     let wantedSide = Byte(0x0E)
     /// The letter chosen in a directory, from 0 (A).
     let chosenSlot = Byte(0x0F)
+
+    // The menu interpreter's zero page (MENU_BYTECODE), named for DRAW_PICTURE;
+    // the other handlers use the same bytes for their own.
+
+    /// The row (0-23) and column (0-39) of DRAW_PICTURE's next cell.  First
+    /// the op's handler (`JMP (PICTURE_ROW)`); XOR_BLOCK's block and
+    /// OP_TUNE's notes are read through them.
+    let pictureRow = Byte(0x3C)
+    let pictureColumn = Byte(0x3D)
+    /// Op 00's picture, op 03's routine; XOR_BLOCK's first line ($3E) and
+    /// byte column ($3F).
+    let picturePointer = Word(0x3E)
+    /// The picture's stream; XOR_BLOCK's end line ($40) and end column ($41).
+    let streamPointer = Word(0x40)
+    /// The tile DRAW_TILE copies; XOR_BLOCK's byte column ($42).
+    let tilePointer = Word(0x42)
+    /// The next bytecode byte.
+    let bytecodePointer = Word(0x44)
+    /// Where a key press jumps (op 08) while KEY_ABORTS.
+    let keyJump = Word(0xC9)
+    /// The hi-res byte DRAW_TILE draws, XOR_BLOCK's line.
+    let cellPointer = Word(0xF9)
+    /// The tile bank selected (bank A or B); the wipe's circle coordinates.
+    let tileBank = Word(0xFB)
+
     // The copy protection (Docs/CopyProtection.md): bit 7 set when the check passed.
     let menuCheckResult = Byte(0x02CE)
     let bootCheckResult = Byte(0x03FE)
     /// 1 for each entry of the directory shown that is used.
     let slotsUsed = Table(0x03E0)
-    /// The menu program's bytecode interpreter: `JSR MENU_BYTECODE` and inline
-    /// bytecode (Docs/DiskLayout.md, *Menu bytecode*); Robotropolis' intro is
-    /// bytecode too.
+    /// The menu program's bytecode interpreter ($0803-$0DD2, the menu file;
+    /// the same in v1.0 and v1.1): `JSR MENU_BYTECODE` and inline bytecode
+    /// (Docs/DiskLayout.md, *Menu bytecode*); Robotropolis' intro is bytecode
+    /// too.  `JMP BYTECODE_START`.
     let menuBytecode = Routine(0x0803)
+    /// Hi-res page 1's line addresses, line 0 at the top.
+    let lineLow = Table(0x0806)
+    let lineHigh = Table(0x08C6)
+    /// Language card bank 2 for reading and writing; BYTECODE_POINTER from the
+    /// return address.
+    let bytecodeStart = Routine(0x0986)
+    /// With KEY_ABORTS, a key press jumps to KEY_JUMP; then FETCH_OP.
+    let nextOp = Routine(0x099A)
+    /// Runs the next op's handler (OP_HANDLERS); ops from $0B reboot.
+    let fetchOp = Routine(0x09A7)
+    /// Op 02: back to the code after the bytecode.
+    let bytecodeReturn = Routine(0x09C2)
+    /// The handlers of ops 0-$0A.
+    let opHandlersLow = Table(0x09C5)
+    let opHandlersHigh = Table(0x09D0)
+    /// $FF: a key press jumps to KEY_JUMP (op 04); 0 not (op 05).
+    let keyAborts = Byte(0x09DB)
+    /// Op 03 (address, A): calls the routine with A.
+    let opCall = Routine(0x09DC)
+    let opCallJump = Routine(0x09F1)
+    /// Op 00 (address): DRAW_PICTURE.
+    let opPicture = Routine(0x09F4)
+    let opKeyAborts = Routine(0x0A04)
+    let opKeyIgnored = Routine(0x0A0C)
+    /// Op 06 (block, line, column): XOR_BLOCK.
+    let opXorBlock = Routine(0x0A14)
+    /// The next bytecode byte in A (BYTECODE_POINTER).
+    let bytecodeByte = Routine(0x0A2E)
+    /// Op 07: clears hi-res page 1 and shows it.
+    let opClear = Routine(0x0A39)
+    /// Op 08 (address): KEY_JUMP.
+    let opKeyJump = Routine(0x0A5B)
+    /// Op 0A (byte): TRANSPOSE.
+    let opTranspose = Routine(0x0A68)
+    /// Draws the picture at PICTURE_POINTER on the page its header names
+    /// (hi-res page 1, or the wipe's buffer at $D000), down its columns, a
+    /// cell (8 lines of a byte) per tile (Docs/DiskLayout.md, *Picture
+    /// format*).  A native (`Loader.drawPicture`).
+    let drawPicture = Routine(0x0A71, code: 0x0A71 ..< 0x0BB9, md5: "d00b80b66040136caa30239cba0aa052")
+    /// Tile A of TILE_BANK at PICTURE_ROW, PICTURE_COLUMN (TILE_POINTER), then
+    /// the next row; DRAW_TILE_AGAIN draws TILE_POINTER's tile again there.
+    let drawTile = Routine(0x0B08)
+    let drawTileAgain = Routine(0x0B20)
+    /// Code $FF (count, tile): the tile count times (0: 256).
+    let pictureRun = Routine(0x0B40)
+    /// Code $FE (k): the next column; the column just finished drawn k times in all.
+    let pictureNextColumn = Routine(0x0B5A)
+    /// The next byte of the stream in A (STREAM_POINTER).
+    let pictureByte = Routine(0x0B9A)
+    /// CELL_POINTER for row A: its cell's bottom line at column 0 of PICTURE_PAGE.
+    let cellAddress = Routine(0x0BA5)
+    /// The page the picture is drawn on (its header's byte 2: $20 or $D0).
+    let picturePage = Byte(0x0BB9)
+    /// The two tile banks (8 bytes a tile, top line first).
+    let tileBankA = Word(0x0BBA)
+    let tileBankB = Word(0x0BBC)
+    /// How often the column under way has been drawn, and TILE_BANK's high
+    /// byte and STREAM_POINTER where it started (`$FE k`).
+    let columnRepeat = Byte(0x0BBE)
+    let columnBankHigh = Byte(0x0BBF)
+    let runCount = Byte(0x0BC0)
+    let firstRow = Byte(0x0BC2)
+    let columnStart = Word(0x0BC3)
+    /// By row / 2: the low byte of its cells' line, shifted left one bit.
+    let rowLowTable = Table(0x0BC5)
+    /// Op 01: copies the buffer to hi-res page 1 in 47 circles from the
+    /// centre, growing (WIPE_STEP: the midpoint circle of radius
+    /// WIPE_RADIUS), each spot a quarter cell in all four quadrants.
+    let wipe = Routine(0x0BD1)
+    let wipeRadius = Byte(0x0BE9)
+    let wipeStep = Routine(0x0BEA)
+    let wipeDecision = Byte(0x0C41)
+    /// The circle's eight points by symmetry, each WIPE_SPOT.
+    let wipePoints = Routine(0x0C42, guess: true)
+    /// A spot not wiped yet (WIPE_MAP): its four quadrants WIPE_COPY.
+    let wipeSpot = Routine(0x0C5D, guess: true)
+    /// Copies 4 lines of half a byte from the buffer ($D000-$EFFF) to page 1.
+    let wipeCopy = Routine(0x0CC5, guess: true)
+    /// Clears WIPE_MAP ($BA00-$BEFF).
+    let wipeClearMap = Routine(0x0D09)
+    /// XORs the block at PICTURE_ROW (its width in bytes at +3, its lines
+    /// at +4, the bytes from +5) onto hi-res page 1 at line $3E, byte column
+    /// $3F, bit 7 set: drawn twice, it is gone.  A native (`Loader.xorBlock`).
+    let xorBlock = Routine(0x0D21, code: 0x0D21 ..< 0x0D6F, md5: "106a3e3b5624db381d2233e57fc938c1")
+    /// Added to every note's period (op 0A).
+    let transpose = Byte(0x0D6F)
+    /// Op 09 (address): a tune, notes of period (+ TRANSPOSE) and length,
+    /// ended by period 0; PLAY_NOTE clicks the speaker.
+    let opTune = Routine(0x0D70)
+    let tuneByte = Routine(0x0D99)
+    let playNote = Routine(0x0DA4)
 
     let loaderStart = Routine(0x4000)
     /// The menu's choice in A (MENU_CHOICE).
@@ -94,7 +211,7 @@ nonisolated final class LoaderSymbols: Sendable {
     let startChosenWorld = Routine(0x4539)
     /// For Robotropolis: `JSR $6000`, the intro (loaded with the menu's
     /// interpreter, its pictures at $6300: bytecode with tunes, ended by a key
-    /// press).  The app steps over it (`Loader`).
+    /// press).  The app steps over it unless switched off (`Loader`).
     let playIntro = Routine(0x4550)
     let copyFlagStart = Routine(0x4563)
     /// Language card bank 2, the keyboard strobe cleared, JMP WORLD_START.
@@ -268,6 +385,12 @@ nonisolated final class LoaderSymbols: Sendable {
         map[keyPath: s].address.everywhere!
     }
 
+    /// The .sym name of a routine.
+    static func name(of routine: KeyPath<LoaderSymbols, Routine>) -> String {
+        let address = map[keyPath: routine].address
+        return namedSymbols(of: map).first { ($0.symbol as? Routine)?.address == address }?.name ?? "?"
+    }
+
     /// The version of a program disk side, by its loader's file table; nil if unknown.
     static func version(of disk: DiskImage) -> Version? {
         let track = disk.read(page: track1.page, length: track1.length)
@@ -357,7 +480,50 @@ nonisolated final class Level1Symbols: Sendable {
     /// not white), robots $F0 $F2 $F4 (while their battery isn't empty), $04
     /// (the black crystal, while robot $F4's isn't: it shares $F4's branch).
     let ampireTargets = Table(0x121A)
-    let tick1305 = Routine(0x1305)
+    /// The three sentries (drawn by this code, not objects), in the draw
+    /// phase: each moves by its SENTRY_MODE (SENTRY_MOVE) and is drawn if it
+    /// is in CURRENT_ROOM (DRAW_SENTRY).  The code Levels 2, 3, 5 and the
+    /// Toolkit share, at other addresses.
+    let sentries = Routine(0x1305)
+    /// By SENTRY_MODE: 1 SENTRY_PATROL, 2 SENTRY_GUARD, 3 a guard that also
+    /// goes for the player inside a robot (a guess).
+    let sentryMove = Routine(0x1321)
+    /// SENTRY_FRAMES (3, one per tick) at SENTRY_X/Y in white, the head
+    /// above in SENTRY_HEAD_COLOUR.
+    let drawSentry = Routine(0x133D)
+    /// Between SENTRY_PATROL_X/Y_A and _B (SENTRY_PATROL_END says which it
+    /// goes to), at most 2 units a tick each way; the head orange at an end,
+    /// white between.
+    let sentryPatrol = Routine(0x1386)
+    /// Notes where each of SENTRY_INTRUDERS in its room came in, and goes for
+    /// the one it takes (SENTRY_TARGET): SENTRY_CHASE, then SENTRY_CARRY.
+    let sentryGuard = Routine(0x1430)
+    /// Where an intruder came in: its side (1 left, 2 right, 3 bottom, 4 top)
+    /// and place, into SENTRY_ENTRY_SIDE/X/Y.
+    let sentryNoteEntry = Routine(0x14F6)
+    /// An intruder past its side's margin becomes the sentry's target.
+    let sentryTakeTarget = Routine(0x1536)
+    /// Towards its target (LIMIT_MOVE: $1C across, $27 up or down a tick);
+    /// within $1D it holds the target still (SENTRY_HELD, at SENTRY_HELD_X/Y),
+    /// within 9 it seizes it: SENTRY_STATE 1, sound 10 (GameSounds.sentryGrab).
+    let sentryChase = Routine(0x15E3)
+    /// Carries the target to where it came in, at most 2 units a tick each
+    /// way, then lets go: sound 11 (GameSounds.sentryDrop), SENTRY_HELD and
+    /// SENTRY_TARGET $FF.
+    let sentryCarry = Routine(0x168E)
+    /// The sentries' patrols, 3 each: the two ends' x and y.
+    let sentryPatrolXA = Table(0x124F)
+    let sentryPatrolXB = Table(0x1252)
+    let sentryPatrolYA = Table(0x1255)
+    let sentryPatrolYB = Table(0x1258)
+    /// What they take: the player $00 and the robots $F0 $F2 $F4 $01.
+    let sentryIntruders = Table(0x125B)
+    /// The robots' interiors $09 $0A $0B $0D (by SENTRY_INTRUDERS, the player's 0).
+    let sentryIntruderInteriors = Table(0x1260)
+    /// The sentry's 3 frames: sprite pointers, low and high bytes.
+    let sentryFramesLow = Table(0x1265)
+    let sentryFramesHigh = Table(0x1268)
+    let sentryHeadSprite = Sprite(0x12B5)
     let tick1740 = Routine(0x1740)
     /// Rooms $03 and $1F (a guess).
     let tick187C = Routine(0x187C)
@@ -366,6 +532,29 @@ nonisolated final class Level1Symbols: Sendable {
     let soundTableLengths = Table(0x18BE)
     let soundTableSweeps = Table(0x18CA)
     let soundTablePitches = Table(0x18D6)
+    /// The three sentries: room ($1E $22 $23), place, the patrol end it goes
+    /// to (0 A, 1 B), its target (by SENTRY_INTRUDERS, $FF none), state (0
+    /// after the target, 1 carrying it, 2 holding it still) and mode.
+    let sentryRooms = Table(0x8EF0)
+    let sentryX = Table(0x8EF3)
+    let sentryY = Table(0x8EF6)
+    let sentryPatrolEnd = Table(0x8EF9)
+    let sentryTarget = Table(0x8EFC)
+    let sentryState = Table(0x8EFF)
+    let sentryMode = Table(0x8F02)
+    /// The sentry SENTRIES is at, 2 down to 0.
+    let sentryIndex = Byte(0x8F05)
+    let sentryFrame = Byte(0x8F07)
+    let sentryHeadColour = Byte(0x8F08)
+    /// Per intruder (SENTRY_INTRUDERS): where it came in, and its side.
+    let sentryEntryX = Table(0x8F09)
+    let sentryEntryY = Table(0x8F0E)
+    let sentryEntrySide = Table(0x8F13)
+    /// Per intruder: where a sentry holds it still.
+    let sentryHeldX = Table(0x8F18)
+    let sentryHeldY = Table(0x8F1D)
+    /// The intruder SENTRY_GUARD looks at.
+    let sentryIntruder = Byte(0x8F22)
     /// 0 on the disk; 1 once SHUFFLE_OBJECTS has placed the objects (kept in
     /// a saved game, so a restored one isn't shuffled again).
     let shuffled = Byte(0x8F46)

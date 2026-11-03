@@ -38,6 +38,11 @@ struct RoomInspector: View {
                 if !model.loopStatus.isEmpty {
                     Text(model.loopStatus).monospacedDigit()
                 }
+                if let controller = model.controllerName {
+                    LabeledContent("Joystick", value: controller)
+                        .help("The game controller is the Apple's joystick with Play: the left stick or the d-pad, "
+                              + "A or X button 0, B or Y button 1. The further the stick is pushed, the faster the player moves")
+                }
                 if !model.driveChoices.isEmpty {
                     Picker("Drive", selection: Binding { model.driveDisk } set: { if let d = $0 { model.insert(d) } }) {
                         ForEach(model.driveChoices, id: \.disk) { Text($0.name).tag(Optional($0.disk)) }
@@ -138,25 +143,68 @@ struct RoomInspector: View {
         }
     }
 
-    /// The native routines with their entry points, and the routines the
-    /// loader found modified (they run as the original code).
+    /// The native routines with their entry points, each with a switch (off:
+    /// the original 6502 code runs there), the routines the loader found
+    /// modified (they run as the original code), and the loader's intro skip.
     private var natives: some View {
         let natives = model.natives(world: world)
         let differing = world.codeCheck?.differing ?? []
-        let summary = world.codeCheck.map { "\(natives.count) · \($0.variant)" } ?? "none: unknown version"
+        let on = natives.count { !model.nativesOff.contains($0.name) }
+        let summary = world.codeCheck.map { (on == natives.count ? "\(on)" : "\(on) of \(natives.count) on") + " · \($0.variant)" }
+            ?? "none: unknown version"
         return DisclosureGroup(isExpanded: $showNatives) {
+            if !natives.isEmpty {
+                Toggle("All", sources: natives.map { isOn($0.name) }, isOn: \.self)
+                    .help("Off: the whole engine runs as the original 6502 code")
+            }
             ForEach(natives, id: \.name) { native in
-                LabeledContent(native.name) { Text(String(format: "$%04X", native.entry)) }
-                    .font(.caption.monospaced())
+                nativeSwitch(native.name, String(format: "$%04X", native.entry))
+                    .help(reproduces(native.name))
             }
             ForEach(differing, id: \.self) { name in
                 LabeledContent(name) { Text("differs: 6502 code") }
                     .font(.caption.monospaced())
                     .foregroundStyle(.orange)
             }
+            Text("Loader").font(.caption).foregroundStyle(.secondary)
+            nativeSwitch(Loader.skipIntro, String(format: "$%04X", LoaderSymbols.address(\.playIntro)))
+                .help("Steps over Robotropolis' intro, as a key press ends it. Off: the intro plays, pictures and tunes "
+                      + "(about 25 s), when Robotropolis is chosen in the menu")
+            ForEach(Loader.menuNatives, id: \.name) { native in
+                nativeSwitch(native.name, String(format: "$%04X", native.entry))
+                    .help("The menu's and the intro's drawing in Swift, at once: the intro's tunes don't wait for "
+                          + "the pictures. Off: the original 6502 code draws, taking its time")
+            }
         } label: {
             LabeledContent("Native routines") { Text(summary).monospacedDigit() }
         }
+    }
+
+    /// A native's switch: its name and entry point.
+    private func nativeSwitch(_ name: String, _ entry: String) -> some View {
+        Toggle(isOn: isOn(name)) {
+            HStack {
+                Text(name)
+                Spacer()
+                Text(entry).foregroundStyle(.secondary)
+            }
+        }
+        .font(.caption.monospaced())
+    }
+
+    /// On: the native runs in place of the original code (`ViewerModel.nativesOff`).
+    private func isOn(_ name: String) -> Binding<Bool> {
+        Binding { !model.nativesOff.contains(name) } set: { on in
+            if on { model.nativesOff.remove(name) } else { model.nativesOff.insert(name) }
+        }
+    }
+
+    /// The routines a native reproduces besides its own (`Native.uses`).
+    private func reproduces(_ name: String) -> String {
+        let uses = Native.all.first { $0.name == name }?.uses.map(GameSymbols.name(of:)) ?? []
+        let off = "Off: the original 6502 code runs from its entry"
+        return uses.isEmpty ? off : off + ". On, it also does the work of " + uses.joined(separator: ", ")
+            + " in Swift, where it calls them"
     }
 }
 
@@ -273,8 +321,20 @@ enum SpriteImage {
     private static let colours: [(UInt8, UInt8, UInt8)] = [(90, 90, 90), (20, 245, 60), (255, 68, 253), (255, 255, 255),
                                                           (90, 90, 90), (255, 106, 60), (20, 207, 253), (255, 255, 255)]
 
+    /// The images made so far, by rows and colour: the panels ask every tick.
+    private static var made: [[UInt8]: CGImage] = [:]
+
     /// 16 rows, row 0 at the bottom; other colours than 0-7 (patterns) light grey.
     static func make(rows: [UInt8], colour: Int?) -> CGImage? {
+        let key = rows + [UInt8(colour.map { min($0, 8) } ?? 8)]
+        if let image = made[key] { return image }
+        if made.count > 4096 { made = [:] }
+        let image = draw(rows: rows, colour: colour)
+        made[key] = image
+        return image
+    }
+
+    private static func draw(rows: [UInt8], colour: Int?) -> CGImage? {
         let c = colour.flatMap { $0 < 8 ? colours[$0] : nil } ?? (200, 200, 200)
         var rgba = [UInt8](repeating: 0, count: 14 * 16 * 4)
         for (r, bits) in rows.enumerated() {

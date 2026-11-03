@@ -71,23 +71,24 @@ nonisolated final class GameSounds: Sendable {
     // The engine's, 0-8 in every world's table.
 
     /// 0: the player picks up an object (the level's code sees HELD_OBJECT change).
-    let pickUp = Sound(.tone, length: 0x06, sweep: 0x45, pitch: 0x22)
+    let grab = Sound(.tone, length: 0x06, sweep: 0x45, pitch: 0x22)
     /// 1: the player puts it down.
     let drop = Sound(.tone, length: 0x06, sweep: 0xC5, pitch: 0x22)
     /// 2: a robot's bumper touches something.
-    let bumper = Sound(.tone, length: 0x06, sweep: 0x46, pitch: 0x8A, guess: true)
-    /// 3: a robot's grabber takes hold of an object (links it to the robot).
-    let grab = Sound(.tone, length: 0x04, sweep: 0x80, pitch: 0x04, guess: true)
+    let bumper = Sound(.tone, length: 0x06, sweep: 0x46, pitch: 0x8A)
+    /// 3: a robot's grabber (its hand) takes hold of an object (links it to the robot).
+    let robotGrab = Sound(.tone, length: 0x04, sweep: 0x80, pitch: 0x04)
     /// 4: a grabber lets go.
-    let release = Sound(.noise, length: 0x00, sweep: 0x31, pitch: 0x09, guess: true)
+    let robotRelease = Sound(.noise, length: 0x00, sweep: 0x31, pitch: 0x09, guess: true)
     /// 5: a robot's antenna object turns colour 5.
-    let antenna = Sound(.tone, length: 0x00, sweep: 0x80, pitch: 0x09, guess: true)
-    /// 6: the wiring code ($F000): a wire's end is attached or taken off.
-    let solder = Sound(.noise, length: 0x02, sweep: 0x0B, pitch: 0x1B, guess: true)
-    /// 7: an energy crystal recharges a robot's battery (CRYSTALS, in the robot's interior).
-    let recharge = Sound(.tone, length: 0x6E, sweep: 0x80, pitch: 0x55)
-    /// 8: a used crystal (colour 7) at its place turns colour 5 (CRYSTALS).
-    let crystal = Sound(.tone, length: 0x49, sweep: 0x69, pitch: 0xCA, guess: true)
+    let antenna = Sound(.tone, length: 0x00, sweep: 0x80, pitch: 0x09)
+    /// 6: the wiring code ($F000) unsolders a wire's end.
+    let unsolder = Sound(.noise, length: 0x02, sweep: 0x0B, pitch: 0x1B)
+    /// 7: an energy crystal discharges into a robot's battery (CRYSTALS, in
+    /// the robot's interior; the crystal turns colour 7, used).
+    let crystalDischarge = Sound(.tone, length: 0x6E, sweep: 0x80, pitch: 0x55)
+    /// 8: a used crystal (colour 7) at its place charges again, turning colour 5 (CRYSTALS).
+    let crystalCharge = Sound(.tone, length: 0x49, sweep: 0x69, pitch: 0xCA)
 
     // The levels' and the kit's (9-11).
 
@@ -97,9 +98,12 @@ nonisolated final class GameSounds: Sendable {
     /// exit: pitch step × 16 + 8, step counting up by 2 from 1 (Level 1) or
     /// 0 (Levels 2-4) until it reaches 9; not in a table.
     let exitTones = Sound(.tone, length: 0x2A, sweep: 0x37, pitch: 0x28, 0x38, 0x48, 0x58, 0x68, 0x78, 0x88, 0x98, 0xA8)
-    /// 10 and 11: the code Levels 1, 2, 3 and 5 and the Toolkit share.
-    let sound10 = Sound(.tone, length: 0x0A, sweep: 0x2D, pitch: 0x24)
-    let sound11 = Sound(.tone, length: 0x0A, sweep: 0xAC, pitch: 0x24)
+    /// 10 and 11: the sentries' code, which Levels 1, 2, 3 and 5 and the
+    /// Toolkit share (Level 1: L1_SENTRIES).  10: a sentry seizes the player
+    /// or a robot that came into its room (rising, like `grab`); 11: it
+    /// lets go of it where it came in (falling, like `drop`).
+    let sentryGrab = Sound(.tone, length: 0x0A, sweep: 0x2D, pitch: 0x24)
+    let sentryDrop = Sound(.tone, length: 0x0A, sweep: 0xAC, pitch: 0x24)
 
     // Each world's own, from 12 (the lab's from 9).
 

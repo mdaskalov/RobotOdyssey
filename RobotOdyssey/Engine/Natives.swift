@@ -81,6 +81,7 @@ nonisolated extension Native {
         Native(\.readInput, uses: [\.readDevice, \.readKey, \.keyAsStick, \.readJoystick, \.moveByKey, \.moveByStick,
                                    \.clearButtons, \.limitMove, \.withSign, \.keepOnScreen] + walls + moving,
                mayDecline: { $0.readInput() }),
+        Native(\.detectJoystick, uses: [], mayDecline: { $0.detectJoystick() }),
         Native(\.keepOnScreen) { $0.keepOnScreen() },
         Native(\.limitMove, uses: [\.withSign, \.magnitude]) { $0.limitMove() },
         Native(\.stopAtWalls, uses: walls) { $0.stopAtWalls() },

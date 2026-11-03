@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// One of the 256 entries of the object table ($6000-$69FF, one array per field).
 nonisolated struct GameObject: Identifiable, Hashable {
@@ -185,6 +186,19 @@ nonisolated struct World: Identifiable {
         return (0 ..< World.objectCount - 1).filter(follows)
     }
 
+    /// The end of `o`'s OBJ_LINK chain, the object it follows through the
+    /// others (itself if it follows none): what the player carries on
+    /// taking `o` (GRAB_AND_CARRY's HELD_OBJECT).
+    func root(of o: Int) -> Int {
+        var o = o
+        for _ in 0 ..< World.objectCount - 1 {
+            let link = m(\.objLink, o)
+            if link == World.noObject || link == o { break }
+            o = link
+        }
+        return o
+    }
+
     /// ROBOT_BODY and ROBOT_INTERIOR: body object and interior room of each of the 4 robots.
     var robots: [(object: Int, interior: Int)] {
         (0 ..< 4).map { (m(\.robotBody, $0), m(\.robotInterior, $0)) }
@@ -244,14 +258,15 @@ nonisolated struct World: Identifiable {
         var pending = [entry]
         while var pc = pending.popLast() {
             while area.contains(pc), !code.contains(pc) {
-                guard let info = CPU6502.table[Int(mem[pc])], info.op != .brk else { return nil }
-                let n = CPU6502.length(info.mode)
+                let opcode = Opcode(mem[pc])
+                guard opcode.isDocumented, opcode.mnemonic != .brk else { return nil }
+                let n = opcode.length
                 code.formUnion(pc ..< pc + n)
-                if info.mode == .rel { pending.append(pc + 2 + Int(Int8(bitPattern: mem[pc + 1]))) }
-                if info.op == .jsr || (info.op == .jmp && info.mode == .abs) {
+                if opcode.mode == .relative { pending.append(pc + 2 + Int(Int8(bitPattern: mem[pc + 1]))) }
+                if opcode.mnemonic == .jsr || (opcode.mnemonic == .jmp && opcode.mode == .absolute) {
                     pending.append(Int(mem[pc + 1]) | Int(mem[pc + 2]) << 8)
                 }
-                if [.jmp, .rts, .rti].contains(info.op) { break }
+                if [.jmp, .rts, .rti].contains(opcode.mnemonic) { break }
                 pc += n
             }
         }
@@ -273,5 +288,32 @@ nonisolated struct World: Identifiable {
 
     func textsInRoom(_ r: Int) -> [Int] {
         (0 ..< World.textCount).filter { m(\.textRoom, $0) == r && (m(\.textPointerLow, $0) | m(\.textPointerHigh, $0)) != 0 }
+    }
+
+    // MARK: sounds
+
+    /// The world's sound table, by number (Docs/Sound.md): WORLD_SOUND jumps
+    /// to the world's own routine `STA SOUND_ROOMS`, then `LDA table,X / STA`
+    /// slot 0's flags, length, sweep and pitch, the four tables one after the
+    /// other.  Nil if its code isn't so.
+    var sounds: [Sound.Parameters]? {
+        func word(_ a: Int) -> Int { Int(mem[a]) | Int(mem[a + 1]) << 8 }
+        let vector = GameSymbols.address(\.worldSound)
+        guard mem[vector] == 0x4C else { return nil }
+        let h = word(vector + 1)
+        guard mem[h] == 0x8D, word(h + 1) == GameSymbols.address(\.soundRooms) else { return nil }
+        let slots: [KeyPath<GameSymbols, Table>] = [\.soundFlags, \.soundLengths, \.soundSweeps, \.soundPitches]
+        var tables: [Int] = []
+        for (i, slot) in slots.enumerated() {
+            let at = h + 3 + 6 * i
+            guard mem[at] == 0xBD, mem[at + 3] == 0x8D, word(at + 4) == GameSymbols.address(slot) else { return nil }
+            tables.append(word(at + 1))
+        }
+        let count = tables[1] - tables[0]
+        guard count > 0, count < 64, tables[2] - tables[1] == count, tables[3] - tables[2] == count else { return nil }
+        return (0 ..< count).map { n in
+            Sound.Parameters(kind: Sound.Kind(flags: mem[tables[0] + n]), length: mem[tables[1] + n],
+                             sweep: mem[tables[2] + n], pitch: mem[tables[3] + n])
+        }
     }
 }

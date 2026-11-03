@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// The Apple IIe as Robot Odyssey uses it, running the original code from the
 /// disks: 64K of main RAM, the language card's two $D000 banks, the soft
@@ -19,19 +20,33 @@ nonisolated final class Machine {
     private(set) var bank = 2
     /// Hi-res page on screen, 1 or 2 ($C054/$C055).
     private(set) var shownPage = 1
-    /// The CPU cycle of every speaker click ($C030), when not nil (Data/ro_sounds.sh).
+    /// The CPU cycle of every speaker click ($C030), when not nil (`GameLoop`
+    /// records them, Data/ro_sounds.sh).
     var clicks: [UInt64]?
     /// The sounds the native PLAY_SOUNDS played and nobody has taken yet.
     private var sounds: [Sound.Played] = []
     /// Keyboard, joystick and buttons.
     var devices = InputDevices()
-    /// Native routines by entry point (always in bank 2 when in $D000-$DFFF).
+    /// The cycles of the last two reads of the keyboard ($C000) that found no
+    /// key (0: none since one was found).
+    private var emptyKeyReads: (UInt64, UInt64) = (0, 0)
+    /// The native routines `install` put in, with their names and entry points.
+    private var installed: [(name: String, entry: UInt16, run: (inout Engine) -> Bool)] = []
+    /// Those that run, by entry point (always in bank 2 when in $D000-$DFFF):
+    /// the installed ones not switched off.
     private var natives: [UInt16: (inout Engine) -> Bool] = [:]
     /// Natives for the hardware outside the engine that the loader uses
     /// (`Loader`), by address: run where the CPU gets there, before the
     /// instruction; true: they set the CPU up to go on (PC and all), false:
-    /// the instruction runs.
-    private var hooks: [UInt16: (Machine) -> Bool] = [:]
+    /// the instruction runs.  One with a name can be switched off.
+    private var hooks: [UInt16: (name: String?, run: (Machine) -> Bool)] = [:]
+    /// Natives (`Native.name`) and named hooks switched off: the original
+    /// code runs there.  A native leaves memory as the original does, so the
+    /// two can take each other's place at any call: a switch counts from the
+    /// next instruction.
+    var switchedOff: Set<String> = [] {
+        didSet { if switchedOff != oldValue { activate() } }
+    }
     /// The disk drive the loader reads and writes; nil: no loader, a world
     /// that hands back to it stops (`GameLoop.halted`).
     var drive: DiskDrive?
@@ -49,6 +64,8 @@ nonisolated final class Machine {
         self.variant = variant
         cpu = CPU6502(memory: memory)
         otherBank = bank1
+        cpu.ioPages[0xC0] = true
+        cpu.stopsAtBRK = true                   // no ROM behind the vector: the code went astray
         cpu.ioRead = { [unowned self] in io($0) }
         cpu.ioWrite = { [unowned self] a, _ in _ = io(a) }
         cpu.onTrap = { [unowned self] in runNative(at: $0) }
@@ -64,7 +81,9 @@ nonisolated final class Machine {
         m.bank = bank
         m.shownPage = shownPage
         m.devices = devices
+        m.installed = installed
         m.natives = natives
+        m.switchedOff = switchedOff
         m.hooks = hooks
         m.drive = drive
         m.nativesEnabled = nativesEnabled
@@ -74,9 +93,18 @@ nonisolated final class Machine {
         return m
     }
 
+    /// The code waits for a key: it reads the keyboard again and again and
+    /// finds none (`GameLoop.run` doesn't run ahead of the clock there).
+    var waitsForKey: Bool {
+        let (previous, last) = emptyKeyReads
+        return previous != 0 && last - previous < 256 && cpu.cycles - last < 256
+    }
+
     private func io(_ a: UInt16) -> UInt8 {
         switch a {
-        case 0xC000: return devices.key
+        case 0xC000:
+            emptyKeyReads = devices.key & 0x80 == 0 ? (emptyKeyReads.1, cpu.cycles) : (0, 0)
+            return devices.key
         case 0xC010: devices.key &= 0x7F
         case 0xC030: clicks?.append(cpu.cycles)
         case 0xC054, 0xC055: shownPage = Int(a - 0xC054) + 1
@@ -105,30 +133,38 @@ nonisolated final class Machine {
     @discardableResult
     func install(_ natives: [Native]) -> [(name: String, entry: UInt16)] {
         guard let variant else { return [] }
-        return natives.compactMap { native in
-            guard let entry = GameSymbols.map[keyPath: native.routine].entry(variant) else { return nil }
-            install(at: entry, native.run)
-            return (native.name, entry)
+        let added = natives.compactMap { native in
+            GameSymbols.map[keyPath: native.routine].entry(variant).map { (name: native.name, entry: $0, run: native.run) }
         }
+        for native in added { cpu.traps[Int(native.entry)] = true }
+        installed += added
+        activate()
+        return added.map { ($0.name, $0.entry) }
     }
 
-    func install(at address: UInt16, _ run: @escaping (inout Engine) -> Bool) {
-        natives[address] = run
-        cpu.traps[Int(address)] = true
+    /// The installed natives that aren't switched off run.  The traps of the
+    /// others stay: there the original code runs (`runNative`).
+    private func activate() {
+        natives = [:]
+        for native in installed where !switchedOff.contains(native.name) {
+            natives[native.entry] = native.run
+        }
     }
 
     /// Takes the natives out, for the engine of another world, in `variant`
     /// (`install` puts in those its code check allows).
     func load(variant: Variant?) {
-        for address in natives.keys where hooks[address] == nil {
-            cpu.traps[Int(address)] = false
+        for native in installed where hooks[native.entry] == nil {
+            cpu.traps[Int(native.entry)] = false
         }
+        installed = []
         natives = [:]
         self.variant = variant
     }
 
-    func hook(_ address: Int, _ run: @escaping (Machine) -> Bool) {
-        hooks[UInt16(address)] = run
+    /// Puts in a hook at `address`; one with a `name` can be switched off.
+    func hook(_ address: Int, name: String? = nil, _ run: @escaping (Machine) -> Bool) {
+        hooks[UInt16(address)] = (name, run)
         cpu.traps[address] = true
     }
 
@@ -144,7 +180,7 @@ nonisolated final class Machine {
 
     private func runNative(at pc: UInt16) -> Bool {
         if let onDrawSprite, Int(pc) == GameSymbols.address(\.drawSprite) { onDrawSprite(self) }
-        if let hook = hooks[pc], hook(self) { return true }
+        if let hook = hooks[pc], !(hook.name.map(switchedOff.contains) ?? false), hook.run(self) { return true }
         guard nativesEnabled, !(0xD000 ..< 0xE000).contains(pc) || bank == 2,
               let run = natives[pc], call(run) else { return false }
         nativeCalls += 1

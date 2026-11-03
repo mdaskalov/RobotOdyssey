@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// The loader as the app runs it.  A world hands back to the loader by
 /// rebooting (`JMP (RESET_VECTOR)` to the disk controller's boot ROM); the
@@ -9,10 +10,15 @@ import Foundation
 /// boot stage 1 (`boot`), RWTS on a `DiskDrive` (`rwts`), the copy
 /// protection's two nibble checks, which pass as on an original disk, and the
 /// disk swaps: where the loader waits for a disk (AWAIT_SIDE), the drive takes
-/// it.  One skips: Robotropolis' intro.  `GameLoop` follows the loader into
-/// the world it starts.
+/// it.  One skips: Robotropolis' intro, unless switched off
+/// (`Machine.switchedOff`, `skipIntro`): then it plays as on the Apple.
+/// And the menu program's drawing runs as Swift (`menuNatives`, MenuDrawing).
+/// `GameLoop` follows the loader into the world it starts.
 /// Docs/Loader.md.
 nonisolated enum Loader {
+    /// The name of the native that steps over the intro: PLAY_INTRO.
+    static let skipIntro = LoaderSymbols.name(of: \.playIntro)
+
     /// Puts the loader's natives on `machine`, with `drive`.
     static func install(on machine: Machine, drive: DiskDrive) {
         machine.drive = drive
@@ -30,7 +36,7 @@ nonisolated enum Loader {
             return true
         }
         // Robotropolis' intro: stepped over, as a key press ends it at once.
-        machine.hook(LoaderSymbols.address(\.playIntro)) { m in
+        machine.hook(LoaderSymbols.address(\.playIntro), name: skipIntro) { m in
             m.cpu.pc = UInt16(LoaderSymbols.address(\.playIntro) + 3)
             return true
         }
@@ -41,6 +47,7 @@ nonisolated enum Loader {
             }
             return false
         }
+        installMenuNatives(on: machine)
     }
 
     /// The boot ROM and boot stage 1 (DOS 3.3's, track 0 sector 0): sector 0

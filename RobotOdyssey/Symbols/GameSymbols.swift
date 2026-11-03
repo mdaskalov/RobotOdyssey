@@ -37,6 +37,9 @@ nonisolated final class GameSymbols: Sendable {
     let lineHighTable = Word(0x16)
     let drawX = Byte(0x18)
     let jumpVector = Word(0x19)
+    /// A slot's ROM ($Cn00): where DETECT_JOYSTICK looks for a mouse card,
+    /// then the mouse card's (CALL_MOUSE).
+    let slotPointer = Word(0x1B)
     /// The random generator, a 16-bit shift register (RANDOM).
     let randomLow = Byte(0x4E)
     let randomHigh = Byte(0x4F)
@@ -227,7 +230,11 @@ nonisolated final class GameSymbols: Sendable {
     let walkTemp = Byte(levels: 0x8ED6)
     /// The player's walking frame, 0-7.
     let walkFrame = Byte(levels: 0x8ED7)
-    let flag8ED8 = Byte(levels: 0x8ED8, guess: true)
+    /// The object a sentry holds ($FF none; the levels' and the Toolkit's
+    /// sentry code, Level 1's L1_SENTRIES): Level 1's main loop skips
+    /// READ_INPUT while it is the player (0) and calls $FE25 only while it is
+    /// $FF; the thrusters don't move the robot it is ($D1FD).
+    let sentryHeld = Byte(levels: 0x8ED8)
     /// Each level's own code and data from here to $94FF.
     let levelData = Table(levels: 0x8EF0)
 
@@ -265,9 +272,10 @@ nonisolated final class GameSymbols: Sendable {
     let destinationRoom = Byte(0x9C2E)
     let currentObject = Byte(0x9C2F)
     let wallsOn = Byte(0x9C30)
-    /// The objects OBJECTS_TOUCH compares.
+    /// The objects OBJECTS_TOUCH compares, and what it found: 1 touching, 0 not.
     let touchFirst = Byte(0x9C31)
     let touchSecond = Byte(0x9C32)
+    let touchResult = Byte(0x9C33)
     /// Lines and boxes: colour and ends.
     let lineColour = Byte(0x9C34)
     let lineX1 = Byte(0x9C35)
@@ -388,9 +396,13 @@ nonisolated final class GameSymbols: Sendable {
     /// OBJ_LINK comes along in MOVE_LINKED_OBJECTS.
     let grabAndCarry = Routine(0xA5CD)
     let engA6AD = Routine(0xA6AD)
-    /// Z clear when TOUCH_FIRST and TOUCH_SECOND are in the same room with
-    /// their boxes overlapping.
+    /// Z clear (TOUCH_RESULT 1) when TOUCH_FIRST and TOUCH_SECOND are in the
+    /// same room, their boxes overlap and so do their sprites' pixels (the
+    /// rows ANDed, one shifted by the difference in x).
     let objectsTouch = Routine(0xA835, guess: true)
+    /// The object TOUCH_FIRST touches for GRAB_AND_CARRY: Z clear and
+    /// CUR_OBJECT that one if any; by FLAG_9C51 the search at $A7C7 (1) or $A7D6.
+    let touchedObject = Routine(0xA8FC, guess: true)
 
     // Input (Docs/Engine.md "Input").
     let mouseMoved = Byte(0xA909)
@@ -402,6 +414,9 @@ nonisolated final class GameSymbols: Sendable {
     let screenEdgesX = Table(0xA979)
     let screenEdgesY = Table(0xA97B)
     let readDevice = Routine(0xA97D, code: 0xA97D ..< 0xA9D2, 0xA9D4 ..< 0xAA25, md5: "e1f8bd88d87b7ac4c928992bd9593c95")
+    /// The mouse card's slot as its ROM's page ($Cn), and as n × 16.
+    let mouseSlot = Byte(0xA9D2)
+    let mouseSlot16 = Byte(0xA9D3)
     let readKey = Routine(0xAA25, code: 0xAA25 ..< 0xAA40, md5: "b67ae57dd6501309ef56da8d3a63b146")
     let keyAsStick = Routine(0xAA40, code: 0xAA40 ..< 0xAAC9, md5: "a37ea61769909783565b76f7c91f47ad")
     /// The paddle counts, doubled.
@@ -418,7 +433,22 @@ nonisolated final class GameSymbols: Sendable {
     let stickMoveY = Table(0xABCE)
     let readMouse = Routine(0xABDE, guess: true)
     let clearButtons = Routine(0xAC09, code: 0xAC09 ..< 0xAC12, md5: "35480cf07c7d6d4e594785ec39e6eeb2")
-    let detectJoystick = Routine(0xAC24)
+    /// The mouse's position in its slot's screen holes ($0478+n...) set to 0.
+    let clearMousePosition = Routine(0xAC12)
+    /// INPUT_DEVICE at start-up (every world's start-up code): 1 if paddle
+    /// 0's timer runs out within 1280 reads of it, else 2 with a mouse card
+    /// in a slot (found from slot 7 down, pointer at $1B; set up through its
+    /// firmware), else 0.
+    let detectJoystick = Routine(0xAC24, code: 0xAC24 ..< 0xAC76, 0xACC8 ..< 0xACC9, md5: "e048267de1268b01d6dd44f7655143a8")
+    /// The mouse put at (0, 0): POSMOUSE.
+    let homeMouse = Routine(0xACC9)
+    /// Calls the mouse firmware routine at offset ($Cn00+Y) (SETMOUSE $12 ...
+    /// INITMOUSE $19) with A, X = $Cn and Y = n × 16, through the JMP at
+    /// MOUSE_JUMP it sets.
+    let callMouse = Routine(0xACD6)
+    let mouseJump = Routine(0xACE6)
+    /// A halved (keeping its sign) but on a IIc ($FBC0 = 0).
+    let halveMouseMove = Routine(0xACE9, guess: true)
 
     // Object motion (Docs/Engine.md "Input").
     let limitX = Byte(0xACF6)
@@ -579,7 +609,7 @@ nonisolated final class GameSymbols: Sendable {
     /// The soldering pen, called each tick while the player holds it and the
     /// copy protection passed (Docs/CopyProtection.md).  SOLDER_TOUCH acts on
     /// what the pen touches while no wire is started; SOLDER_WIRE starts a
-    /// wire at the first touch (with the solder sound) and makes it at the
+    /// wire at the first touch (with the unsolder sound) and makes it at the
     /// second.
     let solderTouch = Routine(levels: 0xF5C2, guess: true)
     let solderWire = Routine(levels: 0xF7BE, guess: true)

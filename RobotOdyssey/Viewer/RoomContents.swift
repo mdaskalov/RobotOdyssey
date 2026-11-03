@@ -76,6 +76,21 @@ struct RoomContents {
         visible.last { ($0.x ..< $0.x + 7).contains(x) && ($0.y ..< $0.y + 16).contains(y) }
     }
 
+    /// The topmost object with a pixel of its sprite at (x, y) or next to
+    /// it: what the mouse takes hold of (a blank sprite has nothing to take).
+    func object(atX x: Int, y: Int) -> Int? {
+        visible.last { s in
+            let rows = s.rows(in: world)
+            guard s.object != nil, rows.count == 16 else { return false }
+            return (x - 1 ... x + 1).contains { px in
+                (y - 1 ... y + 1).contains { py in
+                    let column = px - s.x, row = py - s.y
+                    return (0 ..< 7).contains(column) && (0 ..< 16).contains(row) && rows[row] >> (6 - column) & 1 != 0
+                }
+            }
+        }?.object?.id
+    }
+
     /// The last wire drawn that passes (x, y) within a unit.
     func wire(atX x: Int, y: Int) -> RoomWire? {
         wires.last { $0.passes(x: x, y: y) }

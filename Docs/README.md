@@ -14,6 +14,7 @@ faithful Swift version.
 | [CopyProtection.md](CopyProtection.md) | the copy protection: the E7 bitstream on track 1, the checks, the flag that turns off the soldering pen, the cracked dumps |
 | [Loader.md](Loader.md) | the loader in the app: boot stage 2, the loader and the menu as 6502 code with a native boot, RWTS and disk drive; the storage disk; following the game into the next world |
 | [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine, the `.sym` files in Mariani's debugger |
+| [Frontends.md](Frontends.md) | plan: switches for the natives with a live check against the original, a modern view (SpriteKit) from the draw phase's display list beside the Apple's, modern sound |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
 ## Current status (2026‑11‑01)
@@ -27,7 +28,10 @@ faithful Swift version.
   speed (4‑7 ticks/s, paced by CPU cycles at 1.0205 MHz): robots, circuits
   and the worlds' own code animate. Any room can be watched. With *Play*
   the keyboard goes to the game (I J K M or the arrow keys, space, `?`,
-  Esc…) and the view follows the player.
+  Esc…) and the view follows the player. Each tick's page is on screen as
+  the tick starts (a tick earlier than on the Apple), and *Smooth* shows
+  what moves gliding between two ticks' pages, drawn by the game's own draw
+  phase, frame by frame of the display.
 * **The loader runs** (Loader.md): where a world hands back to it, the
   Apple boots again and boot stage 2, the loader and the menu run as 6502
   code, with natives for the boot ROM, RWTS on a disk drive (the program
@@ -38,15 +42,39 @@ faithful Swift version.
   storage disk loaded; made if there is none), kept in the app's
   Application Support folder and loaded from there at launch.
 * **Input:** the Apple's keyboard, joystick (paddle timers by CPU cycles)
-  and buttons are emulated in `Machine`; the viewer uses the keyboard.
+  and buttons are emulated in `Machine`; the viewer uses the keyboard and a
+  game controller as the joystick (the further the stick is pushed, the
+  faster the player moves, by the game's own joystick table). The mouse
+  (Frontends.md "Input"): in *Play* a drag on the player walks it after the
+  pointer on the joystick, a click on it is the game's button (soldering
+  too); a drag on an object moves it, by the game's motion routines, until
+  a wall or an exit drops it.
+* **The 6502** (`Packages/MOS6502`, a Swift package with its README, since
+  2026‑11‑03): the NMOS 6502 as AppleWin/Mariani runs it – all 256 opcodes,
+  the undocumented ones too, as `Opcode` values (no more parsed table),
+  AppleWin's cycles, each read or write on its bus cycle. Against
+  AppleWin's own `cpu6502.h` (`Data/cpu_check.sh`): 2.56 M random
+  instructions identical but where AppleWin's results aren't the 6502's
+  (DCP/ISC's carry on a wrap, ARR in decimal mode; those match Tom Harte's
+  SingleStepTests).
 * **Hybrid engine:** level and room code always runs as original 6502 code;
-  ported to Swift so far: the robot drawing, the input (READ_INPUT and the
-  levels' player routines), the object motion (moving objects across
+  ported to Swift so far: the robot drawing, the input (READ_INPUT,
+  DETECT_JOYSTICK and the levels' player routines), the object motion (moving objects across
   rooms, walls, screen edges, Engine.md "Input") and the sound player.
+  Each native has a switch in the inspector's *Native routines* (and
+  *All*), kept between launches; off, the original code runs there from the
+  next instruction on (Frontends.md). The loader's intro skip (PLAY_INTRO)
+  has one too: off, Robotropolis' intro plays as on the Apple. The menu's
+  drawing (DRAW_PICTURE, XOR_BLOCK) runs as natives too, so the intro's
+  tunes don't wait for its pictures (Loader.md).
 * **Sound** (Sound.md): the native PLAY_SOUNDS runs the tone and noise loops
   as the original, reports every speaker click to the cycle and takes the
   sound's cycles (the game waits while a sound plays, as on the Apple); the
-  viewer makes the speaker's sound from the clicks (*Sound* in the toolbar).
+  viewer makes the speaker's sound from the clicks (*Sound* in the toolbar),
+  streamed to the cycle as the machine runs, so the 6502 code's own clicks
+  (the loader's tunes, the intro, PLAY_SOUNDS switched off) keep their time
+  (since 2026‑11‑03; before, the loader's were played a tune at a time once
+  it had ended, seconds after its picture).
   The 37 sounds of the worlds' tables are named in `GameSounds`.
 * **Copy protection** (CopyProtection.md): the worlds skip the soldering
   pen unless the loader's flag says the disk passed the check; the app
@@ -63,18 +91,20 @@ faithful Swift version.
   (`Data/native_check.sh`), per drawn room, per direct call (memory, and
   registers and flags for the routines the worlds' code calls; cycles and
   speaker clicks for the sound) and over whole ticks with and without input:
-  v1.1 670 frames, 440 ticks, 3,300 ticks with input, 53,920 calls (1.45 M
-  clicks); v1.0 542 frames, 360 ticks, 2,700 ticks with input, 43,680 calls
-  (1.18 M clicks) – all identical.
+  v1.1 542 frames, 360 ticks, 2,700 ticks with input, 45,480 calls (1.17 M
+  clicks); v1.0 with the two saved games 670 frames, 440 ticks, 3,300 ticks
+  with input, 56,120 calls (1.44 M clicks) – all identical.
 * **Saved games** are read as RESTORE_GAME restores them: the header is a
   slot's last page (until 2026‑11‑01 the page before the slot was read),
   the engine and the level code come from the program disk
   (DiskLayout.md). `Data/loader_check.sh` checks the loader: next levels,
   menu, save, restore (equal to `WorldBuilder`'s saved game after a tick),
-  a new storage disk; v1.0 and v1.1.
+  a new storage disk, the intro played (its tunes streamed as the viewer
+  does them), the game's sounds played as the viewer does (no pause, no
+  click), the menu's drawing natives call by call; v1.0 and v1.1.
 * **Next:** porting the tick's engine routines one by one (grabbing, linked
   objects, robots, wires, gates, chips), each checked tick by tick against
-  the original; natives' cycle counts (pacing).
+  the original.
 
 ## What we know so far
 
@@ -184,7 +214,8 @@ chip is burned), so it comes in two stages:
       bank 1 and screen after every tick (`native_check`, 40 ticks per world)
 - [x] the same with input sequences (keys, joystick, buttons; 300 ticks per
       world) – this is what guarantees that circuits behave identically
-- [ ] natives' cycle counts, so ticks with natives take the original's time
+- [x] natives take no cycles (but PLAY_SOUNDS): faster where they run, by
+      design (2026‑11‑03); what a tick does stays the original's
 - [x] tick pacing: authentic (cycle based, in the viewer)
 - [ ] tick pacing: fixed rate, fast
 
@@ -192,7 +223,7 @@ chip is burned), so it comes in two stages:
 - [x] keyboard (viewer *Play*)
 - [x] sound (Sound.md)
 - [x] menu, level changes, save/load (the original loader, Loader.md)
-- [ ] game controller as joystick
+- [x] game controller as joystick
 - [ ] optional extras: larger window, zoom, better colours, debugging tools
 
 ## The viewer app
@@ -209,9 +240,21 @@ version keeps one side A and one side B: the first one loaded wins, later
 sides of the same version are ignored (listed under *Notes*). Without disks
 the window shows the game's title screen (`Data/ro_title.py`); the app icon is
 robot 2, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world in the sidebar and a room
-below the canvas: *Grid* shows all 64 rooms (room *n* at column *n*%8, row
-*n*/8), *Map* shows the rooms as they connect (`WorldMap`), scrollable and
-zoomable, with each room's number on it. It leaves out links to and from the
+in the *World* panel below the canvas (`WorldPanel`, shown or hidden from the
+toolbar). Its sections fold like the inspector's, their headers stay on top
+as the panel scrolls: *Rooms* – *Grid* shows all 64 rooms (room *n* at column
+*n*%8, row *n*/8), *Map* shows the rooms as they connect (`WorldMap`),
+zoomable, with each room's number on it; *Wall types* – the tile patterns of
+the rooms' walls and floors (the engine's colours, 8‑$13 dithered), each with
+the rooms that use it (click: the next of them); *Sprites* – the world's 64
+sprites as it starts, each in the colour of the first object that shows it
+then (white if none), so wires and pins don't change colour there (click:
+select the objects that show it, one after the other); *Sounds* – the world's sound table (Sound.md),
+each with its name in the map, parameters and length, ▶ plays it as the game
+does (also when muted); *Texts*, *Objects* (those in a room), *Robots* (the
+levels: click the body, *Inside* for the interior) and *Wires* (hot or off) –
+click one to go to its room and select it. Texts, objects, robots and wires
+show the world as the loop last drew the selected room. The map leaves out links to and from the
 robots' interiors ($09‑$0B, $0D in the levels: the player gets in and out by
 the robot) and $3F (nowhere: Level 4's edges lead there, and its code takes
 $3F for no exit). The links never change while a world runs; the walls do
@@ -231,7 +274,9 @@ interiors, chip and code rooms) follow as in the grid.
 shows (v1.1: Level 1 64 of 72, Level 2 136/170, Level 3 87/118, Level 4
 174/192, Level 5 76/93; before leaving out the robots' interiors and $3F,
 growing breadth first from the player's room showed 60, 132, 80, 155, 70). The map keeps
-the selected room in view, so when playing it follows the player. Arrow keys
+the selected room in view while it is what the panel shows (its middle), so
+when playing it follows the player; scrolled to the other sections, the panel
+stays there. Arrow keys
 follow exits. Hover shows object coordinates and the sprite or wire under
 the pointer. Click a sprite or a wire to select it in the inspector (the
 canvas outlines it in yellow). The inspector shows the room's properties,
@@ -257,7 +302,16 @@ native routines) as in the game: each tick takes the CPU cycles it takes at
 the hi‑res page on screen. The selected room is drawn by the world's draw
 phase in place of the player's room, while the rest of the tick runs as in the
 game; on a room change the room appears at once, drawn from the state at the
-start of the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
+start of the tick. The loop runs frame by frame of the display (up to
+60 Hz, `DisplayFrames`): as the clock reaches a tick, the whole tick runs at
+once and its page is on screen right away; the next tick waits until the
+clock has caught up, so the ticks keep their pace (`GameLoop.run`,
+Engine.md). A key typed waits at most a tick, rather than up to two on the
+Apple. *Smooth* (on by default) fills the frames between two pages: what
+moved (the objects in the room, wire ends; a step's worth, as the player
+walks) is put back part of the way and the draw phase draws the room from
+where it drew the page (`GameLoop.inBetween`), so the page before turns into
+the new one over the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
 (one tick, when paused) and *Restart*; the inspector's *Game* section shows
 the tick and ticks/s, how the room is drawn and, folded, the native routines
 in use with their entry points (and any routine the loader found modified,
@@ -278,7 +332,18 @@ Keys are typed on the Apple's keyboard as they are (letters, digits, Ctrl,
 Return, Esc, Tab; Delete is ←), so I J K M move, Ctrl‑I J K M move slowly,
 space picks up and drops, `?` gives hints and Esc asks to quit. The arrow keys
 move like I J K M, and with Shift slowly, as in the PC version (the Apple's
-own arrow keys send codes the game takes for other keys). When a world hands
+own arrow keys send codes the game takes for other keys). A movement key
+(the world's MOVE_KEYS) held down is typed again at the start of every tick
+until it is let go, so the player walks on from the first tick, without the
+Mac's key repeat delay. A game controller (`GameControllers`) is the
+Apple's joystick with *Play*: the left stick or the d‑pad moves, A or X is
+button 0, B or Y button 1 (either picks up and drops). The game moves the
+player by how far the stick is pushed (Engine.md "Input"): a little, 1 step
+a tick as with Ctrl; further, 2 then 4 across; all the way (and the d‑pad),
+7 across and 15 up or down. A corner moves fully both ways, as the Apple
+joystick's square gate does. The keyboard keeps working: a key switches the
+game to the keyboard, moving the stick back to the joystick. The
+inspector's *Game* section names the controller. When a world hands
 back to the loader (the menu, the next level, saving) the loader runs
 (Loader.md): the canvas shows its screens, the keys go to it (the menu:
 space or the arrow keys to choose, Return to load; the saving prompts; the

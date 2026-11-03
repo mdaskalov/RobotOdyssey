@@ -147,16 +147,20 @@ through the reset vector $03F2).
 
 | Op | Arguments | Handler | Action |
 |---|---|---|---|
-| 00 | address | $09F4 → $0A71 | draw the picture at *address* into the buffer |
-| 01 | – | $0BD1 | wipe: copy the buffer to hi‑res page 1 in 47 diagonal steps |
+| 00 | address | $09F4 → $0A71 | draw the picture at *address* on the page its header names (DRAW_PICTURE: the buffer at $D000 or page 1) |
+| 01 | – | $0BD1 | wipe: copy the buffer to hi‑res page 1 in 47 circles growing from the centre (WIPE_STEP: midpoint circles; each spot 4 lines × half a byte, in all four quadrants, marked in WIPE_MAP $BA00) |
 | 02 | – | $09C2 | return to the code after the bytecode |
 | 03 | address, A | $09DC | call *address* with A |
 | 04 / 05 | – | $0A04 / $0A0C | a key press aborts the sequence / doesn't |
-| 06 | 4 bytes | $0A14 → $0D21 | not examined |
+| 06 | block, line, column | $0A14 → $0D21 | XOR_BLOCK: the block (width in bytes at +3, lines at +4, bytes from +5) XORed onto page 1, bit 7 set – twice and it is gone: the menu's highlight, the intro's flashing |
 | 07 | – | $0A39 | clear hi‑res page 1 and show it |
 | 08 | address | $0A5B | where a key press jumps to ($C9/$CA) |
-| 09 | address | $0D70 | not examined |
-| 0A | byte | $0A68 | sets $0D6F |
+| 09 | address | $0D70 | a tune: pairs of period (+ TRANSPOSE) and length, ended by 0; PLAY_NOTE ($0DA4) clicks the speaker every *period* loop iterations |
+| 0A | byte | $0A68 | sets TRANSPOSE ($0D6F) |
+
+The interpreter's routines and variables are in `LoaderSymbols`
+(RobotOdysseyLoader.sym); DRAW_PICTURE and XOR_BLOCK run as natives
+(Loader.md).
 
 The menu's entry $6000 (`JMP $6023`) plays the title sequence (v1.1):
 

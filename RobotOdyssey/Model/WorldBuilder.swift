@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// The program disk (side A and/or B) of one version, plus optional storage disks.
 nonisolated struct DiskSet {
@@ -130,6 +131,8 @@ nonisolated struct WorldBuilder {
               let initEnd = find(startUpEnd, in: mem, from: 0x0816, to: 0x0900)
         else { throw DiskError.exitCodeNotFound(worldName) }
         let cpu = CPU6502(memory: mem)
+        cpu.ioPages[0xC0] = true
+        cpu.stopsAtBRK = true
         cpu.ioRead = { $0 == 0xC000 ? 0x9B : 0 }
         // The level start-up code sets engine vectors used by the exit code.
         try cpu.call(UInt16(GameSymbols.address(\.worldStart)), stopAt: [UInt16(initEnd + startUpEnd.count)])
@@ -162,12 +165,13 @@ nonisolated struct WorldBuilder {
         for t in targets.sorted() {
             var pc = t
             scan: while pc < site {
-                guard let info = CPU6502.table[Int(mem[pc])] else { break }
-                switch info.op {
+                let opcode = Opcode(mem[pc])
+                guard opcode.isDocumented else { break }
+                switch opcode.mnemonic {
                 case .rts, .rti, .brk: break scan
-                case .jmp where info.mode == .ind: break scan
+                case .jmp where opcode.mode == .indirect: break scan
                 case .jmp where Int(mem[pc + 1]) | Int(mem[pc + 2]) << 8 != pc + 3: break scan
-                default: pc += CPU6502.length(info.mode)
+                default: pc += opcode.length
                 }
             }
             if pc == site { return t }

@@ -15,7 +15,18 @@
 //   escape:  Esc in the menu: its tune must come as one sound, then the
 //            title and the menu again; Robotropolis starts without its
 //            intro (the app steps over it);
-//   walls:   the easter egg: Ctrl-A Ctrl-L T in the menu, Robotropolis,
+//   intro:   Robotropolis with PLAY_INTRO switched off: the intro plays,
+//            its tunes streamed 1/60 s at a time as the viewer does must
+//            equal each stretch rendered at once;
+//   sounds:  Level 1 with sounds queued, run and played as the viewer does
+//            (ticks finished at once, the clicks streamed): PLAY_SOUNDS
+//            native and switched off must click alike, no sound pausing
+//            where the original doesn't, the player never running dry while
+//            the cone moves (a click);
+//   menu natives: the menu, the title (Esc in the menu) and the intro, each
+//            call of DRAW_PICTURE and XOR_BLOCK against the original run to
+//            its return on a copy: memory, banks, PC and SP the same;
+//   walls:  the easter egg: Ctrl-A Ctrl-L T in the menu, Robotropolis,
 //            then Ctrl-E must turn WALLS_ON off and on;
 //   save:    Level 1, Esc S: the game saved on a new storage disk (letter A,
 //            a name), back in Level 1; the slot read back (savedGames) must
@@ -32,6 +43,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import MOS6502
 
 func hex(_ v: Int) -> String { String(format: "$%04X", v) }
 
@@ -159,6 +171,9 @@ struct LoaderCheck {
         let storage = CommandLine.arguments.contains("--trace") ? nil : scenario { try checkSave(world("level1"), set) }
         _ = scenario { try checkMenu(world("level1"), set, worlds) }
         _ = scenario { try checkMenuEscape(world("level1"), set) }
+        _ = scenario { try checkIntro(world("level1"), set) }
+        _ = scenario { try checkGameSounds(world("level1"), set) }
+        _ = scenario { try checkMenuNatives(world("level1"), set) }
         _ = scenario { try checkWallsKey(world("level1"), set) }
         if let storage {
             _ = scenario { try checkRestore(world("level1"), set, storage) }
@@ -357,15 +372,16 @@ struct LoaderCheck {
         try session.run(1)
         _ = try session.type([esc, esc], limit: 10) { session.loop.exit != nil }
         try session.run(8)
-        _ = session.loop.takeSounds()
+        _ = session.loop.takeSpeaker()
         session.loop.devices.type(esc)
-        var sounds: [Sound.Played] = []
+        var clicks: [UInt64] = []
         for _ in 0 ..< 20 {
             try session.run(0.1)
-            sounds += session.loop.takeSounds()
+            clicks += session.loop.takeSpeaker().clicks
         }
-        print("  the tune: \(sounds.count) sound(s), \(sounds.reduce(0) { $0 + $1.clicks.count }) clicks")
-        if sounds.count != 1 { fail("the tune came as \(sounds.count) sounds") }
+        print(String(format: "  the tune: %d clicks in %.2f s", clicks.count,
+                     Double((clicks.last ?? 0) - (clicks.first ?? 0)) / GameLoop.clock))
+        if clicks.isEmpty { fail("no tune") }
         try session.run(25)
         png(session, "escape")
         let start = session.loop.cycles
@@ -374,6 +390,187 @@ struct LoaderCheck {
         print(String(format: "  Robotropolis started in %.1f s", seconds))
         if !ok || session.loop.loadedWorld?.id != "level1" { fail("Robotropolis didn't start") }
         if seconds > 5 { fail("the intro played") }
+    }
+
+    /// Robotropolis with PLAY_INTRO switched off: the intro plays, then the
+    /// world starts.  Its tunes taken as the viewer takes them, 1/60 s at a
+    /// time, and streamed (`SpeakerStream`, without its lead) must give each
+    /// stretch's samples as rendered at once.
+    static func checkIntro(_ level1: World, _ set: DiskSet) throws {
+        print("intro: the menu, PLAY_INTRO switched off, Robotropolis")
+        let session = try Session(level1, disks: set, storage: nil)
+        session.loop.switchedOff = [Loader.skipIntro]
+        try session.run(1)
+        _ = try session.type([esc, esc], limit: 10) { session.loop.exit != nil }
+        try session.run(8)
+        _ = try session.type([ret], limit: 1) { false }
+        _ = session.loop.takeSpeaker()
+        session.loop.devices.type(ret)
+        let start = session.loop.cycles
+        var stream = SpeakerStream()
+        var stretches: [(clicks: [UInt64], samples: [Float])] = []
+        var resting = true
+        var frames = 0
+        while !session.arrived() && frames < 60 * 60 {
+            try session.loop.run(until: start + UInt64(Double(frames + 1) / 60 * GameLoop.clock))
+            frames += 1
+            let clicks = session.loop.takeSpeaker().clicks
+            let samples = stream.samples(clicks, upTo: session.loop.cycles, lead: 0)
+            if samples.isEmpty {
+                resting = true
+                continue
+            }
+            if resting { stretches.append(([], [])) }
+            resting = false
+            stretches[stretches.count - 1].clicks += clicks
+            stretches[stretches.count - 1].samples += samples
+        }
+        let clicks = stretches.reduce(0) { $0 + $1.clicks.count }
+        print(String(format: "  Robotropolis started after %.1f s; the intro's tunes: %d clicks in %d stretches",
+                     Double(frames) / 60, clicks, stretches.count))
+        if !session.arrived() || session.loop.loadedWorld?.id != "level1" { fail("Robotropolis didn't start") }
+        if frames < 60 * 10 { fail("the intro didn't play") }
+        if clicks == 0 { fail("the intro played no tune") }
+        for (n, s) in stretches.enumerated() {
+            guard let first = s.clicks.first else {
+                fail("stretch \(n) has no clicks")
+                continue
+            }
+            var speaker = SpeakerRenderer()
+            let once = speaker.samples(s.samples.count, clicks: s.clicks.map { Double($0 - first) })
+            // The cone may start on its other side.
+            let sign: Float = zip(s.samples, once).first { abs($0.0) > 1e-3 }.map { ($0.0 > 0) == ($0.1 > 0) ? 1 : -1 } ?? 1
+            if let i = zip(s.samples, once).enumerated().first(where: { abs($1.0 - sign * $1.1) > 1e-6 })?.offset {
+                fail(String(format: "stretch %d (at %.2f s): sample %d differs from the stretch rendered at once", n,
+                            Double(first - start) / GameLoop.clock, i))
+            }
+        }
+    }
+
+    /// The game's sounds as the viewer plays them: Level 1 with sounds
+    /// queued, run in 1/60 s frames, each tick finished at once
+    /// (`GameLoop.run`'s `finishingTick`), the clicks streamed
+    /// (`SpeakerStream`) into a player that plays each batch once the one
+    /// before has played, or at once.  With PLAY_SOUNDS native and switched
+    /// off: both must click alike, no sound may pause where the original
+    /// doesn't – its clicks as far apart when played as their cycles – and
+    /// the player may run dry (waiting for the clock) only once the cone has
+    /// settled: cut off, it clicks.
+    static func checkGameSounds(_ level1: World, _ set: DiskSet) throws {
+        print("sounds: Level 1, PLAY_SOUNDS native and switched off, sounds played as the viewer plays them")
+        let names = ["grab", "bumper", "crystalDischarge", "robotRelease"]
+        var heard: [[UInt64]] = []
+        for off in [false, true] {
+            let session = try Session(level1, disks: set, storage: nil)
+            if off { session.loop.switchedOff = [GameSymbols.name(of: \.playSounds)] }
+            let loop = session.loop, mem = session.machine
+            var stream = SpeakerStream()
+            var clock = loop.cycles
+            var queued = 0
+            var playEnd = 0.0
+            var lastSample: Float = 0, cut: Float = 0
+            var played: [(cycle: UInt64, time: Double)] = []
+            for frame in 0 ..< 120 * names.count {
+                // Into the queue's last slot as QUEUE_SOUND puts it, at a tick's start: the tick plays it.
+                if queued < names.count, frame >= 120 * queued, Int(mem.cpu.pc) == session.phase.loopStart,
+                   let sound = GameSounds.pitches.first(where: { $0.name == names[queued] })?.parameters {
+                    mem.cpu.mem[\.soundQueue] = 7
+                    mem.cpu.mem[GameSymbols.address(\.soundFlags) + 7] = sound.kind.rawValue
+                    mem.cpu.mem[GameSymbols.address(\.soundLengths) + 7] = sound.length
+                    mem.cpu.mem[GameSymbols.address(\.soundSweeps) + 7] = sound.sweep
+                    mem.cpu.mem[GameSymbols.address(\.soundPitches) + 7] = sound.pitch
+                    mem.cpu.mem[GameSymbols.address(\.soundRooms) + 7] = 0xFF
+                    queued += 1
+                }
+                clock += UInt64(GameLoop.clock / 60)
+                try loop.run(until: clock, finishingTick: true)
+                let clicks = loop.takeSpeaker().clicks
+                let quiet = loop.speakerQuiet
+                let samples = stream.samples(clicks, upTo: loop.cycles, quiet: quiet)
+                guard !samples.isEmpty else { continue }
+                // Ran dry: the player jumped from its last sample to 0 (a new sound's first click is its own).
+                if Double(frame) / 60 > playEnd { cut = max(cut, abs(lastSample)) }
+                lastSample = samples[samples.count - 1]
+                playEnd = max(Double(frame) / 60, playEnd) + Double(samples.count) / Double(SpeakerRenderer.sampleRate)
+                // While it sounds, the stream renders up to the machine's cycle; quiet, until the cone has settled.
+                let end = quiet ? Double(clicks.last ?? 0) + Double(SpeakerRenderer.settle) * SpeakerRenderer.perSample : Double(loop.cycles)
+                played += clicks.map { ($0, playEnd - (end - Double($0)) / GameLoop.clock) }
+            }
+            heard.append(played.map(\.cycle))
+            // The sounds: clicks less than 20,000 cycles apart.
+            var sounds: [ArraySlice<(cycle: UInt64, time: Double)>] = []
+            var first = 0
+            for i in played.indices.dropFirst() where played[i].cycle - played[i - 1].cycle >= 20_000 {
+                sounds.append(played[first ..< i])
+                first = i
+            }
+            if !played.isEmpty { sounds.append(played[first...]) }
+            if sounds.count != names.count { fail("\(sounds.count) sounds played, not \(names.count)") }
+            for (name, s) in zip(names, sounds) {
+                let pause = zip(s, s.dropFirst()).map { ($1.time - $0.time) - Double($1.cycle - $0.cycle) / GameLoop.clock }.max() ?? 0
+                print(String(format: "  %@ %@: %d clicks, %.0f ms, the longest pause added %.1f ms", off ? "6502  " : "native", name,
+                             s.count, Double(s.last!.cycle - s.first!.cycle) / GameLoop.clock * 1000, max(pause, 0) * 1000))
+                if pause > 0.001 { fail("\(name) (\(off ? "6502" : "native")) pauses where the original doesn't") }
+            }
+            print(String(format: "  %@ the player ran dry with the cone at %.3f at most", off ? "6502  " : "native", cut))
+            if cut > 0.001 { fail("the player ran dry while the cone moved: a click") }
+        }
+        if heard[0] != heard[1] { fail("the 6502 PLAY_SOUNDS clicks other than the native") }
+    }
+
+    /// The menu's natives (`Loader.menuNatives`: DRAW_PICTURE, XOR_BLOCK)
+    /// call by call against the original: Level 1, Esc Esc (the menu), Esc
+    /// in the menu (the title), Robotropolis with PLAY_INTRO switched off
+    /// (the intro).  At each call the original runs to its return on a copy,
+    /// the native on the machine: memory but the dead stack, both banks, PC
+    /// and SP must be the same.
+    static func checkMenuNatives(_ level1: World, _ set: DiskSet) throws {
+        print("menu natives: the menu, the title and the intro, each call against the original")
+        let session = try Session(level1, disks: set, storage: nil)
+        session.loop.switchedOff = [Loader.skipIntro]
+        var calls: [String: Int] = [:]
+        for native in Loader.menuNatives {
+            let code = LoaderSymbols.map[keyPath: native.routine].code[0]
+            session.machine.hook(native.entry, name: native.name) { m in
+                guard code.matches(m.cpu.mem) else { return false }
+                let original = m.copy()
+                original.switchedOff.insert(native.name)
+                let cpu = original.cpu
+                let back = (UInt16(cpu.mem[0x100 + Int(cpu.sp &+ 1)]) | UInt16(cpu.mem[0x100 + Int(cpu.sp &+ 2)]) << 8) &+ 1
+                let sp = cpu.sp &+ 2
+                var steps = 0
+                while !(cpu.pc == back && cpu.sp == sp), steps < 5_000_000, (try? cpu.step()) != nil { steps += 1 }
+                native.run(LoaderRAM(cpu: m.cpu))
+                m.cpu.returnFromSubroutine()
+                let n = calls[native.name, default: 0]
+                calls[native.name] = n + 1
+                let dead = 0x0100 ... 0x0100 + Int(sp)
+                if cpu.pc != back || m.cpu.pc != back || m.cpu.sp != sp {
+                    fail("\(native.name) call \(n): returns to $\(String(cpu.pc, radix: 16)), not as the native")
+                } else if let a = (0 ..< 0x10000).first(where: { !dead.contains($0) && m.cpu.mem[$0] != cpu.mem[$0] }) {
+                    fail(String(format: "%@ call %d: $%04X is $%02X, the original's $%02X", native.name, n, a, m.cpu.mem[a], cpu.mem[a]))
+                } else if m.bank1 != original.bank1 {
+                    fail("\(native.name) call \(n): bank 1 differs")
+                }
+                return true
+            }
+        }
+        try session.run(1)
+        _ = try session.type([esc, esc], limit: 10) { session.loop.exit != nil }
+        try session.run(8)
+        let menu = calls
+        session.loop.devices.type(esc)
+        try session.run(25)
+        let title = calls
+        let start = session.loop.cycles
+        let ok = try session.type([ret, ret], limit: 40) { session.arrived() }
+        if !ok || session.loop.loadedWorld?.id != "level1" { fail("Robotropolis didn't start") }
+        func counts(_ c: [String: Int], _ before: [String: Int] = [:]) -> String {
+            Loader.menuNatives.map { "\($0.name) \(c[$0.name, default: 0] - before[$0.name, default: 0])" }.joined(separator: ", ")
+        }
+        print("  the menu: \(counts(menu)); the title: \(counts(title, menu)); the intro: \(counts(calls, title))")
+        print(String(format: "  Robotropolis started after %.1f s with the natives", Double(session.loop.cycles - start) / GameLoop.clock))
+        for native in Loader.menuNatives where calls[native.name, default: 0] == 0 { fail("\(native.name) never ran") }
     }
 
     /// Engine.md, *Easter egg: walking through walls*.

@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// Symbols of the game's map as code passes them around: `\.moveDX`, `\.drawRobots`.
 typealias ByteSymbol = KeyPath<GameSymbols, Byte>

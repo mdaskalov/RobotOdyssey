@@ -147,6 +147,40 @@ nonisolated extension Engine {
         return (127, 127)
     }
 
+    /// DETECT_JOYSTICK ($AC24), in every world's start-up code: after a
+    /// strobe it reads paddle 0 up to 1280 times, every 11 cycles (15 after
+    /// each 256th), and INPUT_DEVICE is 1 if the timer runs out by then (X
+    /// and Y the reads left and made); else it looks for a mouse card from
+    /// slot 7 down (its ROM's $Cn0C = $20 and $CnFB = $D6), finds none and
+    /// INPUT_DEVICE is 0.  Declines for a mouse card: the original sets it up.
+    mutating func detectJoystick() -> Bool {
+        let found = (0 ..< 1280).first { n in
+            !devices.paddleRunning(0, after: UInt64(10 + 11 * n + 4 * (n >> 8)))
+        }
+        var x: UInt8 = 0xFF, y: UInt8 = 0
+        if let n = found {
+            x = UInt8(5 - n >> 8)
+            y = UInt8(n & 0xFF)
+        } else {
+            for slot in (1 ... 7).reversed() {
+                let rom = 0xC000 | slot << 8
+                y = 0x0C
+                guard m[rom + 0x0C] == 0x20 else { continue }
+                y = 0xFB
+                guard m[rom + 0xFB] != 0xD6 else { return false }
+            }
+            m.slotPointer = 0xC000
+        }
+        devices.strobe = cycles
+        r.bit(r.a, m[0xCFFF])
+        r.a = found == nil ? 0 : 1
+        r.x = x
+        r.y = y
+        m.inputDevice = r.a
+        r.compare(r.a, 2)
+        return true
+    }
+
     // MARK: the levels' player routines
 
     /// PLAYER_WALK_SPRITE ($DFA3, v1.0 $DFA4): the player's sprite (sprite 0)

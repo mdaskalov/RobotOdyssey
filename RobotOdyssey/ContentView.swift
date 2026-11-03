@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The window: the worlds on the left, the selected world's room with the
-/// rooms below it (`WorldView`), the inspector on the right; each panel
+/// world below it (`WorldView`), the inspector on the right; each panel
 /// shown or hidden from the toolbar.
 struct ContentView: View {
     @State private var model = ViewerModel()
@@ -95,17 +95,20 @@ struct ContentView: View {
             Toggle("Mono", systemImage: "circle.lefthalf.filled",
                    isOn: Binding { model.mode == .monochrome } set: { model.mode = $0 ? .monochrome : .color })
                 .help("Mono: as on a green monochrome monitor (off: the Apple II's colours)")
+            Toggle("Smooth", systemImage: "figure.walk.motion", isOn: $model.smooth)
+                .help("Smooth: between two ticks, what moves glides to where the next tick has it, "
+                      + "drawn by the game's own code (off: only the ticks' pages, as on the Apple II)")
             Toggle("Tile Grid", systemImage: "grid", isOn: $model.showGrid)
                 .help("The tile grid over the room: 20 columns, 12 rows")
             Toggle("Empty Rooms", systemImage: "square.dashed", isOn: $model.showEmptyRooms)
-                .help("Show the rooms the world doesn't use in the rooms panel (blank otherwise)")
+                .help("Show the rooms the world doesn't use in the world panel's rooms (blank otherwise)")
         }
         ToolbarSpacer(.fixed)
         ToolbarItemGroup {
             Toggle("Levels", systemImage: "sidebar.leading", isOn: $model.showLevels)
                 .help("Show or hide the levels")
-            Toggle("Rooms", systemImage: "rectangle.bottomthird.inset.filled", isOn: $model.showRooms)
-                .help("Show or hide the rooms")
+            Toggle("World", systemImage: "rectangle.bottomthird.inset.filled", isOn: $model.showWorld)
+                .help("Show or hide the world: its rooms, wall types, sprites, sounds, texts, objects, robots and wires")
             Toggle("Inspector", systemImage: "sidebar.trailing", isOn: $model.showInspector)
                 .help("Show or hide the inspector")
         }

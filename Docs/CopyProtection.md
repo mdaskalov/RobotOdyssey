@@ -76,7 +76,7 @@ tick, in its main loop right before the wires are drawn:
         BNE draw
         EOR COPY_PROTECTION_OK $FD EOR $80 = $7D: go on; $FD EOR $00 = $FD: skip
         BMI draw
-        JSR SOLDER_WIRE        starts a wire at the first touch (solder sound), makes it at the second
+        JSR SOLDER_WIRE        starts a wire at the first touch (unsolder sound), makes it at the second
         JSR SOLDER_TOUCH       acts on what the pen touches while no wire is started
 draw    JSR DRAW_WIRES
 ```
