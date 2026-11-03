@@ -79,11 +79,12 @@ nonisolated final class GameSounds: Sendable {
     /// 3: a robot's grabber (its hand) takes hold of an object (links it to the robot).
     let robotGrab = Sound(.tone, length: 0x04, sweep: 0x80, pitch: 0x04)
     /// 4: a grabber lets go.
-    let robotRelease = Sound(.noise, length: 0x00, sweep: 0x31, pitch: 0x09, guess: true)
+    let robotRelease = Sound(.noise, length: 0x00, sweep: 0x31, pitch: 0x09)
     /// 5: a robot's antenna object turns colour 5.
     let antenna = Sound(.tone, length: 0x00, sweep: 0x80, pitch: 0x09)
-    /// 6: the wiring code ($F000) unsolders a wire's end.
-    let unsolder = Sound(.noise, length: 0x02, sweep: 0x0B, pitch: 0x1B)
+    /// 6: the soldering pen solders a wire's end to a pin or unsolders it
+    /// (the wiring code, $F000; SOLDER_WIRE at a wire's first touch).
+    let solder = Sound(.noise, length: 0x02, sweep: 0x0B, pitch: 0x1B)
     /// 7: an energy crystal discharges into a robot's battery (CRYSTALS, in
     /// the robot's interior; the crystal turns colour 7, used).
     let crystalDischarge = Sound(.tone, length: 0x6E, sweep: 0x80, pitch: 0x55)

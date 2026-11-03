@@ -275,7 +275,7 @@ Object $04 is a **black crystal**: the crystal sprite 57 (as the energy
 crystals $11 and $F6) in colour 4, black, on the room's black floor (colour
 4 too). The engine draws it like any object, but every pixel stays black, so
 it can't be seen on the floor; the room view shows the same. Only over the
-walls, or in the viewer's inspector (colour 4 in grey), does it show. On the
+walls, or in the viewer's *Current Room* panel (colour 4 in grey), does it show. On the
 disk it lies in room $07; a game puts it on one of six spots in the maze
 (above), so finding it means trying them, grabbing in the dark. The hint for
 it is on the *?* screen (room $01): “Black crystals foil Ampire Bots.”

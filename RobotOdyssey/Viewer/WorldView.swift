@@ -62,7 +62,7 @@ struct WorldView: View {
                     .transition(.move(edge: .bottom))
                 }
             }
-            .animation(.default, value: model.showWorld)  // as the inspector slides
+            .animation(.default, value: model.showWorld)  // as the current room slides
         }
         .onAppear { focused = true }
     }
@@ -70,17 +70,31 @@ struct WorldView: View {
 
 /// The room at 560x384 (scaled to fit), with selection of sprites and wires,
 /// and tile grid; the point under the pointer goes to `ViewerModel.pointer`.
-/// A click selects (in Play, on the player, it is the game's button too), a
-/// drag takes hold of the player or an object in the running game
-/// (`ViewerModel.beginDrag`, `MouseHand`).
+/// A drag takes hold of the player or an object in the running game
+/// (`ViewerModel.beginDrag`, `MouseHand`); in Play a click on the player is
+/// the game's button.  With Option or Control a click selects instead (the
+/// highlight would be in the way of moving things) and a drag takes nothing.
 struct RoomCanvas: View {
     var model: ViewerModel
     let world: World
     /// The mouse went down and moved far enough to be a drag.
     @State private var dragged = false
+    /// Option or Control is held (`selects`), for the pointer.
+    @State private var selecting = false
 
     /// How far the pointer moves before a click is a drag, in points.
     private static let dragDistance: CGFloat = 3
+    /// The keys that make a click select.
+    private static let selectKeys: EventModifiers = [.option, .control]
+
+    /// Option or Control is held now: a click selects.
+    private static var selects: Bool {
+        #if os(macOS)
+        !NSEvent.modifierFlags.intersection([.option, .control]).isEmpty
+        #else
+        false
+        #endif
+    }
 
     var body: some View {
         let contents = model.contents(world)
@@ -99,6 +113,7 @@ struct RoomCanvas: View {
                         .stroke(.yellow, lineWidth: 2)
                         .frame(width: 28 * k + 4, height: 32 * k + 4)
                         .offset(x: CGFloat(s.x * 4) * k - 2, y: CGFloat((191 - s.y - 15) * 2) * k - 2)
+                        .allowsHitTesting(false)
                 }
                 if !model.inLoader, let w = model.selection.flatMap(contents.wire) {
                     // Through the middle of each unit: 4 x 2 image pixels.
@@ -122,21 +137,26 @@ struct RoomCanvas: View {
                         let t = value.translation
                         if !dragged, hypot(t.width, t.height) >= RoomCanvas.dragDistance {
                             dragged = true
-                            model.beginDrag(at: logical(value.startLocation, k: k))
+                            if !RoomCanvas.selects { model.beginDrag(at: logical(value.startLocation, k: k)) }
                         }
                         // Object units: 4 image pixels across, 2 up (y up).
                         if dragged { model.drag(by: t.width / k / 4, -t.height / k / 2) }
                     }
                     .onEnded { value in
+                        let point = logical(value.startLocation, k: k)
                         if dragged {
                             model.endDrag()
+                        } else if RoomCanvas.selects {
+                            model.select(at: point, in: world)
                         } else {
-                            model.click(at: logical(value.startLocation, k: k), in: world)
+                            model.click(at: point)
                         }
                         dragged = false
                     }
             )
-            .pointerStyle(model.dragging ? .grabActive : model.pointer.map(model.canHold) == true ? .grabIdle : nil)
+            .onModifierKeysChanged(mask: RoomCanvas.selectKeys) { _, keys in selecting = !keys.isEmpty }
+            .pointerStyle(selecting ? nil : model.dragging ? .grabActive
+                          : model.pointer.map(model.canHold) == true ? .grabIdle : nil)
         }
         .aspectRatio(560.0 / 384.0, contentMode: .fit)
         .frame(maxWidth: 1120)

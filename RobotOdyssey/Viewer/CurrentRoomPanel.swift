@@ -5,7 +5,7 @@ import SwiftUI
 /// routines), then the room's objects, what the player carries, the other
 /// sprites drawn, wires and texts (folded; select a sprite or wire to
 /// highlight it), as the loop last drew it (`ViewerModel.contents`).
-struct RoomInspector: View {
+struct CurrentRoomPanel: View {
     @Bindable var model: ViewerModel
     let world: World
     @AppStorage("showNatives") private var showNatives = false
@@ -25,13 +25,16 @@ struct RoomInspector: View {
                     row("Walls", String(format: "6502 code $%04X–$%04X", walls, walls + 29))
                     row("Routine", String(format: "$%04X, called from $%04X", code.entry, code.caller))
                 }
-                row("Floor colour", hex(room.floorColor))
-                row("Wall colour", hex(room.wallColor))
+                colourRow("Floor colour", room.floorColor)
+                colourRow("Wall colour", room.wallColor)
                 row("Exits ↑ ↓ ← →", [room.up, room.down, room.left, room.right]
                     .map { $0 == room.id ? "–" : hex($0) }.joined(separator: " "))
-                row("First object", room.firstObject == World.noObject ? "none" : hex(room.firstObject))
+                firstObjectRow(live, room.firstObject)
                 if let robot = live.robots.firstIndex(where: { $0.interior == room.id }) {
                     row("Inside robot", "\(robot + 1) (object \(hex(live.robots[robot].object)))")
+                }
+                if let sound = model.lastSound {
+                    lastSoundRow(sound, room: room.id)
                 }
             }
             Section("Game") {
@@ -66,6 +69,69 @@ struct RoomInspector: View {
 
     private func row(_ label: String, _ value: String) -> some View {
         LabeledContent(label) { Text(value).monospaced() }
+    }
+
+    /// A floor or wall colour with its tiles, as the world panel's wall types show them.
+    private func colourRow(_ label: String, _ colour: Int) -> some View {
+        let pattern = RoomRenderer(world: world).colour(colour)
+        return LabeledContent(label) {
+            HStack(spacing: 8) {
+                Text(hex(colour)).monospaced()
+                TileSwatch(pattern: pattern, mode: model.mode, tile: CGSize(width: 14, height: 16))
+            }
+        }
+        .help("Pattern " + pattern.map { String(format: "%02X", $0) }.joined(separator: " ")
+              + (TileSwatch.drawn(pattern) ? "" : " (not drawn: the tile is left as it is)"))
+    }
+
+    /// The last sound the game played: its number in the world's sound table
+    /// (none: a pitch the world's code computed), its name in the map (? a
+    /// guess), its parameters and the room it was heard in if not this one;
+    /// ▶ plays it again, so it can be told and named.
+    private func lastSoundRow(_ sound: (name: String?, parameters: Sound.Parameters?, room: Int), room: Int) -> some View {
+        let number = sound.parameters.flatMap { world.sounds?.firstIndex(of: $0) }
+        let guess = sound.name.map { n in GameSounds.named.first { $0.name == n }?.sound.guess == true } ?? false
+        let name = sound.name.map { $0 + (guess ? " ?" : "") } ?? "not in the map"
+        return LabeledContent("Last sound") {
+            HStack(spacing: 8) {
+                VStack(alignment: .trailing, spacing: 1) {
+                    Text((number.map { "\($0)  " } ?? "") + name).monospaced()
+                    if let p = sound.parameters {
+                        Text(String(format: "%@ $%02X $%02X $%02X", "\(p.kind)", p.length, p.sweep, p.pitch)
+                             + (sound.room == room ? "" : " · room \(hex(sound.room))"))
+                            .font(.caption2.monospaced())
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                if let p = sound.parameters {
+                    Button("Play", systemImage: "play.fill") { model.play(p, in: world) }
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("Play it again as the game does (also when muted)")
+                }
+            }
+        }
+        .help("The last sound the game played, heard in the player's room: its number in the world's sound table, "
+              + "its name in GameSounds (? a guess), kind, length, sweep and pitch")
+    }
+
+    /// The first object of the room's list, with its sprite in its colour.
+    private func firstObjectRow(_ live: World, _ first: Int) -> some View {
+        LabeledContent("First object") {
+            HStack(spacing: 8) {
+                Text(first == World.noObject ? "none" : hex(first)).monospaced()
+                if first != World.noObject {
+                    let o = live.object(first)
+                    if let image = SpriteImage.make(rows: Array(live.sprite(o.sprite)), colour: o.color) {
+                        Image(decorative: image, scale: 1)
+                            .interpolation(.none)
+                            .resizable()
+                            .frame(width: 21, height: 24)
+                            .background(Color(white: 0.15))
+                    }
+                }
+            }
+        }
     }
 
     /// The room's objects, what the player carries (with their room where

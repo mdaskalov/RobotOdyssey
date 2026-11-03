@@ -47,25 +47,25 @@ final class ViewerModel {
     var showEmptyRooms = false
     var showGrid = false
     /// The panels: the worlds on the left, the world's rooms, sprites, sounds…
-    /// below the canvas, the inspector on the right.
+    /// below the canvas, the current room on the right.
     var showLevels = UserDefaults.standard.object(forKey: "showLevels") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showLevels, forKey: "showLevels") }
     }
     var showWorld = UserDefaults.standard.object(forKey: "showWorld") as? Bool ?? true {
         didSet { UserDefaults.standard.set(showWorld, forKey: "showWorld") }
     }
-    var showInspector = UserDefaults.standard.object(forKey: "showInspector") as? Bool ?? true {
+    var showCurrentRoom = UserDefaults.standard.object(forKey: "showCurrentRoom") as? Bool ?? true {
         didSet {
-            UserDefaults.standard.set(showInspector, forKey: "showInspector")
+            UserDefaults.standard.set(showCurrentRoom, forKey: "showCurrentRoom")
             showLive()
         }
     }
     /// Object coordinates under the pointer on the canvas (x 0-139, y 0-191
-    /// from the bottom), for the inspector's read-out.
+    /// from the bottom), for the current room's read-out.
     var pointer: RoomPoint?
     /// A drag on the canvas holds the player or an object (`beginDrag`).
     private(set) var dragging = false
-    /// The inspector's other sprites drawn are open: while the inspector is
+    /// The current room's other sprites drawn are open: while the panel is
     /// shown, the selected room's sprites are recorded (`updateContents`).
     var showSprites = UserDefaults.standard.bool(forKey: "showSprites") {
         didSet {
@@ -156,8 +156,10 @@ final class ViewerModel {
     @ObservationIgnored private let soundPlayer = SoundPlayer()
     /// Plays the sounds of the world panel's sound table (`play`).
     @ObservationIgnored private let soundPreview = SoundPlayer()
-    /// The last sound the game played (GameSounds' name), for the status.
-    @ObservationIgnored private var lastSound: String?
+    /// The last sound the game played: its name in GameSounds (nil: not in
+    /// the map), its parameters, to play it again (`play`), and the room it
+    /// was heard in: the player's, where PLAY_SOUNDS plays.
+    private(set) var lastSound: (name: String?, parameters: Sound.Parameters?, room: Int)?
     /// The worlds the loader started in this game so far (`followLoader`).
     @ObservationIgnored private var worldsLoaded = 0
     /// Storage disks loaded from the app's own copies (`StorageDisks`).
@@ -616,7 +618,9 @@ final class ViewerModel {
     private func playSounds(_ loop: GameLoop) {
         let (sounds, clicks) = loop.takeSpeaker()
         soundPlayer.play(clicks, upTo: loop.cycles, quiet: loop.speakerQuiet, muted: !sound)
-        if let latest = sounds.last { lastSound = latest.name ?? latest.parameters?.description }
+        if let latest = sounds.last, latest.name != nil || latest.parameters != nil {
+            lastSound = (latest.name, latest.parameters, Int(loop.memory[\.objRoom, 0]))
+        }
     }
 
     /// Plays a sound of `world`'s table, alone, as the game would
@@ -726,12 +730,17 @@ final class ViewerModel {
         loop?.loop.hand?.released = true
     }
 
-    /// A click on the canvas at `point` selects what is there.  In Play, on
-    /// the player (or what it carries), it is also the game's button: grab
-    /// or drop, the soldering pen, the remote control – pressed for a tick
-    /// (button 1), once the player has walked to where a drag left it.
-    func click(at point: RoomPoint, in world: World) {
+    /// An Option- or Control-click on the canvas at `point`: selects what is
+    /// there (a sprite, else a wire; nothing there, no selection).
+    func select(at point: RoomPoint, in world: World) {
         selection = contents(world).item(atX: point.x, y: point.y)
+    }
+
+    /// A click on the canvas at `point`: in Play, on the player (or what it
+    /// carries), the game's button – grab or drop, the soldering pen, the
+    /// remote control – pressed for a tick (button 1), once the player has
+    /// walked to where a drag left it.
+    func click(at point: RoomPoint) {
         guard playing, let running = loop, hold(at: point)?.holding == .player else { return }
         if running.loop.hand?.holding == .player {
             running.loop.hand?.press = true
@@ -775,7 +784,6 @@ final class ViewerModel {
         loop.room = viewedRoom(world)
         let speed = loop.tickCycles == 0 ? "" : String(format: " · %.1f ticks/s", GameLoop.clock / Double(loop.tickCycles))
         var status = paused ? "Paused at tick \(loop.ticks)" : "Tick \(loop.ticks)" + speed
-        if let lastSound { status += " · last sound \(lastSound)" }
         if loop.halted, let exit = loop.exit {
             status = "Tick \(loop.ticks): the world hands back to the loader, \(exit) – no program disk to boot, Restart to play again"
         } else if loop.inLoader {
@@ -831,11 +839,11 @@ final class ViewerModel {
 
     /// Makes `liveContents` what `liveFrame` shows: the draw of the page on
     /// screen once the loop has drawn `room` (again with every new page),
-    /// until then the preview.  Records the sprites only while the inspector
+    /// until then the preview.  Records the sprites only while the current room
     /// shows them (`showSprites`): that draws the room once more as 6502 code
     /// (about 1 ms per tick in a Release build, 10 in a Debug one).
     private func updateContents(_ world: World, _ loop: GameLoop, room: Int, shown: Bool) {
-        let record = showInspector && showSprites
+        let record = showCurrentRoom && showSprites
         let source = (shown ? "\(room)#\(loop.flips)" : "\(room)#preview") + (record ? "#sprites" : "")
         guard source != contentsSource else { return }
         contentsSource = source

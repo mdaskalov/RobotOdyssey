@@ -21,7 +21,7 @@ faithful Swift version.
 
 * **Viewer app** (macOS, SwiftUI): opens the v1.0/v1.1 disk images and storage
   disks, shows all nine worlds and the saved games room by room, with
-  inspector, hover read‑out and exits; the rooms in an 8×8 grid or on a map
+  the *Current Room* panel, hover read‑out and exits; the rooms in an 8×8 grid or on a map
   of how they connect.
 * **The game runs and can be played.** Each world's main loop
   runs on the 6502 emulator as in the game, tick after tick at the original
@@ -61,7 +61,7 @@ faithful Swift version.
   ported to Swift so far: the robot drawing, the input (READ_INPUT,
   DETECT_JOYSTICK and the levels' player routines), the object motion (moving objects across
   rooms, walls, screen edges, Engine.md "Input") and the sound player.
-  Each native has a switch in the inspector's *Native routines* (and
+  Each native has a switch in the *Current Room* panel's *Native routines* (and
   *All*), kept between launches; off, the original code runs there from the
   next instruction on (Frontends.md). The loader's intro skip (PLAY_INTRO)
   has one too: off, Robotropolis' intro plays as on the Apple. The menu's
@@ -241,7 +241,7 @@ sides of the same version are ignored (listed under *Notes*). Without disks
 the window shows the game's title screen (`Data/ro_title.py`); the app icon is
 robot 2, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world in the sidebar and a room
 in the *World* panel below the canvas (`WorldPanel`, shown or hidden from the
-toolbar). Its sections fold like the inspector's, their headers stay on top
+toolbar). Its sections fold like the *Current Room* panel's, their headers stay on top
 as the panel scrolls: *Rooms* – *Grid* shows all 64 rooms (room *n* at column
 *n*%8, row *n*/8), *Map* shows the rooms as they connect (`WorldMap`),
 zoomable, with each room's number on it; *Wall types* – the tile patterns of
@@ -278,8 +278,11 @@ the selected room in view while it is what the panel shows (its middle), so
 when playing it follows the player; scrolled to the other sections, the panel
 stays there. Arrow keys
 follow exits. Hover shows object coordinates and the sprite or wire under
-the pointer. Click a sprite or a wire to select it in the inspector (the
-canvas outlines it in yellow). The inspector shows the room's properties,
+the pointer. Option‑ or Control‑click a sprite or a wire to select it in the
+*Current Room* panel on the right (the canvas outlines it in yellow; a
+plain click or drag is the mouse in the game, Frontends.md "Input"). The
+panel shows the room's properties (the floor and wall colours with their
+tiles, the first object with its sprite, the last sound the game played),
 the game, then the room's contents as the loop last drew the room: the
 world's state where the draw phase of the page on screen started
 (`GameLoop.memory`), so objects the code moves or turns into other sprites
@@ -288,7 +291,7 @@ tick) show as they are drawn, and wires as hot (orange, colour 5: the only
 colour the gates and thrusters take for on) or off. *Objects*, *Other
 sprites drawn*, *Wires* and *Texts* are folded like the native routines.
 While *Other sprites drawn* is open (and
-the inspector shown) the draw phase runs once more each tick, as 6502 code
+the *Current Room* panel shown) the draw phase runs once more each tick, as 6502 code
 only, and every DRAW_SPRITE is recorded with the routine of the main loop
 that drew it (`GameLoop.sprites`): objects (DRAW_ROOM_OBJECTS), robots
 (DRAW_ROBOTS, DRAW_ROBOT_INTERIOR) and the world's own code (by address);
@@ -312,7 +315,7 @@ moved (the objects in the room, wire ends; a step's worth, as the player
 walks) is put back part of the way and the draw phase draws the room from
 where it drew the page (`GameLoop.inBetween`), so the page before turns into
 the new one over the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
-(one tick, when paused) and *Restart*; the inspector's *Game* section shows
+(one tick, when paused) and *Restart*; the *Current Room* panel's *Game* section shows
 the tick and ticks/s, how the room is drawn and, folded, the native routines
 in use with their entry points (and any routine the loader found modified,
 which runs as 6502 code). The room thumbnails show the rooms after the world's
@@ -343,13 +346,13 @@ a tick as with Ctrl; further, 2 then 4 across; all the way (and the d‑pad),
 7 across and 15 up or down. A corner moves fully both ways, as the Apple
 joystick's square gate does. The keyboard keeps working: a key switches the
 game to the keyboard, moving the stick back to the joystick. The
-inspector's *Game* section names the controller. When a world hands
+*Current Room* panel's *Game* section names the controller. When a world hands
 back to the loader (the menu, the next level, saving) the loader runs
 (Loader.md): the canvas shows its screens, the keys go to it (the menu:
 space or the arrow keys to choose, Return to load; the saving prompts; the
 arrow keys are the Apple's there), and when it starts a
 world the sidebar selects that world and the game goes on there; the
-inspector's *Drive* shows the disk in the drive and can insert another.
+*Current Room* panel's *Drive* shows the disk in the drive and can insert another.
 *Restart* starts the selected world again from its start‑up state. *Step*
 stops inside a tick that waits for a key. *Sound* plays the game's sounds
 (the game stops while one plays, as on the Apple; Ctrl‑S is the game's own

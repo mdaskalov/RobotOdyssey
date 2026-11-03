@@ -10,7 +10,7 @@ enum RoomsLayout: String, CaseIterable, Identifiable {
 }
 
 /// The selected world below the canvas, each part a section that folds as
-/// the inspector's do: its rooms (in an 8x8 grid or on the map of how they
+/// the current room's do: its rooms (in an 8x8 grid or on the map of how they
 /// connect), wall types, sprites, sounds (to play), texts, objects, robots
 /// and wires, as the running loop last drew the selected room
 /// (`ViewerModel.contents`).  Click one to go to its room.
@@ -75,7 +75,7 @@ private final class Scrolled {
     var geometry: ScrollGeometry?
 }
 
-/// A part of the world panel: a header that folds it, as the inspector's
+/// A part of the world panel: a header that folds it, as the current room's
 /// disclosure groups do, with a summary and, while open, controls of its
 /// own; it stays at the top while its contents scroll by.
 private struct WorldSection<Content: View, Controls: View>: View {
@@ -262,8 +262,7 @@ private struct WallType: Identifiable {
         return types.values.sorted { $0.id < $1.id }
     }
 
-    /// Colour $14 ($F0): the tile is left as it is.
-    var drawn: Bool { pattern[0] != 0xF0 }
+    var drawn: Bool { TileSwatch.drawn(pattern) }
 
     var rooms: [Int] { Array(Set(walls + floors)).sorted() }
 }
@@ -282,7 +281,7 @@ private struct WallTypesSection: View {
                 ForEach(types) { type in
                     let rooms = type.rooms
                     VStack(alignment: .leading, spacing: 3) {
-                        TileSwatch(type: type, mode: model.mode)
+                        TileSwatch(pattern: type.pattern, mode: model.mode)
                         Text(hex(type.id)).font(.caption.monospaced())
                         Text(usage(type)).font(.caption2).foregroundStyle(.secondary)
                     }
@@ -311,26 +310,39 @@ private struct WallTypesSection: View {
     }
 }
 
-/// Two by two tiles in a wall type's pattern, as the engine draws them
-/// (DRAW_ROOM_TILES: pattern[b % 4] on even lines, [(b + 2) % 4] on odd).
-private struct TileSwatch: View {
-    let type: WallType
+/// Two by two tiles in a wall type's pattern (a colour's 4 bytes), as the
+/// engine draws them (DRAW_ROOM_TILES: pattern[b % 4] on even lines,
+/// [(b + 2) % 4] on odd); in the world panel and the current room's colours.
+struct TileSwatch: View {
+    let pattern: [UInt8]
     let mode: HiresImage.Mode
+    /// A tile's size on screen: 28 x 32, the canvas's at 560 wide; half that
+    /// is the Apple's pixels at 2x.
+    var tile = CGSize(width: 28, height: 32)
 
-    /// The swatches made so far, by pattern and mode: the panel asks every tick.
+    /// The swatches made so far, by pattern and mode: the panels ask every tick.
     private static var made: [String: CGImage] = [:]
 
+    /// Colour $14 ($F0): the tile is left as it is.
+    static func drawn(_ pattern: [UInt8]) -> Bool { pattern.first != 0xF0 }
+
     var body: some View {
-        if type.drawn, let image = Self.image(type.pattern, mode: mode) {
+        if Self.drawn(pattern), let image = Self.image(pattern, mode: mode) {
             Image(decorative: image, scale: 1)
                 .interpolation(.none)
                 .resizable()
-                .frame(width: 56, height: 64)
+                .frame(width: tile.width * 2, height: tile.height * 2)
         } else {
             Rectangle()
                 .fill(.quaternary)
-                .frame(width: 56, height: 64)
-                .overlay { Text("not drawn").font(.caption2).foregroundStyle(.secondary) }
+                .frame(width: tile.width * 2, height: tile.height * 2)
+                .overlay {
+                    if tile.width >= 28 {
+                        Text("not drawn").font(.caption2).foregroundStyle(.secondary)
+                    } else {
+                        Image(systemName: "nosign").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
         }
     }
 

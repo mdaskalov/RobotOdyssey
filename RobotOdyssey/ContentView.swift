@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// The window: the worlds on the left, the selected world's room with the
-/// world below it (`WorldView`), the inspector on the right; each panel
+/// world below it (`WorldView`), the current room on the right; each panel
 /// shown or hidden from the toolbar.
 struct ContentView: View {
     @State private var model = ViewerModel()
@@ -29,17 +29,28 @@ struct ContentView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .animation(.default, value: model.showLevels)  // as the inspector slides
-        .inspector(isPresented: $model.showInspector) {
-            Group {
-                if let world = model.selectedWorld {
-                    RoomInspector(model: model, world: world)
-                } else {
-                    ContentUnavailableView("No World", systemImage: "sidebar.trailing")
+        .animation(.default, value: model.showLevels)  // as the current room slides
+        .inspector(isPresented: $model.showCurrentRoom) {
+            // The label stays put below the toolbar; the list scrolls under it, not under the bar.
+            VStack(spacing: 0) {
+                Text("Current Room")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 6)
+                Group {
+                    if let world = model.selectedWorld {
+                        CurrentRoomPanel(model: model, world: world)
+                    } else {
+                        ContentUnavailableView("No World", systemImage: "sidebar.trailing")
+                    }
                 }
+                .frame(maxHeight: .infinity)
+                .clipped()
             }
             .overlay(alignment: .leading) {
-                HStack { Divider() }                // the inspector has none of its own
+                HStack { Divider() }                // SwiftUI's inspector column has none of its own
             }
             .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
         }
@@ -109,8 +120,8 @@ struct ContentView: View {
                 .help("Show or hide the levels")
             Toggle("World", systemImage: "rectangle.bottomthird.inset.filled", isOn: $model.showWorld)
                 .help("Show or hide the world: its rooms, wall types, sprites, sounds, texts, objects, robots and wires")
-            Toggle("Inspector", systemImage: "sidebar.trailing", isOn: $model.showInspector)
-                .help("Show or hide the inspector")
+            Toggle("Current Room", systemImage: "sidebar.trailing", isOn: $model.showCurrentRoom)
+                .help("Show or hide the current room: its properties, the running game, its contents")
         }
     }
 

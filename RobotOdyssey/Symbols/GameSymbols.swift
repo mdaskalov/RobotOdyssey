@@ -609,7 +609,7 @@ nonisolated final class GameSymbols: Sendable {
     /// The soldering pen, called each tick while the player holds it and the
     /// copy protection passed (Docs/CopyProtection.md).  SOLDER_TOUCH acts on
     /// what the pen touches while no wire is started; SOLDER_WIRE starts a
-    /// wire at the first touch (with the unsolder sound) and makes it at the
+    /// wire at the first touch (with the solder sound) and makes it at the
     /// second.
     let solderTouch = Routine(levels: 0xF5C2, guess: true)
     let solderWire = Routine(levels: 0xF7BE, guess: true)

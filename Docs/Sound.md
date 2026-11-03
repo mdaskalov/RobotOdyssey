@@ -75,9 +75,9 @@ is a guess there (`guess: true`). The engine's addresses are the levels'.
 | 1 | drop | tone $06 $C5 $22 | every world's code | … to none |
 | 2 | bumper | tone $06 $46 $8A | $D25C | a robot's bumper touches something |
 | 3 | robotGrab | tone $04 $80 $04 | $DC7F | a robot's grabber (its hand) links an object to the robot |
-| 4 | robotRelease ? | noise $00 $31 $09 | $DB22 | … lets go |
+| 4 | robotRelease | noise $00 $31 $09 | $DB22 | … lets go (confirmed by ear, 2026‑11‑03) |
 | 5 | antenna | tone $00 $80 $09 | $DD56 | a robot's antenna object turns colour 5 |
-| 6 | unsolder | noise $02 $0B $1B | $F000 (4×) | the wiring: a wire's end unsoldered |
+| 6 | solder | noise $02 $0B $1B | $F000 (4×) | the soldering pen: a wire's end soldered to a pin or unsoldered (confirmed by ear, 2026‑11‑03) |
 | 7 | crystalDischarge | tone $6E $80 $55 | $DF76 (CRYSTALS) | a crystal discharges into a robot's battery: ROBOT_BATTERY = $0F, the crystal used (colour 7) |
 | 8 | crystalCharge | tone $49 $69 $CA | $DF0F (CRYSTALS) | a used crystal (colour 7) at its place charges again: colour 5 |
 | 9 | levelExit | noise $71 $41 $92 | levels 1‑4 | leaving the level, after the exit tones |

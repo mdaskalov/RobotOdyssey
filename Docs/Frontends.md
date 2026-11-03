@@ -1,7 +1,7 @@
 # Switches: original against native, Apple against modern – plan
 
 Thoughts (2026‑11‑03); step 1, the switches, is built (below). The idea: switches in
-the inspector that turn each native routine on or off, and a modern front
+the *Current Room* panel that turn each native routine on or off, and a modern front
 end (SpriteKit drawing, modern sound) beside the Apple's, so every
 improvement can be seen next to the original and compared with it.
 
@@ -37,7 +37,7 @@ between two kinds of change:
 ## Switches for the natives
 
 Built (2026‑11‑03): each native the world's code check allows has a
-switch in the inspector's *Native routines* list (its entry point beside
+switch in the *Current Room* panel's *Native routines* list (its entry point beside
 it, what it reproduces in its help), and *All* over them (mixed while some
 are off); the names switched off are kept in the user defaults
 (`ViewerModel.nativesOff`, `nativesOff`) and hold for every world.
@@ -192,8 +192,11 @@ starts): a drag on the canvas takes hold of what is under the pointer
   routines write (the move, CUR_OBJECT, the wall tests' temporaries) and
   the registers are put back, so the tick runs as it would have but for
   where objects are. This part is an enhancement: no Apple input does it.
-* **A click** selects as before; in *Play*, on the player or what it
-  carries, it is also the game's button (button 1 for a tick, as the game's
+* **Selecting** takes Option or Control: an Option‑ or Control‑click
+  selects what is there (the highlight would be in the way of moving
+  things), and with either key held a drag takes hold of nothing.
+* **A click** in *Play*, on the player or what it carries, is the game's
+  button (button 1 for a tick, as the game's
   mouse mode takes the mouse button for BUTTON_A): take or drop, the remote
   control, and the soldering pen – drag the pen to a pin, click it. A click
   while the player still walks to a drag's target waits until it is there.

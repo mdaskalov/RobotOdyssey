@@ -34,7 +34,7 @@ ROM, the disk drive and its nibbles.
    that world in the sidebar and goes on with the game (`followLoader`).
 
 While the loader runs (and while a world it started runs its start‑up code)
-the canvas shows the page on screen, the inspector's status the request
+the canvas shows the page on screen, the *Current Room* panel's status the request
 (“The loader: on to the next level…”), and the arrow keys are the Apple's
 (← $88, → $95, ↑ $8B, ↓ $8A: the menu's cursor) instead of I J K M. The
 speaker's clicks of the loader's own code (CHAR_OUT's bell, the menu's and
@@ -55,7 +55,7 @@ down.
 | $5D58 BOOT_COPY_CHECK | the nibble check at boot | goes on at BOOT_COPY_DONE ($5DD3) with the carry set: the check passed |
 | $6255 MENU_COPY_CHECK | the menu's check | returns with the carry set |
 | $4B85 AWAIT_SIDE | swapping disks | puts the disk WANTED_SIDE ($0E) asks for in the drive, then the original code runs: it reads the side and finds it |
-| $4550 PLAY_INTRO | – | steps over START_CHOSEN_WORLD's `JSR $6000`: Robotropolis' intro (pictures, wipes and tunes in the menu's bytecode, 26 s) doesn't play; a key press ends it on the Apple too. The one with original code to fall back to: switched off in the inspector (`Machine.switchedOff`, `Loader.skipIntro`), the intro plays – 7 tunes, 25,966 clicks in v1.1 |
+| $4550 PLAY_INTRO | – | steps over START_CHOSEN_WORLD's `JSR $6000`: Robotropolis' intro (pictures, wipes and tunes in the menu's bytecode, 26 s) doesn't play; a key press ends it on the Apple too. The one with original code to fall back to: switched off in the *Current Room* panel (`Machine.switchedOff`, `Loader.skipIntro`), the intro plays – 7 tunes, 25,966 clicks in v1.1 |
 | $0A71 DRAW_PICTURE | the menu interpreter's op 00 | the picture in Swift, at once (`Loader.menuNatives`, Engine/MenuDrawing.swift): the menu's frame, the title's five pictures (into the wipe's buffer), the intro's eight. On the Apple 0.07‑0.34 s each, while the intro's tunes wait |
 | $0D21 XOR_BLOCK | op 06 | the block XORed onto page 1 at once: the menu's highlight, the intro's flashing between its short tunes (22 ms each on the Apple, two in a row) |
 
@@ -80,7 +80,7 @@ Where the loader asks for a disk and waits for Return (“Insert Robot
 Odyssey STORAGE disk and press RETURN”), Return finds the disk asked for in
 the drive. Where it needs the disk it has (the next level), it doesn't ask.
 The one prompt that takes any disk – loading a chip from side 2's library or
-a storage disk – reads the disk in the drive: the inspector's *Drive* puts
+a storage disk – reads the disk in the drive: the *Current Room* panel's *Drive* puts
 another in.
 
 ## The storage disk

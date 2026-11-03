@@ -1,6 +1,6 @@
 import Foundation
 
-/// What the canvas and the inspector show of the selected room: the world as
+/// What the canvas and the current room show of the selected room: the world as
 /// the running loop's draw phase finds it (`GameLoop.memory`), with the
 /// room's objects, and if recorded the sprites it drew (`GameLoop.sprites`):
 /// the objects as drawn and the others (robots, the world's own code).
@@ -108,7 +108,7 @@ struct RoomPoint: Equatable {
     let y: Int
 }
 
-/// What the inspector and the canvas select in the room.
+/// What the current room and the canvas select in the room.
 enum RoomItem: Hashable {
     case object(Int)
     /// The nth of the other sprites drawn (`RoomContents.others`).
@@ -141,7 +141,7 @@ struct RoomWire: Identifiable {
 }
 
 /// An object of the room or another sprite drawn there: a row of the
-/// inspector, and what a click on the canvas selects.
+/// current room, and what a click on the canvas selects.
 struct RoomSprite: Identifiable {
     let id: RoomItem
     let object: GameObject?
