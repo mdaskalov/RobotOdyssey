@@ -63,8 +63,6 @@ final class ViewerModel {
     /// Object coordinates under the pointer on the canvas (x 0-139, y 0-191
     /// from the bottom), for the current room's read-out.
     var pointer: RoomPoint?
-    /// A drag on the canvas holds the player or an object (`beginDrag`).
-    private(set) var dragging = false
     /// The current room's other sprites drawn are open: while the panel is
     /// shown, the selected room's sprites are recorded (`updateContents`).
     var showSprites = UserDefaults.standard.bool(forKey: "showSprites") {
@@ -81,7 +79,10 @@ final class ViewerModel {
     /// Play: the keyboard goes to the game and the view follows the player.
     var playing = false {
         didSet {
-            if playing { paused = false } else { releaseKeys() }
+            if playing { paused = false } else {
+                releaseKeys()
+                releaseMouse()
+            }
             showLive()
         }
     }
@@ -499,7 +500,7 @@ final class ViewerModel {
         loop = nil
         clockCycle = nil
         heldKeys = []
-        dragging = false
+        releaseMouse()
         liveFrame = nil
         loaderImage = nil
         worldsLoaded = 0
@@ -547,6 +548,7 @@ final class ViewerModel {
     }
 
     private func afterRun(_ loop: GameLoop) {
+        if loop.inLoader { releaseMouse() }        // the loader's prompts may want the pointer
         playSounds(loop)
         followLoader(loop)
         keepStorage(loop.drive)
@@ -658,7 +660,6 @@ final class ViewerModel {
         guard let running = loop, running.world == selectedWorldID else { return }
         if running.loop.walks(code) {
             guard !repeated else { return }
-            if running.loop.hand?.holding == .player { running.loop.letGo() }
             heldKeys.removeAll { $0.key == key }
             heldKeys.append((key, code))
             running.loop.devices.held = code
@@ -680,73 +681,104 @@ final class ViewerModel {
 
     // MARK: the mouse
 
-    /// What a drag from `point` on the canvas takes hold of in the running
-    /// game (`MouseHand`), and where that is: in Play the player, on it or on
-    /// what it carries; else the object there, by the root of its link chain
-    /// (not the player's, outside Play).  Nil: nothing there, or the canvas
-    /// doesn't show the running game's room.
-    private func hold(at point: RoomPoint) -> MouseHand? {
+    /// The selected room as the running game draws it, when the canvas shows
+    /// that (in Play, or the room the loop runs in).
+    private var runningRoom: RoomContents? {
         guard let running = loop, running.world == selectedWorldID, !running.loop.inLoader,
               playing || running.loop.room == selectedRoom,
               let live = liveContents, live.world.id == selectedWorldID, live.room == selectedRoom
         else { return nil }
-        let world = live.world
-        let player = world.object(0)
-        let onPlayer = player.room == selectedRoom && (player.x ..< player.x + 7).contains(point.x)
-            && (player.y ..< player.y + 16).contains(point.y)
-        let object = onPlayer ? 0 : live.object(atX: point.x, y: point.y)
-        guard let object else { return nil }
-        if world.carried.contains(object) {
-            return playing ? MouseHand(holding: .player, room: player.room, x: player.x, y: player.y) : nil
+        return live
+    }
+
+    /// The Mac's mouse is the game's (`takeMouse`): the pointer hidden, the
+    /// mouse moves the player as the Apple's mouse card would.
+    private(set) var mouseTaken = false
+    /// The canvas has the keyboard: a press of ⌘ alone takes the mouse.
+    @ObservationIgnored var canvasFocused = false
+    /// The canvas's frame in the window (SwiftUI's global space), for the
+    /// scale of the mouse's motion and where the pointer comes back.
+    @ObservationIgnored var canvasFrame: CGRect?
+    @ObservationIgnored private let mouseCapture = MouseCapture()
+    /// The motion of less than a unit not yet passed on (`moveMouse`).
+    @ObservationIgnored private var mouseRest = (x: 0.0, y: 0.0)
+
+    /// The canvas is shown: ⌘ is watched, the mouse can be taken.
+    func canvasAppeared() {
+        mouseCapture.onMove = { [weak self] in self?.moveMouse(by: $0, $1) }
+        mouseCapture.onButton = { [weak self] in self?.loop?.loop.mouseButton(down: $0) }
+        mouseCapture.onCommand = { [weak self] in self?.commandPressed() }
+        mouseCapture.start()
+    }
+
+    func canvasDisappeared() {
+        releaseMouse()
+        mouseCapture.stop()
+    }
+
+    /// The mouse becomes the game's (Play, a world running): a mouse card in
+    /// the Apple (`GameLoop.mouse`, `AppleMouse`), the Mac's pointer hidden
+    /// and held (`MouseCapture`).  Its motion moves the player – as the
+    /// game's own mouse mode does, at most 7 across and 15 up or down a tick,
+    /// stopped at walls –, its button is the game's: take, drop, solder, the
+    /// remote control.  A press of ⌘ alone takes it and gives it back.
+    func takeMouse() {
+        guard playing, !mouseTaken, let running = loop, running.world == selectedWorldID, !running.loop.inLoader
+        else { return }
+        running.loop.mouse = true
+        mouseRest = (0, 0)
+        mouseTaken = true
+        mouseCapture.take()
+    }
+
+    /// The mouse is the Mac's again: the card out where the next tick starts,
+    /// the pointer back on the player if the canvas shows it.
+    func releaseMouse() {
+        guard mouseTaken else { return }
+        loop?.loop.mouseButton(down: false)
+        loop?.loop.mouse = false
+        mouseTaken = false
+        mouseCapture.give(at: playerOnCanvas())
+    }
+
+    /// ⌘ pressed alone: takes the mouse (Play, the canvas has the keyboard) or gives it back.
+    private func commandPressed() {
+        if mouseTaken {
+            releaseMouse()
+        } else if canvasFocused {
+            takeMouse()
         }
-        let root = world.object(world.root(of: object))
-        return MouseHand(holding: .object(root.id), room: root.room, x: root.x, y: root.y)
     }
 
-    /// The mouse can take hold of something at `point` (`beginDrag`).
-    func canHold(at point: RoomPoint) -> Bool {
-        hold(at: point) != nil
+    /// The mouse moved by (dx, dy) points (y down) while the game has it:
+    /// on the card at the canvas's scale – a unit of the player's move is 4
+    /// image pixels across, 2 up or down –, in whole units (the game halves
+    /// the card's counts, `AppleMouse.countsPerUnit`), the rest kept for later.
+    private func moveMouse(by dx: CGFloat, _ dy: CGFloat) {
+        guard mouseTaken, let running = loop, let frame = canvasFrame, frame.width > 0 else { return }
+        let k = frame.width / 560                   // view points per image pixel
+        mouseRest.x += dx / k / 4
+        mouseRest.y += dy / k / 2
+        let units = (x: mouseRest.x.rounded(.towardZero), y: mouseRest.y.rounded(.towardZero))
+        mouseRest.x -= units.x
+        mouseRest.y -= units.y
+        running.loop.moveMouse(dx: Int(units.x) * AppleMouse.countsPerUnit, dy: Int(units.y) * AppleMouse.countsPerUnit)
     }
 
-    /// A drag on the canvas starts at `point`: the mouse takes hold of what
-    /// is there, which follows the drag from the next tick on (`MouseHand`).
-    func beginDrag(at point: RoomPoint) {
-        guard let running = loop, let hand = hold(at: point) else { return }
-        running.loop.letGo()
-        running.loop.hand = hand
-        dragging = true
-    }
-
-    /// The pointer moved by (x, y) object units (y up) since the drag started.
-    func drag(by x: Double, _ y: Double) {
-        guard dragging else { return }
-        loop?.loop.hand?.moved = (x, y)
-    }
-
-    /// The drag ends: the player walks on to where the pointer was, an object is put there.
-    func endDrag() {
-        guard dragging else { return }
-        dragging = false
-        loop?.loop.hand?.released = true
+    /// The middle of the player on the canvas, in the window (as `canvasFrame`), if the canvas shows it.
+    private func playerOnCanvas() -> CGPoint? {
+        guard let frame = canvasFrame, let live = runningRoom else { return nil }
+        let player = live.world.object(0)
+        guard player.room == selectedRoom else { return nil }
+        let k = frame.width / 560
+        return CGPoint(x: frame.minX + (CGFloat(player.x * 4) + 14) * k,
+                       y: frame.minY + (CGFloat(191 - player.y) - 7.5) * 2 * k)
     }
 
     /// An Option- or Control-click on the canvas at `point`: selects what is
     /// there (a sprite, else a wire; nothing there, no selection).
     func select(at point: RoomPoint, in world: World) {
         selection = contents(world).item(atX: point.x, y: point.y)
-    }
-
-    /// A click on the canvas at `point`: in Play, on the player (or what it
-    /// carries), the game's button – grab or drop, the soldering pen, the
-    /// remote control – pressed for a tick (button 1), once the player has
-    /// walked to where a drag left it.
-    func click(at point: RoomPoint) {
-        guard playing, let running = loop, hold(at: point)?.holding == .player else { return }
-        if running.loop.hand?.holding == .player {
-            running.loop.hand?.press = true
-        } else {
-            running.loop.devices.click()
-        }
     }
 
     /// The game controller as the Apple's joystick (`GameControllers`), every
@@ -764,6 +796,7 @@ final class ViewerModel {
 
     /// The room drawings stay (GameScreen); only the loop stops.
     private func stopGame(_ error: Error) {
+        releaseMouse()
         loop = nil
         liveFrame = nil
         loopStatus = "Main loop stopped: \(error)"

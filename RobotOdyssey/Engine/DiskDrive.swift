@@ -122,8 +122,7 @@ nonisolated final class DiskDrive {
     /// A storage disk as the loader makes one (NEW_STORAGE_DISK): formatted,
     /// all zero, with its boot sector, STORAGE_BOOT (the program disk's track
     /// 0 sector 6, with side number 2), and empty game and chip directories
-    /// (pages 32 and 33 of spaces).  The same as the blank storage disk
-    /// DATAV11.DSK.
+    /// (pages 32 and 33 of spaces).
     static func blankStorage(from program: DiskImage) -> [UInt8] {
         var bytes = [UInt8](repeating: 0, count: DiskImage.size)
         bytes.replaceSubrange(0 ..< 256, with: program.data[6 * 256 ..< 7 * 256])

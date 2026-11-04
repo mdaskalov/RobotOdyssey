@@ -166,46 +166,76 @@ Modern input is mapping onto those devices (held keys, the controller –
 done). Anything that goes around READ_INPUT (pointing where to walk, say)
 changes the game and would be an enhanced native.
 
-**The mouse** (built 2026‑11‑03, `MouseHand`, applied where each tick
-starts): a drag on the canvas takes hold of what is under the pointer
-(a pixel of its sprite) in the running game.
+**The mouse** is the game's own: an Apple mouse card (`AppleMouse`, slot 4)
+for the mouse mode Robot Odyssey has (INPUT_DEVICE 2, Engine.md "Input"),
+so everything but taking the Mac's mouse is the game's code (the user,
+2026‑11‑04, after trying drags: moving objects was cheating everywhere,
+the drag kept the button from being the game's, an open toolbox's labels
+and tools stayed behind).
 
-* **The player** (*Play* only), or anything it carries: the mouse steers
-  the joystick. Each tick the paddles go to the position whose move in the
-  game's joystick table comes nearest the target without passing it, so
-  READ_INPUT walks the player there as a joystick would: 7 across and 15 up
-  or down a tick, stopped by walls (sliding along them), with the walking
-  sprite, what it holds and the robots' parts following as ever. This part
-  is device input only, nothing a real joystick couldn't do. Through an
-  exit the target goes along into the next room (its coordinates wrapped as
-  MOVE_OBJECT_XY wraps the player's), so dragging on past the canvas's edge
-  walks on into the next room; let go, the player walks on to the target
-  and stops there (or where it can't go on). A movement key takes over.
-* **An object** (by the root of its OBJ_LINK chain, as GRAB_AND_CARRY takes
-  it: a robot's body, a gate's base) goes to the target at once each tick,
-  in the steps the game's own mouse mode moves the player by (READ_DEVICE
-  at $A9FB: LIMIT_MOVE to 7 and 15, STOP_AT_WALLS, KEEP_ON_SCREEN,
-  MOVE_OBJECT, the native ports), so it stays an object of its room that
-  the player can take with the button. A wall in the way drops it there, an
-  exit drops it on the other side, the player taking it ends the drag. One
-  lying on a wall moves freely until it is off it. Everything else those
-  routines write (the move, CUR_OBJECT, the wall tests' temporaries) and
-  the registers are put back, so the tick runs as it would have but for
-  where objects are. This part is an enhancement: no Apple input does it.
+* **Taking it:** in *Play*, a press of ⌘ alone (down and up, nothing in
+  between) while the canvas has the keyboard – the only way in and out
+  (the user, 2026‑11‑04: no click on the player, no hand pointer). The
+  pointer hides and is held where it is (`MouseCapture`:
+  `NSCursor.hide`, `CGAssociateMouseAndMouseCursorPosition`); the mouse's
+  motion and its left button go to the card, no view sees them. ⌘ alone
+  again gives it back, and so do leaving *Play*, another window or app
+  coming up, the loader taking over (its prompts may want the pointer), a
+  restart; the pointer comes back on the player
+  (`CGWarpMouseCursorPosition`).
+* **The card** goes in where the next tick starts (`GameLoop.mouse`,
+  `Machine.plugMouse`): its ROM page at $C400 (the Pascal bytes, the
+  mouse's ID $C40C = $20 and $C4FB = $D6, the firmware's offsets), the game
+  told as DETECT_JOYSTICK tells it when it finds one (INPUT_DEVICE 2,
+  SLOT_POINTER $C400), and the game's own set‑up run (SET_UP_MOUSE $AC76:
+  MOUSE_SLOT, SETMOUSE, CLEARMOUSE, CLAMPMOUSE, HOME_MOUSE; registers and
+  cycles put back). It comes out where a tick starts once the mouse is
+  given back (not halfway through READ_INPUT's calls), and as the world
+  hands back to the loader (before a save): INPUT_DEVICE, SLOT_POINTER and
+  the ROM page as they were. While the mouse stays taken it goes in again
+  in the next world's first tick. INPUT_DEVICE is set only while the card
+  is in, so a game controller still works the rest of the time
+  (DETECT_JOYSTICK prefers the joystick, which the mouse mode doesn't read).
+* **Walking:** every tick READ_DEVICE reads the card (READMOUSE): its
+  position, the motion since the last tick, halved, is the move
+  (READ_MOUSE), at most 7 across and 15 up or down (LIMIT_MOVE), stopped
+  at walls (not with WALLS_ON 0), kept on the screen, through exits; then
+  the mouse goes back to (0, 0) (POSMOUSE). Motion past the limit is lost:
+  the player is never faster than by the keys, the original's pace, with
+  its walking frames, its carrying (CARRY_WIRES by KEEP_MOVE) and the
+  sentries as ever. The motion is the canvas's: a unit across is 4 image
+  pixels, up or down 2, in points at the canvas's size, 2 counts a unit
+  (what is less than a unit waits for more, `ViewerModel.moveMouse`). The
+  keys walk too: in the mouse mode a movement key typed comes first.
+* **The button** is BUTTON_A (READ_MOUSE) for one tick per press, held or
+  not, as the space key's: take, drop, take out of the toolbox, the remote,
+  the soldering pen (a click on a pin, walk, a click on the other). The card
+  reports a press at the first read after the button went down only and
+  never sets status bit 6 (down at the last read), which READ_MOUSE takes
+  as down too (2026‑11‑04, the user: presses came double). The game reads a
+  button down over two ticks as one press held, and a press held on a pin
+  with a wire cuts the wire and then starts a new one there: SOLDER_TOUCH's
+  UNSOLDER leaves GRAB_STATE at 1 and SOLDER_WIRE takes it as a new press in
+  the next tick (with the card's real status every click would). A held
+  joystick button would do the same (the controller's buttons stay down
+  while held). The drag from pin to pin that pressed again on release is
+  gone too: a click's wobble of a unit made it a second press.
 * **Selecting** takes Option or Control: an Option‑ or Control‑click
-  selects what is there (the highlight would be in the way of moving
-  things), and with either key held a drag takes hold of nothing.
-* **A click** in *Play*, on the player or what it carries, is the game's
-  button (button 1 for a tick, as the game's
-  mouse mode takes the mouse button for BUTTON_A): take or drop, the remote
-  control, and the soldering pen – drag the pen to a pin, click it. A click
-  while the player still walks to a drag's target waits until it is there.
+  selects what is there.
 
-Not done: the cursor stays where it is when the player walks into the next
-room (the view switches under it). Warping the cursor to the opposite edge
-(`CGWarpMouseCursorPosition`, by the room's width in view points) would keep
-it on the player; a modifier‑click on a pin could walk the pen there and
-press.
+The firmware is the AppleMouse II's calls as the game makes them (CALL_MOUSE
+jumps to $C400 + the offset in the table at $C412 + Y; native hooks return
+like RTS, carry clear, no time taken), answered through slot 4's screen
+holes (text page 1, empty in every world). CLAMPMOUSE's bounds come from
+slot 0's holes; the game's have high bytes 0 ($00E4–$001C across,
+$00C4–$003C up and down), read as signed bytes (−28…28, −60…60). The halving
+(HALVE_MOUSE_MOVE) skips only a IIc ($FBC0 = 0); in every world that byte
+is language‑card RAM and not 0. Checked headless by `Data/mouse_check.sh`
+(v1.0 and v1.1).
+
+The drags this replaces (2026‑11‑03: the player and the objects it could
+take moved to the pointer at once, wires and all; the pen's tip at the
+pointer) are on the branch `snapshot/mouse-drag`.
 
 ## Order
 
@@ -215,5 +245,11 @@ press.
    check; find what draws outside the primitives.
 4. The SpriteKit view from the display list; *Split* and *Overlay*.
 5. Modern sound by sound number.
-6. ~~The natives' cycle counts~~ – dropped (2026‑11‑03): natives make the
+6. Natives for the carrying and the wires: MOVE_LINKED_OBJECTS/FOLLOW_LINK
+   ($9C53/$9C88, engine main), then CARRY_WIRES in each engine (levels
+   $B8E6, kit $F367, lab $F0A0, ~1.3 KB each with the gates' and chips'
+   pins and UNSOLDER) and the soldering (TIP_ON_PIN, SOLDER_WIRE,
+   SOLDER_TOUCH), each against the original by `native_check` (random held
+   objects, wires and moves).
+7. ~~The natives' cycle counts~~ – dropped (2026‑11‑03): natives make the
    game faster on purpose; only what a tick does must stay the original's.

@@ -41,11 +41,19 @@ struct WorldView: View {
                     }
                     // Key ups go elsewhere then: a key held would walk on.
                     .onChange(of: focused) {
-                        if !focused { model.releaseKeys() }
+                        model.canvasFocused = focused
+                        if !focused {
+                            model.releaseKeys()
+                            model.releaseMouse()
+                        }
                     }
                     #if os(macOS)
                     .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
                         model.releaseKeys()
+                        model.releaseMouse()
+                    }
+                    .onReceive(NotificationCenter.default.publisher(for: NSWindow.didResignKeyNotification)) { _ in
+                        model.releaseMouse()
                     }
                     #endif
                     .task(id: model.session) {
@@ -70,22 +78,13 @@ struct WorldView: View {
 
 /// The room at 560x384 (scaled to fit), with selection of sprites and wires,
 /// and tile grid; the point under the pointer goes to `ViewerModel.pointer`.
-/// A drag takes hold of the player or an object in the running game
-/// (`ViewerModel.beginDrag`, `MouseHand`); in Play a click on the player is
-/// the game's button.  With Option or Control a click selects instead (the
-/// highlight would be in the way of moving things) and a drag takes nothing.
+/// In Play a press of ⌘ alone gives the game the mouse and takes it back
+/// (`ViewerModel.takeMouse`): the pointer hidden, the mouse moves the
+/// player, its button is the game's.  With Option or Control a click
+/// selects what is there.
 struct RoomCanvas: View {
     var model: ViewerModel
     let world: World
-    /// The mouse went down and moved far enough to be a drag.
-    @State private var dragged = false
-    /// Option or Control is held (`selects`), for the pointer.
-    @State private var selecting = false
-
-    /// How far the pointer moves before a click is a drag, in points.
-    private static let dragDistance: CGFloat = 3
-    /// The keys that make a click select.
-    private static let selectKeys: EventModifiers = [.option, .control]
 
     /// Option or Control is held now: a click selects.
     private static var selects: Bool {
@@ -130,36 +129,17 @@ struct RoomCanvas: View {
                 if case .active(let p) = phase { point = logical(p, k: k) }
                 if model.pointer != point { model.pointer = point }
             }
-            // One gesture for both, so a click doesn't wait for the drag to fail.
             .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onChanged { value in
-                        let t = value.translation
-                        if !dragged, hypot(t.width, t.height) >= RoomCanvas.dragDistance {
-                            dragged = true
-                            if !RoomCanvas.selects { model.beginDrag(at: logical(value.startLocation, k: k)) }
-                        }
-                        // Object units: 4 image pixels across, 2 up (y up).
-                        if dragged { model.drag(by: t.width / k / 4, -t.height / k / 2) }
-                    }
-                    .onEnded { value in
-                        let point = logical(value.startLocation, k: k)
-                        if dragged {
-                            model.endDrag()
-                        } else if RoomCanvas.selects {
-                            model.select(at: point, in: world)
-                        } else {
-                            model.click(at: point)
-                        }
-                        dragged = false
-                    }
+                SpatialTapGesture().onEnded { value in
+                    if RoomCanvas.selects { model.select(at: logical(value.location, k: k), in: world) }
+                }
             )
-            .onModifierKeysChanged(mask: RoomCanvas.selectKeys) { _, keys in selecting = !keys.isEmpty }
-            .pointerStyle(selecting ? nil : model.dragging ? .grabActive
-                          : model.pointer.map(model.canHold) == true ? .grabIdle : nil)
         }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.canvasFrame = $0 }
         .aspectRatio(560.0 / 384.0, contentMode: .fit)
         .frame(maxWidth: 1120)
+        .onAppear { model.canvasAppeared() }
+        .onDisappear { model.canvasDisappeared() }
     }
 
     private func logical(_ p: CGPoint, k: CGFloat) -> RoomPoint {

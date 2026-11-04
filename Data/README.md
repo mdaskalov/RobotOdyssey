@@ -3,9 +3,9 @@
 Python 3 scripts, no dependencies. Run them from this folder.
 
 ```sh
-A="path/to/Ro1v11a.dsk"
-B="path/to/Ro1v11b.dsk"
-STATE="path/to/RO_L1_SaveState.yaml"   # Mariani/AppleWin save state in Level 1
+A="../RobotOdyssey/Resources/diskA.dsk"   # the current images: v1.1, 4am crack, side A
+B="../RobotOdyssey/Resources/diskB.dsk"   # side B
+STATE="path/to/ROv1.1_L1_SaveState.yaml"  # Mariani/AppleWin save state in Level 1 (from diskA)
 
 python3 ro_extract.py "$A" "$B" Extracted/v1.1 [--rooms]   # all worlds -> bin/json/png
 python3 ro_verify.py "$STATE"        # renderer vs. the original drawing code: 64/64 rooms identical
@@ -18,6 +18,8 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 ./ro_sounds.sh [--wav DIR] "$A" "$B"   # the worlds' sound tables, every sound native vs. original (WAVs)
 ./ro_map.sh "$A" "$B"                # every world's map (WorldMap) as text: exits shown, islands, badges
 ./loader_check.sh [--png DIR] "$A" "$B"   # the loader on the emulator: next levels, menu, intro, game sounds, menu natives, save, restore, new storage disk
+./mouse_check.sh "$A" "$B"            # the mouse card (AppleMouse): plugging in and out, walking at the game's pace, keys, clicks, soldering, carrying
+./ro_dump.sh DIR "$A" "$B"            # every world's memory as its main loop starts, to disassemble
 ./cpu_check.sh path/to/AppleWin [N]   # the MOS6502 package vs. AppleWin's 6502, N random instructions per opcode
 python3 ro_title.py "$A" Extracted/v1.1 [--verify]   # title screens -> title_N.png/.bin
 python3 ro_icon.py "$STATE" ../RobotOdyssey/Assets.xcassets/AppIcon.appiconset   # app icon
@@ -43,6 +45,8 @@ python3 ro_shuffle.py "$A" "$B" ../Docs/crystal_spots.png   # Level 1: the black
 | `ro_sounds.sh`, `ro_sounds.swift` | build the app's sources with a sound tool: every world's sound table by name against the sound map (`GameSounds`), every sound of the map run by the original PLAY_SOUNDS and by the native one (cycles and speaker clicks must match), with `--wav DIR` as WAV files rendered like the app (`SpeakerRenderer`); Docs/Sound.md |
 | `loader_check.sh`, `loader_check.swift` | build the app's sources with a checker that drives the original loader headless (`Loader`, `DiskDrive`, `GameLoop`) with keys: levels 1‑4's exit code and the next level arriving and running, Level 1 saved on a new storage disk (the slot read back must hold the world as it was), the menu and its five worlds (chosen with ↓), Esc in the menu (its tune, Robotropolis then without its intro), Robotropolis with PLAY_INTRO switched off (the intro plays, its tunes streamed 1/60 s at a time as the viewer does must equal each tune rendered at once), the menu natives (DRAW_PICTURE, XOR_BLOCK) call by call against the original in the menu, the title and the intro, Level 1's sounds run and streamed as the viewer does with PLAY_SOUNDS native and switched off (alike, no pause the original doesn't have, no click where the player runs dry), the walls easter egg (Ctrl‑A Ctrl‑L T, then Ctrl‑E), the saved game restored from the menu (equal to `WorldBuilder`'s after one tick but for the loader's own bytes), a new storage disk made with *C*; `--png DIR` writes the screens on the way (Docs/Loader.md) |
 | `ro_map.sh`, `ro_map.swift` | build the app's sources with a map printer: for every world on the disks the map of the *Map* view (`WorldMap`) as text, with the player's room in brackets, how many exits it shows as rooms next door, the time it took, and the exits left as badges; paths must be absolute (the script runs in `Data/`) |
+| `mouse_check.sh`, `mouse_check.swift` | build the app's engine sources with a checker for the Mac's mouse as the game's (`AppleMouse`, the mouse card in slot 4), headless, in Level 1 and every kit and lab world: the card in where a tick starts (INPUT_DEVICE 2, SLOT_POINTER, its ROM, the game's own set-up with its CLAMPMOUSE), the mouse moved 3 right (the player 3), 30 right (7, the rest lost), 30 up (15), K typed with the card in (7 right), the card out (INPUT_DEVICE, SLOT_POINTER and the ROM page as before); the player put on a free pin (a room without a chip), the pen taken with S, a click (a wire started), walked by the mouse to a pin of the other type and a click (the wire made), pressed on a free pin for 3 ticks with the mouse wobbling (one press: the wire still being made), a click on a wired pin and one held for 4 ticks (the wire cut, no new one started); in Level 1 gate $25 taken with a click and moved 7 by the mouse (its wires with it) (Frontends.md "Input") |
+| `ro_dump.sh`, `ro_dump.swift` | build the app's world sources with a dumper: every world's memory as its main loop starts (after its start-up code, the language card pieces in), `DIR/<id>.main.bin` (64K, bank 2 at $D000) and `<id>.bank1.bin`, to disassemble with `dis6502.py` (the kit's and the lab's pieces at $D000/$F000 aren't in `ro_world.py`'s images) |
 | `cpu6502.py` | small NMOS 6502 emulator for the Python tools (documented opcodes, cycle counting); the app's CPU is the `MOS6502` package (`../Packages/MOS6502`) |
 | `mos6502.sh` | sourced by the `.sh` scripts that build Swift: compiles the `MOS6502` package into a module and sets `$MOS6502` (swiftc flags) |
 | `cpu_check.sh`, `cpu_check.swift`, `cpu_check_applewin.cpp` | the `MOS6502` package against AppleWin's own 6502 (its `cpu6502.h` built from a checkout with a small shim): N random instructions of every opcode on both, registers, flags, cycles, jam and every byte written compared; the differences where the package follows the 6502 (DCP/ISC carry on a wrap, ARR in decimal mode) counted apart (`Packages/MOS6502/README.md`) |

@@ -45,10 +45,12 @@ faithful Swift version.
   and buttons are emulated in `Machine`; the viewer uses the keyboard and a
   game controller as the joystick (the further the stick is pushed, the
   faster the player moves, by the game's own joystick table). The mouse
-  (Frontends.md "Input"): in *Play* a drag on the player walks it after the
-  pointer on the joystick, a click on it is the game's button (soldering
-  too); a drag on an object moves it, by the game's motion routines, until
-  a wall or an exit drops it.
+  (Frontends.md "Input") is an Apple mouse card (`AppleMouse`, slot 4) for
+  the game's own mouse mode: in *Play* a press of ⌘ alone hides the
+  pointer, the mouse walks the player at the game's pace
+  (at most 7 across and 15 up or down a tick, walls stop it), its button is
+  the game's, one tick per press as the space key (take, drop, the
+  toolbox, the remote, the soldering pen); ⌘ gives it back.
 * **The 6502** (`Packages/MOS6502`, a Swift package with its README, since
   2026‑11‑03): the NMOS 6502 as AppleWin/Mariani runs it – all 256 opcodes,
   the undocumented ones too, as `Opcode` values (no more parsed table),
@@ -280,7 +282,7 @@ stays there. Arrow keys
 follow exits. Hover shows object coordinates and the sprite or wire under
 the pointer. Option‑ or Control‑click a sprite or a wire to select it in the
 *Current Room* panel on the right (the canvas outlines it in yellow; a
-plain click or drag is the mouse in the game, Frontends.md "Input"). The
+press of ⌘ alone gives the game the mouse, Frontends.md "Input"). The
 panel shows the room's properties (the floor and wall colours with their
 tiles, the first object with its sprite, the last sound the game played),
 the game, then the room's contents as the loop last drew the room: the

@@ -6,15 +6,19 @@ v2.0 (three sides) is different; see the end.
 
 | File | Version | Side | MD5 |
 |---|---|---|---|
-| Robot Odyssey v1.1 (4am crack) side A.dsk | 1.1 | A | fa478397594ba89c82f483503634897d |
-| Robot Odyssey v1.1 (4am crack) side B.dsk | 1.1 | B | 0b6dcd293b818da67fdc81740cc42c6a |
+| Robot Odyssey v1.1 (4am crack) side A.dsk = `RobotOdyssey/Resources/diskA.dsk` | 1.1 | A | fa478397594ba89c82f483503634897d |
+| Robot Odyssey v1.1 (4am crack) side B.dsk = `RobotOdyssey/Resources/diskB.dsk` | 1.1 | B | 0b6dcd293b818da67fdc81740cc42c6a |
 | Ro1v11a.dsk | 1.1 | A | 46f60717423e1e3fef68f18fc7229b87 |
 | Ro1v11b.dsk | 1.1 | B | 3ade4e78583155e49bd0d08b8c0adf5e |
 | Ro1v10a.dsk | 1.0 | A | 0080e4fc5d65afc7ba39854584aa7b0c |
 | Ro1v10b.dsk | 1.0 | B | fd5a8ca79eb416803e62116af11d71d7 |
 | ROBOT-1/2.DSK, RobotOdyssey1/2.dsk, Robots_1/2.dsk | 1.0 | A/B | other cracks of v1.0, same data |
 | Ro1v20a/b/c.dsk | 2.0 | A/B/C | other layout |
-| DATAV10/11/20.DSK | – | storage | blank storage diskettes |
+| DATAV10/11/20.DSK | – | storage | storage diskettes of the bad crack set; not used |
+
+The current images are the bundled `diskA.dsk`/`diskB.dsk` (the 4am crack of
+v1.1); the tools and checks take those. The app makes its own storage disk
+(`save.dsk`, Loader.md).
 
 The other files in the disk folder: `level1.bin` is a 48K RAM dump
 ($0000‑$BFFF) taken while playing Level 1 (probably v1.0), `mike.bin` is its
@@ -231,8 +235,7 @@ The loader makes a storage disk itself (the save prompt's *C*,
 NEW_STORAGE_DISK $4C79, after a warning): it formats the disk (RWTS command 4,
 all sectors zero) and writes the boot sector from $5400 (the program disk's
 track 0 sector 6: it prints “insert program diskette”, `01 A6 2B BD 88 C0…`,
-side number 2) and two pages of spaces, the directories. The blank storage
-diskettes DATAV10/11.DSK are exactly that.
+side number 2) and two pages of spaces, the directories (`DiskDrive.blankStorage`).
 
 Page 32 is the game directory, page 33 the chip directory: entries of 18
 letters (high‑bit ASCII, padded with spaces; DIRECTORY_OFFSETS $4D50), e.g.

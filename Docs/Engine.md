@@ -78,6 +78,28 @@ The mouse is set up and read through the card's firmware: CALL_MOUSE
 (MOUSE_SLOT $A9D2, MOUSE_SLOT_16 $A9D3), patching the JMP at $ACE6;
 DETECT_JOYSTICK turns it on, clamps it and puts it at (0, 0) (HOME_MOUSE
 $ACC9; CLEAR_MOUSE_POSITION $AC12 clears the position's screen holes).
+Its set-up of the card (SET_UP_MOUSE, $AC76‑$ACC8, not in the native):
+MOUSE_SLOT and MOUSE_SLOT_16 from SLOT_POINTER's page, the JMP's page,
+SETMOUSE 1 (on, no interrupts), CLEARMOUSE, CLAMPMOUSE up and down
+$00C4–$003C and across $00E4–$001C (bounds in slot 0's holes $0478/$04F8,
+high bytes $0578/$05F8 left 0: low above high, meant as −60…60 and
+−28…28), HOME_MOUSE. Nothing but this code and CALL_MOUSE uses $1B/$1C,
+and the text page with the holes is empty in every world. The viewer
+plugs such a card in while the Mac's mouse is the game's (`AppleMouse`,
+Frontends.md "Input").
+
+**The mouse mode** (READ_DEVICE at $A9D4, INPUT_DEVICE 2): a key typed goes
+first (KEY_AS_STICK, MOVE_BY_KEY; with a move or a button from it READ_DEVICE
+returns, and READ_INPUT moves the player as in keyboard mode). Else READMOUSE
+($Cn14 via CALL_MOUSE), READ_MOUSE ($ABDE): MOVE_DX = the X hole's low byte,
+MOVE_DY = minus the Y hole's (Y grows down), each halved with its sign
+(HALVE_MOUSE_MOVE $ACE9; not on a IIc, $FBC0 = 0 – language‑card RAM in the
+worlds, never 0), BUTTON_A = 1 when the status hole has bit 7 or 6 (down now,
+or at the last read); then LIMIT_MOVE with X = 7, Y = 15 (at $A9FB),
+STOP_AT_WALLS unless WALLS_ON is 0, KEEP_ON_SCREEN, MOVE_OBJECT,
+CLEAR_MOUSE_POSITION and POSMOUSE ($Cn16): the mouse back at (0, 0), what
+moved past the limit lost. MOUSE_MOVED ($A909) = 1 tells READ_INPUT the move
+is made. The native READ_INPUT declines in this mode (the original runs).
 
 **READ_INPUT ($A90C)**, the first call of every world's main loop (Level 1
 skips it while SENTRY_HELD is 0: a sentry holds the player):
@@ -162,13 +184,30 @@ the worlds' code). Positions: x 0‑$85 (7 per tile), y 0‑$B0 from the bottom
   vertical move, bit 2 the horizontal one.
 * LIMIT_MOVE ($ACF8): at most X across, Y up or down (the worlds' code uses
   it for other objects).
-* GRAB_AND_CARRY ($A5CD): a button pressed while holding something drops it
-  (HELD_OBJECT $9C26 and GRABBED_OBJECT $9C27 = $FF); with nothing held it
-  takes the object touched ($A8FC): GRABBED_OBJECT is that one, HELD_OBJECT
-  the end of its OBJ_LINK chain (a robot's body, a gate's base), and
-  HELD_DX/DY ($A5C9/$A5CA) its place from the player. Every tick, after the
-  world's hook (the JSR at $A66D), FOLLOW_AT ($9C7C) moves HELD_OBJECT to
-  the player plus that offset, across room edges as MOVE_OBJECT_XY does.
+* GRAB_AND_CARRY ($A5CD; the levels call it only with no tool in hand): a
+  button pressed while holding something drops it (HELD_OBJECT $9C26 and
+  GRABBED_OBJECT $9C27 = $FF); with nothing held it takes the object
+  touched (TOUCHED_OBJECT $A8FC): the first object of the player's room
+  whose pixels touch the player's (OBJECTS_TOUCH $A835) and that the player
+  may take – TOUCH_TAKEABLE ($A7D6): OBJ_FLAGS ($6900) not $FF, which rules
+  out the pins, the tools and the tip; with FLAG_9C51 = 1 any object
+  (TOUCH_ANY $A7C7). GRABBED_OBJECT is that one, HELD_OBJECT the end of its
+  OBJ_LINK chain (a robot's body, a gate's base), and HELD_DX/DY
+  ($A5C9/$A5CA) its place from the player. Every tick, after the world's
+  hook (GRAB_HOOK, the JSR at $A66D; NOPs on the disk, the start‑up code
+  puts it in), FOLLOW_AT ($9C7C) moves HELD_OBJECT to the player plus that
+  offset, across room edges as MOVE_OBJECT_XY does.
+* Wires don't follow their pins by themselves: a wire's ends are
+  coordinates (WorldFormat.md). The levels' hook is CARRY_WIRES ($B8E6):
+  for HELD_OBJECT and the objects that follow it (higher numbers only), the
+  wire ends at each pin (PIN_TYPES $8397 by sprite, the pin at PIN_DX/DY
+  $83D7/$8417 from the object; gates and chips by their own tables) move by
+  KEPT_DX/DY ($8E88, the player's move this tick, KEEP_MOVE), as FOLLOW_AT
+  is about to move the object. Carried onto the room's edge (x plus the
+  move 0 or $84 on, y 0 or $AF on) or out of CARRY_ROOM ($8E55, the room it
+  was taken in), a pin's wires are cut (UNSOLDER $F5D3, the solder sound). The kit and
+  the lab have the same in their $F000 pieces: CARRY_WIRES $F367/$F0A0,
+  PIN_TYPES $1D74/$1554, KEPT_DX/DY $1BE8/$13A9, CARRY_ROOM $1B58/$1316.
 * MOVE_LINKED_OBJECTS ($9C53): objects 0‑$FE in order, each one that follows
   another (OBJ_LINK) goes to that one's place plus OBJ_DX/DY (FOLLOW_LINK
   $9C88). One that follows a higher object takes where that one was before
@@ -187,10 +226,31 @@ the worlds' code). Positions: x 0‑$85 (7 per tile), y 0‑$B0 from the bottom
   tool object keeps the player's look until it is swapped back. Object $FE,
   linked to the player at (0,0) in every world, is the tool's tip: blank
   (sprite $1A) but with the pen, sprite $1D colour 6 (TOOL_TIP_SPRITES
-  $8300, TOOL_TIP_COLOURS $82FD); the soldering code ($F7BE…) looks at what
-  is under it. With the remote control in hand a new press of the button
+  $8300, TOOL_TIP_COLOURS $82FD); the soldering code looks at what is
+  under it (below). With the remote control in hand a new press of the button
   (REMOTE_CONTROL $BED6) toggles the player's colour and REMOTE_SWITCH
   ($8DAB) between 5 and 7: the robots and the circuits run only at 5.
+* Soldering (levels; with the pen in hand, after the draw, CopyProtection.md):
+  TIP_ON_PIN ($F86A) finds the pin the tip touches (TOUCH_ANY with
+  TOUCH_FIRST = $FE; a sprite with a PIN_TYPES entry: 1 or 2 a single pin,
+  $FD/$FE gates and $F0 chips with the pin found by where the tip is) and
+  colours the tip orange (5) on a pin, else blue (6). SOLDER_WIRE ($F7BE)
+  acts on a new press (GRAB_STATE 1): with no wire started, on a pin
+  without a wire it starts one (SOLDER_PIN $8E40, its type $8E41, the start
+  $8E46/$8E47, SOLDER_ROOM $8E48, the solder sound); with one started, on a
+  pin of the other type (1 with 2) it makes the wire, on one of the same
+  type nothing, anywhere else it cuts the wire being made, as does the
+  player leaving SOLDER_ROOM. Each tick DRAW_SOLDER_WIRE ($FC2C) draws the
+  wire being made in white, L‑shaped from the start to the tip + (2, 4).
+  SOLDER_TOUCH ($F5C2), with no wire started: a new press on a pin with a
+  wire cuts it (UNSOLDER, the pin white again). A pin counts as taken (no wire
+  starts there) when it is a wire's target, a loose wire's, or on a chip
+  (PIN_TAKEN $F78C; CHIP_PIN_OBJECTS $8C9E, 8 per chip, chips are
+  objects $E7‑$EE). The kit
+  and the lab: the same code in their pieces (SOLDER_WIRE $F652/$F59B,
+  SOLDER_TOUCH $F1AF/$18B0 – the lab's in the worlds' code –, TIP_ON_PIN
+  $F6F2/$F647, SOLDER_PIN $1B42/$1303); Robot Anatomy calls them but its
+  main loop has no TAKE_TOOL, so no pen.
 
 ### Easter egg: walking through walls
 

@@ -73,9 +73,12 @@ nonisolated final class GameLoop {
     private var startingWorld = false
     /// Each room's last preview (`preview`).
     private var previews: [Int: Preview] = [:]
-    /// The canvas's mouse holding the player or an object (`MouseHand`),
-    /// applied where each tick starts; nil once it lets go.
-    var hand: MouseHand?
+    /// The Mac's mouse is the game's: a mouse card in (`AppleMouse`), put in
+    /// or taken out where a tick of a world starts (`Machine.plugMouse`;
+    /// not halfway through READ_INPUT's calls of it), out as the world hands
+    /// back to the loader (before it saves the world), in again in the next
+    /// world's first tick.
+    var mouse = false
 
     /// A room drawn on a copy, and the draw state it started from and left:
     /// what its draw phase wrote besides the page (`drawStateRanges`), as
@@ -155,11 +158,14 @@ nonisolated final class GameLoop {
         set { machine.devices = newValue }
     }
 
-    /// The mouse lets go at once (a movement key typed): the joystick it
-    /// steered the player with is let go too.
-    func letGo() {
-        if hand?.holding == .player { machine.devices.joystick = InputDevices.centre }
-        hand = nil
+    /// The mouse moved by (dx, dy) of the card's counts, y down (`AppleMouse`).
+    func moveMouse(dx: Int, dy: Int) {
+        machine.devices.mouse?.move(dx: dx, dy: dy)
+    }
+
+    /// The mouse's button pressed or let go (`Machine.mouseButton`).
+    func mouseButton(down: Bool) {
+        machine.mouseButton(down: down)
     }
 
     /// Main RAM as the CPU sees it, and language card bank 1.
@@ -374,7 +380,7 @@ nonisolated final class GameLoop {
 
     private func step() throws {
         if let phase, Int(machine.cpu.pc) == phase.loopStart {
-            if let hand { self.hand = machine.apply(hand) }   // may press the button for this tick
+            if mouse { machine.plugMouse() } else { machine.unplugMouse() }
             machine.devices.startTick()             // as the tick starts, where READ_INPUT reads it
         }
         let page = machine.shownPage
@@ -437,7 +443,7 @@ nonisolated final class GameLoop {
     /// until it starts a world.
     private func leaveWorld() {
         restoreRoom()
-        letGo()
+        machine.unplugMouse()
         phase = nil
         exitJump = nil
         drawing = nil

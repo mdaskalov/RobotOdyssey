@@ -285,15 +285,19 @@ private struct PointerReadout: View {
         Text(text(model.contents(world)))
             .font(.caption.monospaced())
             .foregroundStyle(.secondary)
-            .lineLimit(3, reservesSpace: true)
+            .lineLimit(4, reservesSpace: true)
     }
 
     private func text(_ contents: RoomContents) -> String {
+        // The pointer is hidden while the mouse is the game's: no place under it.
+        if model.playing && model.mouseTaken {
+            return "Playing with the mouse: it moves, a click picks up, drops\nkeys still work · ⌘ gives the mouse back"
+        }
         guard let p = model.pointer, (0 ..< 140).contains(p.x), (0 ..< 192).contains(p.y) else {
             if model.playing {
-                return "Playing: I J K M or the arrow keys move (Ctrl or Shift: slowly) · space picks up and drops · ? hints · Esc quits"
+                return "Playing: I J K M or arrow keys move, Ctrl or Shift slowly\n⌘ mouse on/off · space picks up, drops · ? hints · Esc quits"
             }
-            return "Hover for coordinates · click a sprite or a wire to select it · arrow keys follow exits · space pauses"
+            return "Hover for coordinates · Option-click selects a sprite or wire\narrow keys follow exits · space pauses"
         }
         let (x, y) = (p.x, p.y)
         var s = String(format: "x=$%02X y=$%02X · tile column %d row %d", x, y, x * 2 / 14, (191 - y) / 16)

@@ -177,6 +177,14 @@ nonisolated final class GameSymbols: Sendable {
     let wireAY = Table(levels: 0x891C, kit: 0x17C0, lab: 0x0E00)
     let wireBY = Table(levels: 0x8A1C, kit: 0x18C0, lab: 0x0F00)
     let pinLine = Table(levels: 0x8A82, guess: true)
+    /// Per sprite: 0 no pin, 1 and 2 a pin at (PIN_DX, PIN_DY) from the
+    /// object, $FD, $FE (gates) and $F0 (chips) objects with several.
+    let pinTypes = Table(levels: 0x8397, kit: 0x1D74, lab: 0x1554, guess: true)
+    /// The pin each chip's pins are wired to, 8 per chip (chips are objects
+    /// $E7-$EE).
+    let chipPinObjects = Table(levels: 0x8C9E, guess: true)
+    let pinDX = Table(levels: 0x83D7, kit: 0x1DB4, lab: 0x1594, guess: true)
+    let pinDY = Table(levels: 0x8417, kit: 0x1DF4, lab: 0x15D4, guess: true)
     let gateType = Table(levels: 0x8CB7, guess: true)
     /// The tool in the player's hand, from TOOL_OBJECTS (TAKE_TOOL at
     /// $BE6D): $00 none, $FD the soldering pen (Docs/CopyProtection.md), $FC
@@ -196,12 +204,19 @@ nonisolated final class GameSymbols: Sendable {
     let robotSwitch = Table(levels: 0x8DE6, kit: 0x1B04, lab: 0x12C4)
     /// 0 without a button, 1 on a new press, 2 once the grab code is done.
     let grabState = Byte(levels: 0x8E3E, kit: 0x1B40, lab: 0x1300)
+    /// The pin a wire was started at (SOLDER_WIRE; 0 none), and its PIN_TYPES entry.
+    let solderPin = Byte(levels: 0x8E40, kit: 0x1B42, lab: 0x1303, guess: true)
+    let solderPinType = Byte(levels: 0x8E41, kit: 0x1B43, lab: 0x1304, guess: true)
+    /// Where the wire started, and the room: the player leaving it cuts the wire.
+    let solderX = Byte(levels: 0x8E46, kit: 0x1B48, lab: 0x1309, guess: true)
+    let solderY = Byte(levels: 0x8E47, kit: 0x1B49, lab: 0x130A, guess: true)
+    let solderRoom = Byte(levels: 0x8E48, kit: 0x1B4A, lab: 0x130B, guess: true)
     // The robot drawing's variables: the robot being drawn and its parts.
     let drawnGrabbers = Table(levels: 0x8E7E, kit: 0x1B97, lab: 0x1358)
     let partIndex = Byte(levels: 0x8E82, kit: 0x1BE7, lab: 0x13A8)
     /// This tick's move, kept by KEEP_MOVE.
-    let keptDX = Byte(levels: 0x8E88)
-    let keptDY = Byte(levels: 0x8E89)
+    let keptDX = Byte(levels: 0x8E88, kit: 0x1BE8, lab: 0x13A9)
+    let keptDY = Byte(levels: 0x8E89, kit: 0x1BE9, lab: 0x13AA)
     let playerRobot = Byte(levels: 0x8E95, guess: true)
     let antennaSignal = Byte(levels: 0x8E96, kit: 0x1BA7, lab: 0x1368)
     let antennaColour = Byte(levels: 0x8E97, kit: 0x1BA8, lab: 0x1369)
@@ -268,6 +283,10 @@ nonisolated final class GameSymbols: Sendable {
     /// FOLLOW_AT's offset from the object followed.
     let followDX = Byte(0x9C24)
     let followDY = Byte(0x9C25)
+    /// A point: where the object looked for is ($A6F7), a pin's place (the
+    /// soldering, CARRY_WIRES).
+    let pointX = Byte(0x9C28, guess: true)
+    let pointY = Byte(0x9C29, guess: true)
     let currentRoom = Byte(0x9C2D)
     let destinationRoom = Byte(0x9C2E)
     let currentObject = Byte(0x9C2F)
@@ -307,6 +326,8 @@ nonisolated final class GameSymbols: Sendable {
     let copyProtectionOK = Byte(0x9C4E)
     /// Every world's start-up clears it right before its main loop.
     let flag9C51 = Byte(0x9C51, guess: true)
+    /// The filter TOUCH_SEARCH asks of each object (TOUCH_ANY, TOUCH_TAKEABLE).
+    let touchFilter = Word(0x9C4F)
     let linkIndex = Byte(0x9C52)
     let moveLinkedObjects = Routine(0x9C53)
     /// Object X to object Y's place moved by (FOLLOW_DX, FOLLOW_DY): as FOLLOW_LINK.
@@ -395,13 +416,27 @@ nonisolated final class GameSymbols: Sendable {
     /// HELD_OBJECT follows the player (FOLLOW_AT).  What follows that through
     /// OBJ_LINK comes along in MOVE_LINKED_OBJECTS.
     let grabAndCarry = Routine(0xA5CD)
+    /// GRAB_AND_CARRY's JSR to the world's hook, before HELD_OBJECT follows
+    /// the player: NOPs on the disk, the loader puts the hook in (the levels'
+    /// is CARRY_WIRES).
+    let grabHook = Byte(0xA66D)
     let engA6AD = Routine(0xA6AD)
+    /// TOUCH_SEARCH with TOUCH_FILTER set: every object (TOUCH_ANY), or
+    /// those the player can take (TOUCH_TAKEABLE: TAKEABLE_Q, OBJ_FLAGS not $FF).
+    let touchAny = Routine(0xA7C7)
+    let touchTakeable = Routine(0xA7D6)
+    let takeable = Routine(0xA7E3, guess: true)
+    /// The first object of TOUCH_FIRST's room (but itself) that passes
+    /// TOUCH_FILTER and touches it (OBJECTS_TOUCH): TOUCH_RESULT 1 and
+    /// CUR_OBJECT that one, else TOUCH_RESULT 0.
+    let touchSearch = Routine(0xA7EE)
     /// Z clear (TOUCH_RESULT 1) when TOUCH_FIRST and TOUCH_SECOND are in the
     /// same room, their boxes overlap and so do their sprites' pixels (the
     /// rows ANDed, one shifted by the difference in x).
     let objectsTouch = Routine(0xA835, guess: true)
     /// The object TOUCH_FIRST touches for GRAB_AND_CARRY: Z clear and
-    /// CUR_OBJECT that one if any; by FLAG_9C51 the search at $A7C7 (1) or $A7D6.
+    /// CUR_OBJECT that one if any; with FLAG_9C51 1 any object (TOUCH_ANY),
+    /// else one the player can take (TOUCH_TAKEABLE).
     let touchedObject = Routine(0xA8FC, guess: true)
 
     // Input (Docs/Engine.md "Input").
@@ -440,6 +475,12 @@ nonisolated final class GameSymbols: Sendable {
     /// in a slot (found from slot 7 down, pointer at $1B; set up through its
     /// firmware), else 0.
     let detectJoystick = Routine(0xAC24, code: 0xAC24 ..< 0xAC76, 0xACC8 ..< 0xACC9, md5: "e048267de1268b01d6dd44f7655143a8")
+    /// DETECT_JOYSTICK's set-up of the mouse card it found (SLOT_POINTER at
+    /// its ROM), up to its RTS at $ACC8: MOUSE_SLOT and MOUSE_SLOT_16, the
+    /// JMP's page in CALL_MOUSE, SETMOUSE 1, CLEARMOUSE, CLAMPMOUSE up and
+    /// down $00C4-$003C and across $00E4-$001C (high bytes 0: meant as signed
+    /// bytes, -60..60 and -28..28), HOME_MOUSE (`AppleMouse`).
+    let setUpMouse = Routine(0xAC76)
     /// The mouse put at (0, 0): POSMOUSE.
     let homeMouse = Routine(0xACC9)
     /// Calls the mouse firmware routine at offset ($Cn00+Y) (SETMOUSE $12 ...
@@ -511,8 +552,17 @@ nonisolated final class GameSymbols: Sendable {
 
     // MARK: the levels' engine piece at $B8E0
 
-    let engB8E6 = Routine(levels: 0xB8E6)
+    /// GRAB_AND_CARRY's hook (GRAB_HOOK), every tick: the wire ends on the
+    /// pins of HELD_OBJECT and of the objects that follow it (a gate's, a
+    /// chip's...) move by KEPT_DX/DY, the player's move, as FOLLOW_AT moves
+    /// the object by it; carried onto the room's edge (x + the move 0 or
+    /// $84 on, y 0 or $AF on) or out of CARRY_ROOM, a pin's wires are cut
+    /// (UNSOLDER).  With nothing held CARRY_ROOM goes to 0.  The kit's and
+    /// the lab's are in their $F000 pieces.
+    let carryWires = Routine(levels: 0xB8E6, kit: 0xF367, lab: 0xF0A0, guess: true)
     let engB8ED = Routine(levels: 0xB8ED)
+    /// The room HELD_OBJECT was taken in (CARRY_WIRES; 0 nothing held).
+    let carryRoom = Byte(levels: 0x8E55, kit: 0x1B58, lab: 0x1316, guess: true)
     /// The tools, with nothing held: a key of TOOL_KEYS, or a new press of
     /// the button on a tool lying about (TOUCHED_TOOL), takes that tool (its
     /// own again puts it away): the player and the tool object swap sprite
@@ -611,8 +661,22 @@ nonisolated final class GameSymbols: Sendable {
     /// what the pen touches while no wire is started; SOLDER_WIRE starts a
     /// wire at the first touch (with the solder sound) and makes it at the
     /// second.
-    let solderTouch = Routine(levels: 0xF5C2, guess: true)
-    let solderWire = Routine(levels: 0xF7BE, guess: true)
+    let solderTouch = Routine(levels: 0xF5C2, kit: 0xF1AF, lab: 0x18B0, guess: true)
+    /// Cuts the wire of pin SOLDER_PIN (of type SOLDER_PIN_TYPE): what a
+    /// new press does on a pin with a wire, with the solder sound.
+    let unsolder = Routine(levels: 0xF5D3, kit: 0xF1C0, lab: 0x18C1, guess: true)
+    let solderWire = Routine(levels: 0xF7BE, kit: 0xF652, lab: 0xF59B, guess: true)
+    /// X not 0 if pin A is taken: a wire's target (WIRE_TO), a loose
+    /// wire's, or on a chip (CHIP_PIN_OBJECTS, X the chip's object).
+    let pinTaken = Routine(levels: 0xF78C, guess: true)
+    /// Z clear if the pen's tip (object $FE, TOUCH_ANY) touches a pin (a
+    /// sprite with a PIN_TYPES entry), the tip orange (5) then, else blue
+    /// (6); on a new press SOLDER_PIN is the pin and
+    /// (POINT_X, POINT_Y) where it is (PIN_DX/DY, or found where the tip is
+    /// on a gate or chip).
+    let tipOnPin = Routine(levels: 0xF86A, kit: 0xF6F2, lab: 0xF647, guess: true)
+    /// The wire being made, white, from where it started to the tip + (2, 4).
+    let drawSolderWire = Routine(levels: 0xFC2C, kit: 0xFA78, lab: 0xFAE8, guess: true)
     let drawWires = Routine(levels: 0xFC62)
     let keepMove = Routine(levels: 0xFE18, code: [.levels(0xFE18 ..< 0xFE25, md5: "1544988aa9cbb3fa4337cfe931fb8fd9")])
     let engFE25 = Routine(levels: 0xFE25)

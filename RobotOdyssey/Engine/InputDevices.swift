@@ -7,7 +7,8 @@ import Foundation
 /// counting loop rounds (`PlayerInput`).  Without a joystick the timers never
 /// run out, so the engine finds none at start-up ($AC24) and plays by keyboard;
 /// it switches to the joystick as soon as the paddles read differently.  The
-/// viewer plugs a game controller in as the joystick (`GameControllers`).
+/// viewer plugs a game controller in as the joystick (`GameControllers`), and
+/// while its canvas has the Mac's mouse a mouse card (`AppleMouse`).
 nonisolated struct InputDevices {
     /// $C000: the last key typed, bit 7 set until $C010 clears it.
     var key: UInt8 = 0
@@ -21,10 +22,10 @@ nonisolated struct InputDevices {
     /// once the game has read the last key, so the player walks on tick
     /// after tick from the first, without the Mac's key repeat delay.
     var held: UInt8?
+    /// The mouse card in slot 4; nil: none (`Machine.plugMouse`).
+    var mouse: AppleMouse?
     /// The buttons pressed since the last tick started (`set(button:down:)`).
     private var unread = [false, false]
-    /// Tick starts until a click lets button 1 go (`click`).
-    private var clickTicks = 0
 
     /// The paddles of a joystick let go: READ_JOYSTICK's centre, $80.
     static let centre: (x: UInt8, y: UInt8) = (128, 128)
@@ -42,24 +43,11 @@ nonisolated struct InputDevices {
         if down || !unread[i] { buttons[i] = down }
     }
 
-    /// A click of the canvas's mouse (`MouseHand`): button 1 down for the
-    /// next tick, as the game's mouse mode takes the Apple mouse's button for
-    /// BUTTON_A (READ_MOUSE $ABDE).
-    mutating func click() {
-        set(button: 1, down: true)
-        clickTicks = 2
-    }
-
     /// Where a tick starts (`GameLoop`), before READ_INPUT reads the devices:
-    /// the key held is typed again, the buttons pressed have been read, and
-    /// a click's button, read in the last tick, goes up.
+    /// the key held is typed again, the buttons pressed have been read.
     mutating func startTick() {
         typeHeld()
         unread = [false, false]
-        if clickTicks > 0 {
-            clickTicks -= 1
-            if clickTicks == 0 { buttons[1] = false }
-        }
     }
 
     /// Types the key held, if any, once the last key typed has been read.

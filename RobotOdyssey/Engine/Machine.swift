@@ -25,8 +25,10 @@ nonisolated final class Machine {
     var clicks: [UInt64]?
     /// The sounds the native PLAY_SOUNDS played and nobody has taken yet.
     private var sounds: [Sound.Played] = []
-    /// Keyboard, joystick and buttons.
+    /// Keyboard, joystick, buttons and the mouse card.
     var devices = InputDevices()
+    /// What the mouse card took over as it went in (`plugMouse`); nil: it is out.
+    var beforeMouse: AppleMouse.Before?
     /// The cycles of the last two reads of the keyboard ($C000) that found no
     /// key (0: none since one was found).
     private var emptyKeyReads: (UInt64, UInt64) = (0, 0)
@@ -69,6 +71,7 @@ nonisolated final class Machine {
         cpu.ioRead = { [unowned self] in io($0) }
         cpu.ioWrite = { [unowned self] a, _ in _ = io(a) }
         cpu.onTrap = { [unowned self] in runNative(at: $0) }
+        installMouseFirmware()
     }
 
     /// Bank 1 as it is now, wherever it is mapped.
@@ -81,6 +84,7 @@ nonisolated final class Machine {
         m.bank = bank
         m.shownPage = shownPage
         m.devices = devices
+        m.beforeMouse = beforeMouse
         m.installed = installed
         m.natives = natives
         m.switchedOff = switchedOff
