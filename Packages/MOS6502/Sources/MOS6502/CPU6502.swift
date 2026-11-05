@@ -48,6 +48,11 @@ public final class CPU6502 {
     @exclusivity(unchecked) public var ioPages = [Bool](repeating: false, count: 256)
     public var ioRead: (UInt16) -> UInt8 = { _ in 0 }
     public var ioWrite: (UInt16, UInt8) -> Void = { _, _ in }
+    /// Pages whose writes go to `mem` as ever and are then told to
+    /// `onWrite`, with the byte as it was: a host following what the code
+    /// writes there (a display following the hi-res pages).  Reads aren't.
+    @exclusivity(unchecked) public var watchedPages = [Bool](repeating: false, count: 256)
+    public var onWrite: (_ address: UInt16, _ old: UInt8, _ new: UInt8) -> Void = { _, _, _ in }
 
     /// Addresses where `onTrap` is asked first, before the instruction there
     /// runs.  It returns true when it handled the instruction (e.g. ran a
@@ -80,7 +85,16 @@ public final class CPU6502 {
     }
 
     @inline(__always) public func write(_ address: UInt16, _ value: UInt8) {
-        if ioPages[Int(address >> 8)] { ioWrite(address, value) } else { mem[Int(address)] = value }
+        let page = Int(address >> 8)
+        if ioPages[page] {
+            ioWrite(address, value)
+        } else if watchedPages[page] {
+            let old = mem[Int(address)]
+            mem[Int(address)] = value
+            onWrite(address, old, value)
+        } else {
+            mem[Int(address)] = value
+        }
     }
 
     /// The little-endian word at `address`: vectors.

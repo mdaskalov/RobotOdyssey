@@ -46,10 +46,18 @@ nonisolated extension Engine {
 
     /// DRAW_SPRITE ($AF1F): 16 rows from SPRITE_POINTER, row 0 at the bottom,
     /// with the patterns in PATTERN_EVEN/ODD.  Off-screen positions (x >= $86,
-    /// y >= $B1) draw nothing.
+    /// y >= $B1) draw nothing.  A drawing on layer 3 (`PageLayers`).
     func drawSprite() {
         let x = Int(m.drawX), y = m.drawY
         guard x < 0x86, y < 0xB1 else { return }
+        m.drawingOnLayer(.drawSprite, {
+            let rows = m.spritePointer
+            return .sprite(LayerSprite(rows: (0 ..< 16).map { m[rows + $0] }, x: x, y: Int(y),
+                                       patternEven: m.patternEven, patternOdd: m.patternOdd))
+        }) { drawSprite(x: x, y: y) }
+    }
+
+    private func drawSprite(x: Int, y: UInt8) {
         let firstColumn = Int(m.xByteTable[x]), shift = Int(m.xShiftTable[x])
         m.spriteColumn = UInt8(firstColumn)
         m.spriteShift = UInt8(shift)
@@ -81,8 +89,14 @@ nonisolated extension Engine {
     // MARK: pixels and lines
 
     /// PLOT ($A14D): one colour pixel at (DRAW_X, DRAW_Y), with PLOT's masks
-    /// for this byte and the next one.
+    /// for this byte and the next one.  A drawing on layer 3 (`PageLayers`).
     func plot(colour: UInt8) {
+        m.drawingOnLayer(.plot, {
+            LayerLine.plot(x: m.drawX, y: m.drawY, colour: colour, m.lineColourPatterns).map(LayerItem.line)
+        }) { plotPixel(colour: colour) }
+    }
+
+    private func plotPixel(colour: UInt8) {
         m.plotColour = colour
         let line = selectLine(m.drawY)
         let x = m.drawX
@@ -101,8 +115,14 @@ nonisolated extension Engine {
     /// HORIZONTAL_LINE ($A04C): from LINE_X1 to LINE_X2 at DRAW_Y in
     /// LINE_COLOUR.  Shorter than 4 units it plots pixels and leaves DRAW_X at
     /// max(x1, x2) + 1; otherwise it fills bytes with the colour's patterns,
-    /// masking the first and the last byte.
+    /// masking the first and the last byte.  A drawing on layer 3 (`PageLayers`).
     func horizontalLine() {
+        m.drawingOnLayer(.horizontalLine, {
+            LayerLine.horizontal(x1: m.lineX1, x2: m.lineX2, y: m.drawY, colour: m.lineColour, m.lineColourPatterns).map(LayerItem.line)
+        }) { horizontalLinePixels() }
+    }
+
+    private func horizontalLinePixels() {
         let y = m.drawY
         guard y < 0xC0 else { return }
         let c = Int(m.lineColour)
@@ -138,8 +158,15 @@ nonisolated extension Engine {
     }
 
     /// VERTICAL_LINE ($9FC4): from LINE_Y1 to LINE_Y2 at DRAW_X in
-    /// LINE_COLOUR, pixel by pixel; leaves DRAW_Y at max(y1, y2) + 1.
+    /// LINE_COLOUR, pixel by pixel; leaves DRAW_Y at max(y1, y2) + 1.  A
+    /// drawing on layer 3 (`PageLayers`).
     func verticalLine() {
+        m.drawingOnLayer(.verticalLine, {
+            LayerLine.vertical(x: m.drawX, y1: m.lineY1, y2: m.lineY2, colour: m.lineColour, m.lineColourPatterns).map(LayerItem.line)
+        }) { verticalLinePixels() }
+    }
+
+    private func verticalLinePixels() {
         let x = Int(m.drawX)
         guard x < 0x8B else { return }
         m.verticalLineColumn = m.xByteTable[x]

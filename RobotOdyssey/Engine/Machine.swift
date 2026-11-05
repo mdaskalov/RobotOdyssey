@@ -47,7 +47,11 @@ nonisolated final class Machine {
     /// two can take each other's place at any call: a switch counts from the
     /// next instruction.
     var switchedOff: Set<String> = [] {
-        didSet { if switchedOff != oldValue { activate() } }
+        didSet {
+            guard switchedOff != oldValue else { return }
+            activate()
+            layers?.switchOff(switchedOff)
+        }
     }
     /// The disk drive the loader reads and writes; nil: no loader, a world
     /// that hands back to it stops (`GameLoop.halted`).
@@ -61,6 +65,15 @@ nonisolated final class Machine {
     var onDrawSprite: ((Machine) -> Void)? {
         didSet { cpu.traps[GameSymbols.address(\.drawSprite)] = true }
     }
+    /// The canvas's layers of the pages (`PageLayers`), while a world runs
+    /// (`GameLoop`); nil: none kept, the canvas shows the pages.  They look
+    /// and change nothing: memory is the same with them as without.
+    var layers: PageLayers? {
+        didSet { followLayers() }
+    }
+    /// The drawings on layer 3 the 6502 code is in (DRAW_TEXT, DRAW_SPRITE):
+    /// where each returns to, with the stack pointer it returns with.
+    private var layerReturns: [(address: UInt16, sp: UInt8)] = []
 
     init(memory: [UInt8], bank1: [UInt8], variant: Variant?) {
         self.variant = variant
@@ -70,6 +83,7 @@ nonisolated final class Machine {
         cpu.stopsAtBRK = true                   // no ROM behind the vector: the code went astray
         cpu.ioRead = { [unowned self] in io($0) }
         cpu.ioWrite = { [unowned self] a, _ in _ = io(a) }
+        cpu.onWrite = { [unowned self] a, old, new in layers?.write(Int(a), old: old, new: new) }
         cpu.onTrap = { [unowned self] in runNative(at: $0) }
         installMouseFirmware()
     }
@@ -91,6 +105,8 @@ nonisolated final class Machine {
         m.hooks = hooks
         m.drive = drive
         m.nativesEnabled = nativesEnabled
+        m.layers = layers?.copy()
+        m.layerReturns = layerReturns
         let c = m.cpu
         c.traps = cpu.traps
         (c.a, c.x, c.y, c.sp, c.p, c.pc, c.cycles) = (cpu.a, cpu.x, cpu.y, cpu.sp, cpu.p, cpu.pc, cpu.cycles)
@@ -158,12 +174,19 @@ nonisolated final class Machine {
     /// Takes the natives out, for the engine of another world, in `variant`
     /// (`install` puts in those its code check allows).
     func load(variant: Variant?) {
-        for native in installed where hooks[native.entry] == nil {
-            cpu.traps[Int(native.entry)] = false
-        }
+        let entries = installed.map(\.entry)
         installed = []
         natives = [:]
+        for entry in entries { refreshTrap(entry) }
         self.variant = variant
+    }
+
+    /// The trap at `address` is set while something there needs it: a
+    /// native, a hook, the layers' routines and returns, `onDrawSprite`.
+    private func refreshTrap(_ address: UInt16) {
+        cpu.traps[Int(address)] = hooks[address] != nil || installed.contains { $0.entry == address }
+            || layers != nil && Machine.layerEntries.contains(address) || layerReturns.contains { $0.address == address }
+            || onDrawSprite != nil && Int(address) == GameSymbols.address(\.drawSprite)
     }
 
     /// Puts in a hook at `address`; one with a `name` can be switched off.
@@ -183,6 +206,7 @@ nonisolated final class Machine {
     }
 
     private func runNative(at pc: UInt16) -> Bool {
+        if let layers { followDrawing(at: pc, layers) }
         if let onDrawSprite, Int(pc) == GameSymbols.address(\.drawSprite) { onDrawSprite(self) }
         if let hook = hooks[pc], !(hook.name.map(switchedOff.contains) ?? false), hook.run(self) { return true }
         guard nativesEnabled, !(0xD000 ..< 0xE000).contains(pc) || bank == 2,
@@ -200,8 +224,9 @@ nonisolated final class Machine {
         guard let variant else { return false }
         let registers = Registers(a: cpu.a, x: cpu.x, y: cpu.y, p: cpu.p)
         let (devices, cycles) = (devices, cpu.cycles)
+        let layers = layers
         let result = cpu.mem.withUnsafeMutableBufferPointer { bytes -> Engine? in
-            var engine = Engine(m: RAM(bytes.baseAddress!, variant), r: registers, devices: devices, cycles: cycles)
+            var engine = Engine(m: RAM(bytes.baseAddress!, variant, layers: layers), r: registers, devices: devices, cycles: cycles)
             return run(&engine) ? engine : nil
         }
         guard let result else { return false }
@@ -222,13 +247,120 @@ nonisolated final class Machine {
 
     /// The page on screen ($C054/$C055), top line first.
     func shownScreen() -> HiresScreen {
+        Machine.screen(cpu.mem, base: shownPage == 1 ? 0x2000 : 0x4000)
+    }
+
+    /// The page whose 8K lie in `memory` from `base` as a screen, top line first.
+    static func screen(_ memory: [UInt8], base: Int) -> HiresScreen {
         var screen = HiresScreen()
-        let base = shownPage == 1 ? 0x2000 : 0x4000
         for line in 0 ..< HiresScreen.height {
             let address = base + line % 8 * 0x400 + line / 8 % 8 * 0x80 + line / 64 * 0x28
-            screen.bytes.replaceSubrange(line * 40 ..< line * 40 + 40, with: cpu.mem[address ..< address + 40])
+            screen.bytes.replaceSubrange(line * 40 ..< line * 40 + 40, with: memory[address ..< address + 40])
         }
         return screen
+    }
+
+    /// The page on screen with its layers (`PageFrame`).
+    func shownFrame() -> PageFrame {
+        frame(page: shownPage - 1, screen: shownScreen())
+    }
+
+    /// The page the engine draws on with its layers: what a draw phase drew.
+    func drawnFrame() -> PageFrame {
+        frame(page: drawnPage, screen: drawnScreen())
+    }
+
+    private func frame(page p: Int, screen: HiresScreen) -> PageFrame {
+        guard let layers, !layers.pages[p].items.isEmpty else { return PageFrame(page: screen) }
+        return PageFrame(page: screen, apple: Machine.screen(layers.pages[p].apple, base: 0), items: layers.pages[p].items)
+    }
+
+    /// The page the engine draws on (LINE_HIGH_TABLE's), 0 or 1.
+    private var drawnPage: Int {
+        PageLayers.page(lineHigh: cpu.mem[cpu.mem[\.lineHighTable]])
+    }
+
+    /// Where the layers follow the drawing: DRAW_ROOM_TILES, where a page's
+    /// drawing starts, and the routines that draw on layer 3 (DRAW_BIG_TEXT
+    /// at DRAW_TEXT, which jumps to it).
+    private static let drawRoomTiles = UInt16(GameSymbols.address(\.drawRoomTiles))
+    private static let drawText = UInt16(GameSymbols.address(\.drawText))
+    private static let drawSprite = UInt16(GameSymbols.address(\.drawSprite))
+    private static let plot = UInt16(GameSymbols.address(\.plot))
+    private static let horizontalLine = UInt16(GameSymbols.address(\.horizontalLine))
+    private static let verticalLine = UInt16(GameSymbols.address(\.verticalLine))
+    private static let layerEntries = [drawRoomTiles, drawText, drawSprite, plot, horizontalLine, verticalLine]
+
+    /// The layers came or went: the pages' writes followed and the layers'
+    /// routines trapped while they are kept.
+    private func followLayers() {
+        for page in 0x20 ..< 0x60 { cpu.watchedPages[page] = layers != nil }
+        layers?.switchOff(switchedOff)
+        let returns = layerReturns.map(\.address)
+        layerReturns = []
+        for address in Machine.layerEntries + returns { refreshTrap(address) }
+    }
+
+    /// The 6502 routine starting at `pc` that draws on layer 3, if one does.
+    private func layerRoutine(at pc: UInt16) -> LayerRoutine? {
+        switch pc {
+        case Machine.drawText: cpu.mem[\.currentTextStyle] == 2 ? .drawBigText : .drawText
+        case Machine.drawSprite: .drawSprite
+        case Machine.plot: .plot
+        case Machine.horizontalLine: .horizontalLine
+        case Machine.verticalLine: .verticalLine
+        default: nil
+        }
+    }
+
+    /// What `routine` is about to draw, from its parameters (PLOT's colour in A).
+    private func layerItem(_ routine: LayerRoutine) -> LayerItem? {
+        let mem = cpu.mem
+        let patterns: LayerLine.Patterns = { c in (mem[\.linePatternsEven, c], mem[\.linePatternsOdd, c]) }
+        switch routine {
+        case .drawText, .drawBigText:
+            return .text(DrawnText(mem))
+        case .drawSprite:
+            return LayerSprite(mem).map(LayerItem.sprite)
+        case .plot:
+            return LayerLine.plot(x: mem[\.drawX], y: mem[\.drawY], colour: cpu.a, patterns).map(LayerItem.line)
+        case .horizontalLine:
+            return LayerLine.horizontal(x1: mem[\.lineX1], x2: mem[\.lineX2], y: mem[\.drawY], colour: mem[\.lineColour], patterns)
+                .map(LayerItem.line)
+        case .verticalLine:
+            return LayerLine.vertical(x: mem[\.drawX], y1: mem[\.lineY1], y2: mem[\.lineY2], colour: mem[\.lineColour], patterns)
+                .map(LayerItem.line)
+        }
+    }
+
+    /// The 6502 code at `pc`: a page's drawing starts (DRAW_ROOM_TILES), a
+    /// drawing on layer 3 starts (`LayerRoutine`, switched on; the item it
+    /// draws noted from its parameters, as it starts) or returns.  The
+    /// engine's routines, at the same place in every world; the layers are
+    /// kept only while a world runs.
+    private func followDrawing(at pc: UInt16, _ layers: PageLayers) {
+        if let r = layerReturns.last, r.address == pc, r.sp == cpu.sp {
+            layerReturns.removeLast()
+            layers.end()
+            refreshTrap(pc)
+        }
+        switch pc {
+        case Machine.drawRoomTiles:
+            layers.clear(page: drawnPage)
+            let returns = layerReturns.map(\.address)
+            layerReturns = []
+            for address in returns { refreshTrap(address) }
+        default:
+            guard let routine = layerRoutine(at: pc), layers.isOn(routine) else { break }
+            let item = layers.drawing > 0 ? nil : layerItem(routine)
+            // It returns where the JSR that called it (or its caller, which jumped to it) goes back to.
+            let sp = Int(cpu.sp)
+            let back = (UInt16(cpu.mem[0x100 + (sp + 1) & 0xFF]) | UInt16(cpu.mem[0x100 + (sp + 2) & 0xFF]) << 8) &+ 1
+            layerReturns.append((back, cpu.sp &+ 2))
+            cpu.traps[Int(back)] = true
+            let page = drawnPage
+            cpu.mem.withUnsafeBufferPointer { layers.begin(item, page: page, memory: $0.baseAddress!) }
+        }
     }
 
     /// The page the engine is drawing on, read through its line tables

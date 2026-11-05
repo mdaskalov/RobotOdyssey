@@ -20,19 +20,44 @@ nonisolated struct RAM {
     private let bytes: UnsafeMutablePointer<UInt8>
     /// The world's engine and version: where its symbols are.
     let variant: Variant
+    /// The canvas's layers of the pages, when the machine keeps them
+    /// (`Machine.layers`): what is written to a page goes to them too.
+    /// Unowned: the machine keeps them through the call.
+    unowned(unsafe) let layers: PageLayers?
 
-    init(_ bytes: UnsafeMutablePointer<UInt8>, _ variant: Variant) {
+    init(_ bytes: UnsafeMutablePointer<UInt8>, _ variant: Variant, layers: PageLayers? = nil) {
         self.bytes = bytes
         self.variant = variant
+        self.layers = layers
     }
 
     /// The byte at a computed address (a pointer's target, a table's entry).
     subscript(_ a: Int) -> UInt8 {
         get { bytes[a & 0xFFFF] }
-        nonmutating set { bytes[a & 0xFFFF] = newValue }
+        nonmutating set {
+            let a = a & 0xFFFF
+            if let layers, (0x2000 ..< 0x6000).contains(a) { layers.write(a, old: bytes[a], new: newValue) }
+            bytes[a] = newValue
+        }
+    }
+
+    /// Runs `draw`, `routine`'s drawing: on layer 3 (`PageLayers`) of the
+    /// page the engine draws on unless it is switched off, `item` what it
+    /// draws, made only if it is one.
+    func drawingOnLayer(_ routine: LayerRoutine, _ item: () -> LayerItem?, _ draw: () -> Void) {
+        guard let layers, layers.isOn(routine) else { return draw() }
+        let page = PageLayers.page(lineHigh: self[word(address(\.lineHighTable))])
+        layers.begin(layers.drawing == 0 ? item() : nil, page: page, memory: bytes)
+        draw()
+        layers.end()
     }
 
     func word(_ a: Int) -> Int { Int(self[a]) | Int(self[a + 1]) << 8 }
+
+    /// The patterns of line colour `c` (LINE_PATTERNS_EVEN/ODD), for `LayerLine`.
+    func lineColourPatterns(_ c: Int) -> (even: UInt8, odd: UInt8) {
+        (self[address(\.linePatternsEven) + c], self[address(\.linePatternsOdd) + c])
+    }
 
     func setWord(_ a: Int, _ v: Int) {
         self[a] = UInt8(v & 0xFF)

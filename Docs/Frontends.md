@@ -2,7 +2,7 @@
 
 Thoughts (2026‑11‑03); step 1, the switches, is built (below). The idea: switches in
 the *Current Room* panel that turn each native routine on or off, and a modern front
-end (SpriteKit drawing, modern sound) beside the Apple's, so every
+end (the Mac drawing over the page, modern sound) beside the Apple's, so every
 improvement can be seen next to the original and compared with it.
 
 ## What is there already
@@ -87,68 +87,129 @@ fix, a gameplay change) – would be marked as such, off by default; the live
 check then shows where they take the game away from the original. The exact
 ones stay exact.
 
-## A modern view (SpriteKit)
+## The native layer
 
-### Not by drawing natives into SpriteKit
+Built 2026‑11‑05 (in place of the modern text of 2026‑11‑04, which drew the
+page again without its letters on a copy). The canvas shows each page as
+three layers (`PageLayers`), the Mac drawing at its resolution where a
+routine draws on the native layer, the Apple's pixels everywhere else:
 
-DRAW_SPRITE drawing into SpriteKit in place of the page would break the
-contract: the page is memory, so `native_check` would fail, turning it off
-mid‑game would leave a page half drawn, *Smooth* (which redraws from a
-page's draw start) and the room thumbnails (the room's own draw phase)
-would lose their picture, and the worlds' own code that writes to the page
-would be lost.
+1. **The page**, as the game drew it, in memory: byte for byte the
+   original's, 6502 code and natives alike. Not shown in the canvas; it is
+   what the game, `native_check`, the thumbnails and the map see.
+2. **The page without the native layer's drawings** (`Page.apple`): what
+   everything else drew, as Apple pixels (`HiresImage`).
+3. **The native layer** (`Page.items`, `LayerItem`): what the routines that
+   draw on it drew, as what it is – a text, a sprite with its rows,
+   position and colour, a plot or a line – drawn by the Mac over layer 2 (`NativeLayer`, a
+   Canvas in the engine's coordinates scaled to the canvas), in the order
+   drawn.
 
-### From the draw phase, as a display list
+Each page (1 and 2) has its own layers 2 and 3: the game draws on the page
+not on screen and flips ($C054/$C055), and the canvas shows the page on
+screen with its layers (`Machine.shownFrame`).
 
-Instead, record what the draw phase draws and render that. The draw phase
-runs as now (6502 or natives, either), the page is made as now, and the
-record is a side product:
+* **Who draws on layer 3** (`LayerRoutine`): DRAW_TEXT ($A2EA,
+  `DrawnText`), DRAW_BIG_TEXT ($A3E1, reached only by DRAW_TEXT's jump for
+  style 2, followed there), DRAW_SPRITE ($AF1F, `LayerSprite`), PLOT ($A14D,
+  its colour in A), HORIZONTAL_LINE ($A04C) and VERTICAL_LINE ($9FC4)
+  (`LayerLine`): after the tiles, everything the draw phase draws (no world
+  code writes the page there, 2026‑11‑05), so layer 3 has it in the game's
+  order – the robots' faces are a black sprite with plots and lines over it
+  (the wallhugger's animation), the flip‑flop robot's band a black line over
+  its body. They draw on the page as
+  ever – the game's memory stays the original's, natives and their
+  switches interchangeable at any call – and nothing they write goes to
+  layer 2. As 6502 code the machine follows them (`Machine.followDrawing`,
+  traps that look and change nothing): at the entry the item from the
+  parameters, then nothing to layer 2 until the routine returns (where the
+  JSR on the stack goes back to, the stack pointer 2 higher; big text's
+  letters are DRAW_SPRITE's inside DRAW_TEXT's, a short line's plots
+  HORIZONTAL_LINE's, part of its item). The Swift versions, which the robot
+  drawing natives call, do the same themselves (`RAM.drawingOnLayer`), with
+  the 6502 code's calls (VERTICAL_LINE plots inline, HORIZONTAL_LINE calls
+  PLOT), so natives and 6502 code make the same layers.
+* **Layer 2** follows everything else written to a page: the 6502 code's
+  writes (the CPU's `watchedPages`/`onWrite`, $2000‑$5FFF) and the natives'
+  (`RAM`). Only the bits a write changed go there (the user's choice,
+  2026‑11‑05, to see it): the 6502 code that draws after a text or sprite
+  reads the page with their pixels in it and writes it back with its own;
+  the bits it didn't change stay as layer 2 had them. Its blind spot: a bit
+  the later drawing sets that the layer's drawing had set already (ORed in,
+  or stored over it) stays out of layer 2; the palette bit the same way.
+  With only the texts and sprites on layer 3 that was 6‑170 bytes a world,
+  the wires and pins drawn over the robots' parts; with the plots and lines
+  too, none: only the tiles draw outside layer 3, before it. A routine
+  switched off draws into layer 2 and can bring the blind spot back.
+* **When:** a page's layer 3 is emptied where its drawing starts
+  (DRAW_ROOM_TILES draws all of it: the draw phase and the worlds' own
+  screens – the help, the Esc and chip rooms, the way out of the sewer);
+  layer 2 is taken from the page at its first drawing on layer 3 and
+  followed from there; without any, layer 2 is the page. The machine keeps
+  the layers while a world runs (`GameLoop.keepsLayers`), not in the loader
+  (its code lies where the engine's routines were); its copies keep them, so
+  the previews and *Smooth*'s in‑between frames come with theirs.
+* **What it costs:** about 0.15 ms a tick (3.9 against 3.75 ms in a
+  Release build), the writes to the pages followed and the drawings noted.
+* **Texts** in a modern monospaced font, SF Mono Medium (`NativeLayer.font`;
+  the other fonts of `TextFont` wait for a settings menu – the user,
+  2026‑11‑05), of the Apple's letter size: each letter centred in its cell,
+  its capitals as high as the Apple's (7 lines, big text 14) on the Apple's
+  baseline, at most as wide as the cell; white (green on the monochrome
+  screen), big text in the colour its patterns show. The font's own signs
+  become what they show (`DrawnText.characters`): { } ~ DEL ← → ↑ ↓, ^ a
+  bullet, \` and " the quotes “ ”, ' ’; hyphens next to an arrow are its
+  shaft, a line through their cells (the Apple's hyphen fills its cell); an
+  accent another text draws over a letter is merged into it (Level 2's $25
+  "Musé": a / five lines above the e). The arrows and their shafts come from
+  SF Mono (Menlo's are small, Monaco has no ← ↑), ← and → lowered onto the
+  line of its ─, so an arrow and its shaft make one line.
+* **Sprites, plots and lines** as the pixels they light, at the Apple's
+  resolution, drawn crisp at the Mac's (`Pixels` in NativeLayer.swift): the
+  pixels a drawing covers (a sprite bit two across, bit 6 on the left; a
+  plot two; a line from its first to its last unit) lit where its colour's
+  patterns light them (by byte column; PLOT's tables light the same pixels
+  as LINE_PATTERNS), cleared (black) elsewhere and all of them where the
+  patterns light none, as on the page. Consecutive drawings go into one
+  buffer, in order (a text in between draws it first): an unlit pixel
+  between two lit ones shows their colour (white and a colour: the colour),
+  as the colour screen shows a colour's every other pixel – so two sprites
+  side by side make one body, a spark is one pixel; green and the pixels
+  lit on the monochrome screen. The Apple's drawing without its colour
+  fringes. (First drawn two pixels a bit, which made the coloured shapes a
+  pixel wider and the sparks dashes – the user, 2026‑11‑05: "the sprites
+  are wrong".) Where new drawings of the sprites come in, keyed by the rows
+  drawn rather than the sprite number (the worlds' code rewrites sprites as
+  it runs: Level 1's room $0E, the big text).
+* **The switches:** one per routine (the user, 2026‑11‑05, in place of one
+  *NATIVE_LAYER* switch), under *Native layer* in the *Native routines* list
+  (outside *All*, which is about the engine), kept in `nativesOff` with the
+  natives' switches (`Machine.switchedOff`, `PageLayers.switchOff`): off, the
+  routine's drawing stays the Apple's pixels, in layer 2. From the next page
+  drawn. The thumbnails and the map show the page.
+* Checked headless by `Data/layer_check.sh` (v1.1, every world): memory,
+  bank 1 and the page the same keeping the layers and not; every room drawn
+  with the layers (natives on, and all 6502 code) against the page the 6502
+  code draws with every write inside the layer's routines undone – layer 2
+  differs from it only in bytes they drew in (the blind spot, counted: 0);
+  the loop's own page on screen with the same layers; every room's texts;
+  the letters never two in one cell (but in the junk of room $3F); the help
+  (`?`): layer 2 the page without the letters.
 
-* **Primitives** where the engine draws: DRAW_SPRITE(_COLOUR) ($AF1F, with
-  its rows, x/y and patterns – `DrawnSprite` records that already for
-  *Other sprites drawn*), PLOT ($A14D), HORIZONTAL_LINE/VERTICAL_LINE,
-  DRAW_BOX, FILL_TILE (walls), the letters (DRAW_TEXT, DRAW_BIG_TEXT), each
-  with the main‑loop routine that drew it (DRAW_ROOM_OBJECTS, DRAW_ROBOTS,
-  DRAW_WIRES, the world's code by address).
-* **Observers, not replacements:** hooks at these entries that note the
-  call and let the routine (6502 or native) run, so the record comes from
-  the pass that draws the page, not an extra one. The natives that draw
-  (RobotDrawing) report their primitives the same way.
-* **Complete, checked:** rasterising the list into a page must give the
-  page byte for byte, every tick, every world – the same kind of check as
-  `native_check`. Where it doesn't, something writes to $2000‑$5FFF outside
-  the primitives (a world's own drawing code; to be found): that part shows
-  as the Apple page, as a texture layer, until it has a primitive of its
-  own.
+### More on layer 3
 
-### SpriteKit
+No SpriteKit or GameplayKit (the user, 2026‑11‑05): the native layer is
+drawn by the Mac in the canvas, over the Apple's pixels. Next:
 
-* **Textures, made at world load:** the 64 sprites ($6A00, 16 rows, row 0
-  at the bottom) in each colour (COLOUR_PATTERN0/1). The worlds' code
-  rewrites sprites as it runs (Level 1's room $0E, the big text), so a
-  texture is keyed by the rows and patterns drawn, not the sprite number:
-  a cache filled at world load, added to when new rows turn up.
-* **Coordinates:** object coordinates count y from the bottom, as SpriteKit
-  does; walls are the room's 20×12 tiles, wires the L‑shaped lines.
-* **Nodes that last:** a node per object (by its number from
-  DRAW_ROOM_OBJECTS), per robot part and per wire, kept from tick to tick,
-  so movement can be animated over the tick at display rate (SKAction) in
-  place of *Smooth*'s in‑between draw phases.
-* **What it can improve:** any scale and filtering, real colours per colour
-  index in place of artifact colours, hot wires (colour 5) glowing, scrolling
-  into the next room instead of a cut, later redrawn sprites at a higher
-  resolution.
-
-### Comparing
-
-*Display*: **Apple** (the page), **Modern** (SpriteKit), **Split** (both,
-side by side), **Overlay** (the modern view over the page, or the
-difference of the two at the Apple's resolution). Both come from the same
-tick, so they always show the same moment.
-
-The map and thumbnails stay the room's own draw phase (as now); with the
-modern view on, they can be made from the rooms' display lists the same
-way.
+* **More routines drawing on it**, each where it is called: the tiles
+  (SET_TILE_COLOURS) – and then the robots as robots, not as their sprites
+  and lines, the wires as wires.
+* **New drawings of the sprites**, by the rows drawn and the colour.
+* **What is still drawn outside:** the worlds' own code that writes the page
+  (found by the same kind of check: what layer 2 still has once every
+  engine routine draws on layer 3).
+* **Comparing:** *Split* (the page and the layers side by side) and
+  *Overlay*, from the same tick.
 
 ## Sound
 
@@ -240,10 +301,12 @@ pointer) are on the branch `snapshot/mouse-drag`.
 ## Order
 
 1. Switches per native, taking effect at the next instruction – done.
+   The texts in a modern font – done; since 2026‑11‑05 the native layer
+   (texts, sprites, plots and lines, "The native layer").
 2. The live check against a machine without natives.
-3. The display list from the draw phase, with the rasterise‑and‑compare
-   check; find what draws outside the primitives.
-4. The SpriteKit view from the display list; *Split* and *Overlay*.
+3. More routines on the native layer (the tiles, the robots, the wires);
+   find what draws outside them.
+4. New drawings of the sprites; *Split* and *Overlay*.
 5. Modern sound by sound number.
 6. Natives for the carrying and the wires: MOVE_LINKED_OBJECTS/FOLLOW_LINK
    ($9C53/$9C88, engine main), then CARRY_WIRES in each engine (levels

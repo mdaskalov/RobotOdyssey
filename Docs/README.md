@@ -14,7 +14,7 @@ faithful Swift version.
 | [CopyProtection.md](CopyProtection.md) | the copy protection: the E7 bitstream on track 1, the checks, the flag that turns off the soldering pen, the cracked dumps |
 | [Loader.md](Loader.md) | the loader in the app: boot stage 2, the loader and the menu as 6502 code with a native boot, RWTS and disk drive; the storage disk; following the game into the next world |
 | [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine, the `.sym` files in Mariani's debugger |
-| [Frontends.md](Frontends.md) | plan: switches for the natives with a live check against the original, a modern view (SpriteKit) from the draw phase's display list beside the Apple's, modern sound |
+| [Frontends.md](Frontends.md) | plan: switches for the natives with a live check against the original, the native layer (the Mac drawing the texts, sprites, plots and lines over the rest of the page) beside the Apple's, modern sound |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
 ## Current status (2026‑11‑01)
@@ -69,6 +69,16 @@ faithful Swift version.
   has one too: off, Robotropolis' intro plays as on the Apple. The menu's
   drawing (DRAW_PICTURE, XOR_BLOCK) runs as natives too, so the intro's
   tunes don't wait for its pictures (Loader.md).
+* **The native layer** (since 2026‑11‑05, Frontends.md): each page in three
+  layers – the page as the game drew it, the page without what the texts,
+  sprites, plots and lines drew (DRAW_TEXT, DRAW_BIG_TEXT, DRAW_SPRITE, PLOT,
+  HORIZONTAL_LINE, VERTICAL_LINE), and those drawings drawn by the Mac at
+  its resolution over it, in the game's order: the texts in a modern
+  monospaced font (SF Mono Medium) at the Apple's letter size, in place of
+  the one‑pixel font the colour screen fringes in purple and green, the rest
+  as the pixels they light without the colour fringes. The game draws
+  everything into its page as ever. Each routine has its switch under
+  *Native layer* in *Native routines*.
 * **Sound** (Sound.md): the native PLAY_SOUNDS runs the tone and noise loops
   as the original, reports every speaker click to the cycle and takes the
   sound's cycles (the game waits while a sound plays, as on the Apple); the
@@ -320,7 +330,10 @@ the new one over the tick. The toolbar has *Pause/Run* (also the space bar), *St
 (one tick, when paused) and *Restart*; the *Current Room* panel's *Game* section shows
 the tick and ticks/s, how the room is drawn and, folded, the native routines
 in use with their entry points (and any routine the loader found modified,
-which runs as 6502 code). The room thumbnails show the rooms after the world's
+which runs as 6502 code); under *Native layer* there, a switch for each
+routine whose drawing the Mac draws over the page as the rest of the code
+drew it – the texts, sprites, plots and lines (Frontends.md "The native
+layer"; the thumbnails and the map show the page as the game drew it). The room thumbnails show the rooms after the world's
 start‑up code; the selected room is shown live, and a room keeps its last
 live frame once you leave it, so the map shows the rooms as last seen. A room
 the player walks out of while playing is drawn again a tick later, without

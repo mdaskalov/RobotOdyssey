@@ -241,9 +241,28 @@ struct CurrentRoomPanel: View {
                     .help("The menu's and the intro's drawing in Swift, at once: the intro's tunes don't wait for "
                           + "the pictures. Off: the original 6502 code draws, taking its time")
             }
+            Text("Native layer").font(.caption).foregroundStyle(.secondary)
+            ForEach(LayerRoutine.allCases, id: \.self) { routine in
+                nativeSwitch(routine.name, String(format: "$%04X", GameSymbols.address(routine.routine)))
+                    .help(CurrentRoomPanel.layerHelp(routine))
+            }
         } label: {
             LabeledContent("Native routines") { Text(summary).monospacedDigit() }
         }
+    }
+
+    /// What a routine's switch on the native layer does.
+    private static func layerHelp(_ routine: LayerRoutine) -> String {
+        let what = switch routine {
+        case .drawText: "The texts, in SF Mono Medium"
+        case .drawBigText: "Big text (DRAW_TEXT's style 2), in SF Mono Medium in its colour"
+        case .drawSprite: "The sprites, the pixels they light without colour fringes"
+        case .plot: "The colour pixels PLOT plots"
+        case .horizontalLine: "The horizontal lines (wires, boxes, the robots' insides)"
+        case .verticalLine: "The vertical lines (wires, boxes, the robots' insides)"
+        }
+        return what + ", drawn by the Mac at its resolution on the native layer, in the order the game draws; "
+            + "the game draws them into its page as ever. Off: the Apple's pixels. From the next page drawn"
     }
 
     /// A native's switch: its name and entry point.

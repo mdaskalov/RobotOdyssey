@@ -10,6 +10,8 @@ let cpu = CPU6502(memory: ram)              // 64K
 cpu.ioPages[0xC0] = true                    // $C000-$C0FF go to ioRead/ioWrite
 cpu.ioRead = { address in … }
 cpu.ioWrite = { address, value in … }
+cpu.watchedPages[0x20] = true               // $2000-$20FF written as ever, then told:
+cpu.onWrite = { address, old, new in … }
 cpu.pc = 0x0800
 try cpu.step()                              // one instruction
 try cpu.call(0x6000)                        // JSR and run until it returns
@@ -23,7 +25,7 @@ try cpu.call(0x6000)                        // JSR and run until it returns
 | `Opcode.swift` | `Opcode`: length, the page‑crossing rule, `Opcode(0xBD)` |
 | `Mnemonic.swift` | what each instruction does, AppleWin's names for the undocumented ones, how it uses its operand (`Access`) |
 | `AddressingMode.swift` | the 13 modes, their length and assembly syntax |
-| `CPU6502.swift` | registers, memory and I/O pages, traps, `step`, `call`, reset, IRQ, NMI |
+| `CPU6502.swift` | registers, memory, I/O and watched pages, traps, `step`, `call`, reset, IRQ, NMI |
 | `Addressing.swift` | finding the operand, and reading/writing it on the 6502's cycles |
 | `Instructions.swift` | `execute`: every instruction, one line each where it can be |
 | `UndocumentedInstructions.swift` | the undocumented ones that need more than a line |

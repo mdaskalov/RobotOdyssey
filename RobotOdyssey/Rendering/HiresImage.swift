@@ -8,15 +8,38 @@ nonisolated enum HiresImage {
         var id: String { rawValue }
     }
 
-    /// RGBA pixels as they lie in memory (R first), opaque.
-    private static func rgba(_ r: UInt8, _ g: UInt8, _ b: UInt8) -> UInt32 {
-        UInt32(r) | UInt32(g) << 8 | UInt32(b) << 16 | 0xFF00_0000
+    struct RGB: Equatable {
+        let r, g, b: UInt8
     }
 
-    private static let black = rgba(0, 0, 0), white = rgba(255, 255, 255)
-    private static let green = rgba(20, 245, 60)
+    static let whiteRGB = RGB(r: 255, g: 255, b: 255)
+    /// The monochrome screen's green.
+    static let monoRGB = RGB(r: 20, g: 245, b: 60)
     /// [palette bit * 2 + pixel column parity]: purple, green, blue, orange.
-    private static let palette = [rgba(255, 68, 253), rgba(20, 245, 60), rgba(20, 207, 253), rgba(255, 106, 60)]
+    static let paletteRGB = [RGB(r: 255, g: 68, b: 253), RGB(r: 20, g: 245, b: 60),
+                             RGB(r: 20, g: 207, b: 253), RGB(r: 255, g: 106, b: 60)]
+
+    /// The colour a pair of patterns (even and odd byte columns, as the
+    /// sprites and big text take them) shows filled in: white where pixels of
+    /// both column parities are on, a palette colour where only one; nil:
+    /// black.
+    static func colour(patternEven: UInt8, patternOdd: UInt8) -> RGB? {
+        var parities = Set<Int>()
+        for (column, pattern) in [patternEven, patternOdd].enumerated() {
+            for bit in 0 ..< 7 where pattern >> bit & 1 != 0 { parities.insert((column * 7 + bit) & 1) }
+        }
+        guard let parity = parities.first else { return nil }
+        return parities.count == 2 ? whiteRGB : paletteRGB[Int(patternEven >> 6 & 2) + parity]
+    }
+
+    /// RGBA pixels as they lie in memory (R first), opaque.
+    private static func rgba(_ c: RGB) -> UInt32 {
+        UInt32(c.r) | UInt32(c.g) << 8 | UInt32(c.b) << 16 | 0xFF00_0000
+    }
+
+    private static let black = rgba(RGB(r: 0, g: 0, b: 0)), white = rgba(whiteRGB)
+    private static let green = rgba(monoRGB)
+    private static let palette = paletteRGB.map(rgba)
 
     /// Runs on every frame the viewer shows, so on pointers: a Debug build's
     /// array checks made it take 40 ms.
