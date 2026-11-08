@@ -383,28 +383,28 @@ struct NativeCheck {
         let robots = check.natives.filter { $0.run != nil && !$0.flags.contains(.leavesRegisters) }
         guard !robots.isEmpty, let start = try? screen.render(room: 0).machine else { return 0 }
         let v = check.variant
-        let count = Robot.count(v.engine)
+        let all = Array(Robot.all(v.engine))
         var n = 0
         for trial in 0 ..< 300 {
             var mem = start.cpu.mem
             let interior = rng.chance(3)
-            let room = interior ? Robot.interiorRooms[Int(rng.byte(count))] : rng.byte(0x40)
+            let room = interior ? all[Int(rng.byte(all.count))].interiorRoom : rng.byte(0x40)
             mem.withRAM(v) { m in
                 m.currentRoom = room
-                for (i, body) in Robot.bodies.prefix(count).enumerated() {
+                for robot in all {
+                    let body = robot.body, state = robot.state
                     if !interior || rng.chance(2) { m.objRoom[body] = room }
                     m.objX[body] = rng.chance(8) ? rng.byte() : rng.byte(0x8C)
                     m.objY[body] = rng.chance(8) ? rng.byte() : rng.byte(0xB8)
-                    let state = Robot.stateSize * i
                     for k in 0 ..< 4 {
                         m.robotThrusters[state + k] = rng.chance(10) ? rng.byte() : rng.byte(4)
                         m.robotBumpers[state + k] = rng.byte(8)
-                        m.robotGrabbers[4 * i + k] = rng.chance(10) ? rng.byte() : rng.byte(5)
+                        m.robotGrabbers[robot.grabbers + k] = rng.chance(10) ? rng.byte() : rng.byte(5)
                     }
                     m.robotBattery[state] = rng.chance(10) ? rng.byte(0x20) : rng.byte(0x10)
                     m.robotSwitch[state] = rng.byte(2)
-                    m.objColour[Robot.antennaObjects[i]] = rng.byte(8)
-                    m.objColour[Robot.signalObjects[i]] = rng.chance(2) ? 5 : rng.byte(8)
+                    m.objColour[robot.antennaObject] = rng.byte(8)
+                    m.objColour[robot.signalObject] = rng.chance(2) ? 5 : rng.byte(8)
                 }
                 let counters: [ByteSymbol] = [\.scanPosition, \.sparkToggle, \.rainbowColour, \.rainbowStep, \.rainbowBit]
                 for counter in counters {

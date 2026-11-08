@@ -44,9 +44,7 @@ struct WorldPanel: View {
                             SoundsSection(model: model, world: world)
                             TextsSection(model: model, world: world)
                             ObjectsSection(model: model, world: world)
-                            if world.engine == .levels {
-                                RobotsSection(model: model, world: world)
-                            }
+                            RobotsSection(model: model, world: world)
                             WiresSection(model: model, world: world)
                         }
                         .coordinateSpace(.named(Self.contents))
@@ -568,8 +566,8 @@ private struct ObjectCell: View {
 
 // MARK: robots
 
-/// The four robots (ROBOT_BODY, ROBOT_INTERIOR; the levels' tables): click
-/// one to select its body, Inside to go to its interior.
+/// The world's robots (`Robot`; 3, 4 in the levels): click one to select its
+/// body, Go Inside to go to its interior.
 private struct RobotsSection: View {
     var model: ViewerModel
     let world: World
@@ -577,21 +575,21 @@ private struct RobotsSection: View {
 
     var body: some View {
         let live = model.contents(world).world
-        let robots = live.robots
-        WorldSection("Robots", summary: "\(robots.count { live.object($0.object).room != World.nowhere }) in rooms",
+        let robots = Array(live.robots)
+        WorldSection("Robots", summary: "\(robots.count { live.object(Int($0.body)).room != World.nowhere }) in rooms",
                      isExpanded: $isExpanded) {
             LazyVGrid(columns: cells(260), alignment: .leading, spacing: 4) {
-                ForEach(robots.indices, id: \.self) { i in
-                    let robot = live.object(robots[i].object)
+                ForEach(robots, id: \.self) { robot in
+                    let body = live.object(Int(robot.body)), interior = Int(robot.interiorRoom)
                     HStack(spacing: 8) {
-                        ObjectCell(world: live, object: robot, note: "robot \(i + 1)")
-                            .selected(model.selection == .object(robot.id))
+                        ObjectCell(world: live, object: body, note: robot.description)
+                            .selected(model.selection == .object(body.id))
                             .onTapGesture {
-                                if robot.room != World.nowhere { model.show(room: robot.room, item: .object(robot.id)) }
+                                if body.room != World.nowhere { model.show(room: body.room, item: .object(body.id)) }
                             }
-                        Button("Inside") { model.show(room: robots[i].interior) }
+                        Button("Go Inside") { model.show(room: interior) }
                             .controlSize(.small)
-                            .help("Go to its interior, \(roomTitle(robots[i].interior))")
+                            .help("Go to its interior, \(roomTitle(interior))")
                     }
                 }
             }

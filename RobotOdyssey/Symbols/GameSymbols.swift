@@ -131,7 +131,8 @@ nonisolated final class GameSymbols: Sendable {
 
     // MARK: robots and circuits (the kit and the lab keep theirs in their code segments)
 
-    /// The robots' body objects and interior rooms, 4 each.
+    /// The robots' body objects and interior rooms, 4 each (levels only; the
+    /// kit and the lab have text here). Nothing reads it: `Robot` has the values.
     let robotBody = Table(0x8200)
     let robotInterior = Table(0x8204)
     // The robot drawing's tables (Docs/Robots.md).

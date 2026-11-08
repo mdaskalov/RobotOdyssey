@@ -53,7 +53,7 @@ python3 ro_shuffle.py "$A" "$B" ../Docs/crystal_spots.png   # Level 1: the black
 | `apple2kit_data.py` | imported by the Python tools that use `dis6502.py`/`hires.py`: those live in Apple2Kit's `Data/` (with `hexdump.py`; `$APPLE2KIT_PACKAGE`, else `../../Apple2Kit`) |
 | `aws_state.py` | extract main/aux RAM from a Mariani/AppleWin `.yaml` save state |
 | `ro_title.py` | unpack the title pictures like the menu ($0A71) and write the three title screens; `--verify` compares with the original unpacker and wipe on the emulator (format: `Docs/DiskLayout.md`, *Title pictures*) |
-| `ro_icon.py` | the app icon: robot 2 (the blue one) drawn by the engine ($9D18, $D2BC) from the save state, 20× on a dark background, all macOS sizes |
+| `ro_icon.py` | the app icon: robot 2, Scanner (the blue one), drawn by the engine ($9D18, $D2BC) from the save state, 20× on a dark background, all macOS sizes |
 | `ro_shuffle.py` | Level 1's shuffled black crystal (L1_SHUFFLE_OBJECTS, Docs/Engine.md): its six maze spots drawn like the engine, the crystal in white, in one PNG (`Docs/crystal_spots.png`) |
 
 ## Extracted/v1.1

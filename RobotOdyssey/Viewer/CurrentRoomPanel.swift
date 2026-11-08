@@ -30,8 +30,8 @@ struct CurrentRoomPanel: View {
                 row("Exits ↑ ↓ ← →", [room.up, room.down, room.left, room.right]
                     .map { $0 == room.id ? "–" : hex($0) }.joined(separator: " "))
                 firstObjectRow(live, room.firstObject)
-                if let robot = live.robots.firstIndex(where: { $0.interior == room.id }) {
-                    row("Inside robot", "\(robot + 1) (object \(hex(live.robots[robot].object)))")
+                if let robot = live.robots.first(where: { Int($0.interiorRoom) == room.id }) {
+                    row("Inside robot", "\(robot) (object \(hex(Int(robot.body))))")
                 }
                 if let sound = model.lastSound {
                     lastSoundRow(sound, room: room.id)

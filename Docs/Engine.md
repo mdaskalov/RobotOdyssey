@@ -321,7 +321,7 @@ The level isn't shuffled when it starts, but when the player first leaves
 the start rooms: *n* ticks in them put the key in room $09 + *n* mod 3 and
 the chip at entry *n* mod 6 (*n* = 1 gives the disk's places, room $0A and
 $0C); the random numbers are those of the last tick there, and every tick
-advances the generator (robot 1's dots alone by 32 steps, Robots.md), so the
+advances the generator (robot 1's, Sparky's, dots alone by 32 steps, Robots.md), so the
 crystal's room can't be foretold. The chip and the crystal may share a room. The black crystal's
 place on the disk (room $07 at ($1F, $3D)) is none of the six, so a game
 never shows it there. A saved game keeps L1_SHUFFLED, so restoring one
@@ -359,7 +359,7 @@ drains nothing again. The crystal itself doesn't change. Bringing the black
 crystal into the Ampire Bot's room is the way to get rid of it.
 
 A quirk: the black crystal shares robot $F4's branch in L1_FIND_AMPIRE_TARGET
-(the check is `$F6`, `$F0`, `$F2`, else robot 2's battery $8E19), so the
+(the check is `$F6`, `$F0`, `$F2`, else robot 2's (Scanner's) battery $8E19), so the
 Ampire Bot ignores it while robot $F4's battery is empty. Checked on the
 emulator with the crystal moved into room $10: the bot takes it at once,
 turns green after 20 ticks and stays; with $8E19 = 0 it never leaves state 0.

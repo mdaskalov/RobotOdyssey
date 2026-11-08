@@ -25,17 +25,21 @@ version's.
 
 ## Robots
 
-Robot *i* is fixed in the code of every build:
+Robot *i* is fixed in the code of every build (`Robot` in the port). The
+manual names the three of Robotropolis (Robot Anatomy: "Sparky, Checkers, and
+Scanner"); which is which follows from their looks. The fourth, freed in
+Level 4, has no name in the game or the manual; the port calls it Pulser.
 
-| Robot | Body object | Interior room | Inside colour | Antenna colour from | Antenna signal when |
-|---|---|---|---|---|---|
-| 0 | $F0 | $09 | 7 white | object $66 | battery ≠ 0 and object $59 orange |
-| 1 | $F2 | $0A | 6 blue | object $E6 | battery ≠ 0 and object $E5 orange |
-| 2 | $F4 | $0B | 7 | object $E3 | battery ≠ 0 and object $E2 orange |
-| 3 | $01 | $0D | 7 | object $0C | battery ≠ 0 and object $0B orange |
+| Robot | Name | Body object | Interior room | Inside colour | Antenna colour from | Antenna signal when |
+|---|---|---|---|---|---|---|
+| 0 | Checkers | $F0 | $09 | 7 white | object $66 | battery ≠ 0 and object $59 orange |
+| 1 | Sparky | $F2 | $0A | 6 blue | object $E6 | battery ≠ 0 and object $E5 orange |
+| 2 | Scanner | $F4 | $0B | 7 | object $E3 | battery ≠ 0 and object $E2 orange |
+| 3 | Pulser | $01 | $0D | 7 | object $0C | battery ≠ 0 and object $0B orange |
 
-(The table at $8200 lists the same bodies and rooms, but these routines don't
-read it.)
+(In the levels the table at $8200 lists the same bodies and rooms, but these
+routines don't read it; in the kit and lab worlds $8200 holds text, so the
+viewer takes the robots from `Robot` too.)
 
 State per robot (levels addresses):
 
@@ -53,18 +57,18 @@ State per robot (levels addresses):
 For robots 0, 1, 2, 3 in this order, each only if its body is in the current
 room ($9C2D). x and y are the body's position ($8EBF/$8EC0).
 
-* **Robot 0** ($D44D): two black blanks ($84D4) at (x+1, y+3) and
+* **Robot 0, Checkers** ($D44D): two black blanks ($84D4) at (x+1, y+3) and
   (x+5, y+3), then the *rainbow window* ($D6AB): the window sprite $8534
   plotted pixel by pixel ($A14D) from (x+2, y), each set pixel in the next of
   colours 4‑7 ($8E9A, which also advances once per bit). The step $8E9B is 1
   (reset to 0 and incremented by the routine; the kit and lab builds only
   increment it until it is 1).
-* **Robot 1** ($D359): a blank at (x+3, y+3), sparks alternating between
+* **Robot 1, Sparky** ($D359): a blank at (x+3, y+3), sparks alternating between
   $8514 and $8524 every tick ($8E99), and two dots ($84C4, blue then orange)
   at random positions x + $8329[rnd 3], y + $832C[rnd 5].
-* **Robot 2** ($D2C8): a black 10×2 bar ($A281) at (x+1, y+7) with an orange
+* **Robot 2, Scanner** ($D2C8): a black 10×2 bar ($A281) at (x+1, y+7) with an orange
   dot running along it: x + $831B[$8E98], $8E98 counting 13…0 and wrapping.
-* **Robot 3** ($D4CC, levels only): a blank at (x+3, y+3) and three nested
+* **Robot 3, Pulser** ($D4CC, levels only): a blank at (x+3, y+3) and three nested
   squares ($84E4/$84F4/$8504) at (x+2, y+3) whose colours rotate (phase $8E9E,
   colours $8334 + $8331[phase]).
 

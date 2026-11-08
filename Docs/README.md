@@ -254,7 +254,7 @@ of a name already loaded is left out. Each
 version keeps one side A and one side B: the first one loaded wins, later
 sides of the same version are ignored (listed under *Notes*). Without disks
 the window shows the game's title screen (`Data/ro_title.py`); the app icon is
-robot 2, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world in the sidebar and a room
+robot 2, Scanner, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world in the sidebar and a room
 in the *World* panel below the canvas (`WorldPanel`, shown or hidden from the
 toolbar). Its sections fold like the *Current Room* panel's, their headers stay on top
 as the panel scrolls: *Rooms* – *Grid* shows all 64 rooms (room *n* at column

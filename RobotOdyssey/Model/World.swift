@@ -199,10 +199,10 @@ nonisolated struct World: Identifiable {
         return o
     }
 
-    /// ROBOT_BODY and ROBOT_INTERIOR: body object and interior room of each of the 4 robots.
-    var robots: [(object: Int, interior: Int)] {
-        (0 ..< 4).map { (m(\.robotBody, $0), m(\.robotInterior, $0)) }
-    }
+    /// The world's robots (3, 4 in the levels), with their body objects and
+    /// interior rooms as the engine's code has them (ROBOT_BODY and
+    /// ROBOT_INTERIOR are only the levels'; the kit's and lab's $8200 is text).
+    var robots: ArraySlice<Robot> { Robot.all(engine) }
 
     // MARK: rooms
 

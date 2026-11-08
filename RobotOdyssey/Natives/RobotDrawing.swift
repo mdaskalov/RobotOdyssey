@@ -1,27 +1,68 @@
 import Foundation
 import MOS6502
 
-/// What the robot drawing has fixed in its instructions, in every engine.
-nonisolated enum Robot {
-    /// The robots' body objects.
-    static let bodies: [UInt8] = [0xF0, 0xF2, 0xF4, 0x01]
-    /// The antenna takes the colour of the first object; the second orange means transmitting.
-    static let antennaObjects: [UInt8] = [0x66, 0xE6, 0xE3, 0x0C]
-    static let signalObjects: [UInt8] = [0x59, 0xE5, 0xE2, 0x0B]
-    static let interiorRooms: [UInt8] = [0x09, 0x0A, 0x0B, 0x0D]
-    static let interiorColours: [UInt8] = [7, 6, 7, 7]
+/// The robots in the engine's order (robot 0-3, the raw value), with what the
+/// robot drawing has fixed in its instructions, in every engine (Docs/Robots.md).
+/// The manual names the three of Robotropolis (Robot Anatomy: "Sparky,
+/// Checkers, and Scanner"); the fourth, freed in Level 4, has no name in the
+/// game and is named after its look here.
+nonisolated enum Robot: Int, CaseIterable, CustomStringConvertible {
+    /// Robot 0: its checkered window drawn in cycling colours.
+    case checkers
+    /// Robot 1: sparks and two dots at random places.
+    case sparky
+    /// Robot 2: a light running along a bar.
+    case scanner
+    /// Robot 3 (levels only): three nested squares pulsing inwards.
+    case pulser
+
+    var description: String {
+        switch self {
+        case .checkers: "Checkers"
+        case .sparky: "Sparky"
+        case .scanner: "Scanner"
+        case .pulser: "Pulser"
+        }
+    }
+
+    /// The robots of an engine: all 4 in the levels; the other worlds have no robot 3.
+    static func all(_ engine: EngineBuild) -> ArraySlice<Robot> {
+        allCases.prefix(engine == .levels ? 4 : 3)
+    }
+
+    /// Body object, interior room and the colour of its parts there; the
+    /// antenna takes the colour of the antenna object and transmits when the
+    /// signal object is orange.
+    private var fixed: (body: UInt8, interiorRoom: UInt8, interiorColour: UInt8, antenna: UInt8, signal: UInt8) {
+        switch self {
+        case .checkers: (0xF0, 0x09, 7, 0x66, 0x59)
+        case .sparky:   (0xF2, 0x0A, 6, 0xE6, 0xE5)
+        case .scanner:  (0xF4, 0x0B, 7, 0xE3, 0xE2)
+        case .pulser:   (0x01, 0x0D, 7, 0x0C, 0x0B)
+        }
+    }
+
+    var body: UInt8 { fixed.body }
+    var interiorRoom: UInt8 { fixed.interiorRoom }
+    var interiorColour: UInt8 { fixed.interiorColour }
+    var antennaObject: UInt8 { fixed.antenna }
+    var signalObject: UInt8 { fixed.signal }
+
     /// Bytes of each robot's state (ROBOT_STATE and the tables in it).
     static let stateSize = 0x1A
+    /// Where its state starts in ROBOT_STATE and the tables in it (thrusters, bumpers, battery, switch).
+    var state: Int { Robot.stateSize * rawValue }
+    /// Where its 4 grabbers start in ROBOT_GRABBERS.
+    var grabbers: Int { 4 * rawValue }
+
     /// World sprites: the battery's frame and cells, the switch on and off.
     static let batteryFrame = 32, batteryCells = 30, switchOn = 48, switchOff = 49
 
-    /// 4 robots in the levels; the other worlds have no robot 3.
-    static func count(_ engine: EngineBuild) -> Int { engine == .levels ? 4 : 3 }
-
-    /// The world sprites of a grabber of value 1, 2, 3 and anything else.
-    static func grabberSprites(_ engine: EngineBuild) -> [Int] {
-        engine == .levels ? [60, 61, 62, 59] : [59, 61, 60, 58]
+    /// The world sprite of a grabber of value 1, 2, 3 and anything else (not 0: none).
+    static func grabberSprite(_ value: UInt8, _ engine: EngineBuild) -> Int {
+        (engine == .levels ? levelsGrabbers : otherGrabbers)[min(Int(value), 4) - 1]
     }
+    private static let levelsGrabbers = [60, 61, 62, 59], otherGrabbers = [59, 61, 60, 58]
 }
 
 /// Native port of the engine's robot drawing, called every tick right after
@@ -40,26 +81,26 @@ nonisolated extension Engine {
     // MARK: outside
 
     /// DRAW_ROBOTS ($D2BC in the levels): robots 0, 1, 2 (and 3), each only
-    /// if its body is in the current room.
+    /// if its body is in the current room: its own look at the body's
+    /// position (ROBOT_X/Y, both set before anything is drawn), then its parts.
     func drawRobots() {
-        drawRainbowRobot()
-        drawSparkingRobot()
-        drawScanningRobot()
-        if build == .levels { drawPulsingRobot() }
-    }
-
-    private func inRoom(_ robot: Int) -> Bool {
-        m.objRoom[Robot.bodies[robot]] == m.currentRoom
+        for robot in Robot.all(build) where m.objRoom[robot.body] == m.currentRoom {
+            m.robotX = m.objX[robot.body]
+            m.robotY = m.objY[robot.body]
+            switch robot {
+            case .checkers: drawCheckers()
+            case .sparky: drawSparky()
+            case .scanner: drawScanner()
+            case .pulser: drawPulser()
+            }
+            drawParts(of: robot)
+        }
     }
 
     /// DRAW_ROBOT0_RAINBOW: two blanks for its window, which is then drawn
     /// pixel by pixel in cycling colours.
-    private func drawRainbowRobot() {
-        guard inRoom(0) else { return }
-        let body = Robot.bodies[0]
-        m.robotX = m.objX[body]
+    private func drawCheckers() {
         m.drawX = m.robotX &+ 1
-        m.robotY = m.objY[body]
         m.drawY = m.robotY &+ 3
         m.spritePointer = m.blankSprite
         drawSprite(colour: 4)
@@ -68,16 +109,11 @@ nonisolated extension Engine {
         drawSprite(colour: 4)
         if build == .levels { m.rainbowStep = 0 }
         drawRainbow(x: m.robotX &+ 2, y: m.robotY)
-        drawParts(of: 0)
     }
 
     /// DRAW_ROBOT1_SPARKS: a blank, a spark pattern that alternates every tick
     /// and two dots at random places (the random number generator advances 32 steps).
-    private func drawSparkingRobot() {
-        guard inRoom(1) else { return }
-        let body = Robot.bodies[1]
-        m.robotX = m.objX[body]
-        m.robotY = m.objY[body]
+    private func drawSparky() {
         m.drawX = m.robotX &+ 3
         m.drawY = m.robotY &+ 3
         m.spritePointer = m.blankSprite
@@ -95,19 +131,14 @@ nonisolated extension Engine {
         drawSprite(colour: 6)
         placeSpark()
         drawSprite(colour: 5)
-        drawParts(of: 1)
     }
 
     /// DRAW_ROBOT2_SCAN: a black bar with a light running back and forth (14 positions).
-    private func drawScanningRobot() {
-        guard inRoom(2) else { return }
-        let body = Robot.bodies[2]
+    private func drawScanner() {
         var add = CPU6502.Adder()
-        m.robotX = m.objX[body]
         m.lineX1 = add(m.robotX, 1)
         m.lineX2 = add(m.lineX1, 9)
         add = CPU6502.Adder()
-        m.robotY = m.objY[body]
         m.lineY1 = add(m.robotY, 7)
         m.lineY2 = add(m.lineY1, 1)
         m.lineColour = 4
@@ -118,16 +149,11 @@ nonisolated extension Engine {
         drawSprite(colour: 5)
         m.scanPosition &-= 1
         if m.scanPosition & 0x80 != 0 { m.scanPosition = 0x0D }
-        drawParts(of: 2)
     }
 
     /// DRAW_ROBOT3_PULSE (levels only): three nested squares, the orange one moving inwards.
-    private func drawPulsingRobot() {
-        guard inRoom(3) else { return }
-        let body = Robot.bodies[3]
-        m.robotX = m.objX[body]
+    private func drawPulser() {
         m.drawX = m.robotX &+ 3
-        m.robotY = m.objY[body]
         m.drawY = m.robotY &+ 3
         m.spritePointer = m.blankSprite
         drawSprite(colour: 4)
@@ -140,20 +166,18 @@ nonisolated extension Engine {
             m.spritePointer = m.squareSprites + 16 * square
             drawSprite(colour: m.pulseColours[m.pulseIndex])
         }
-        drawParts(of: 3)
     }
 
     /// DRAW_ROBOT_PARTS: what every robot has: bumpers (lines in the bumpers'
     /// colours), thruster flames, grabbers, the antenna and its signal.
-    private func drawParts(of robot: Int) {
-        let state = Robot.stateSize * robot
+    private func drawParts(of robot: Robot) {
         for k in (0 ..< 4).reversed() {
-            m.drawnThrusters[k] = m.robotThrusters[state + k]
-            m.drawnBumpers[k] = m.robotBumpers[state + k]
-            m.drawnGrabbers[k] = m.robotGrabbers[4 * robot + k]
+            m.drawnThrusters[k] = m.robotThrusters[robot.state + k]
+            m.drawnBumpers[k] = m.robotBumpers[robot.state + k]
+            m.drawnGrabbers[k] = m.robotGrabbers[robot.grabbers + k]
         }
-        m.antennaColour = m.objColour[Robot.antennaObjects[robot]]
-        m.antennaSignal = m.robotBattery[state] != 0 && m.objColour[Robot.signalObjects[robot]] == 5 ? 1 : 0
+        m.antennaColour = m.objColour[robot.antennaObject]
+        m.antennaSignal = m.robotBattery[robot.state] != 0 && m.objColour[robot.signalObject] == 5 ? 1 : 0
 
         var add = CPU6502.Adder()                           // bottom, top, left, right bumper
         m.lineX1 = add(m.robotX, 3)
@@ -191,7 +215,7 @@ nonisolated extension Engine {
         repeat {
             let k = Int(m.partsLoop), value = m.drawnGrabbers[k]
             if value != 0 {
-                m.spritePointer = sprite(Robot.grabberSprites(build)[min(Int(value), 4) - 1])
+                m.spritePointer = sprite(Robot.grabberSprite(value, build))
                 m.drawX = m.robotX &+ m.grabberDX[k]
                 m.drawY = m.robotY &+ m.grabberDY[k]
                 drawSprite(colour: 7)
@@ -281,12 +305,10 @@ nonisolated extension Engine {
     /// DRAW_ROBOT_INTERIOR ($D72B in the levels): in a robot's interior room,
     /// the battery gauge, the robot's parts, the window and the switch.
     func drawRobotInterior() {
-        let rooms = Robot.interiorRooms.prefix(Robot.count(build))
-        guard let i = rooms.firstIndex(of: m.currentRoom) else { return }
-        let state = Robot.stateSize * i
-        m.drawnSwitch = m.robotSwitch[state]
-        drawBattery(charge: m.robotBattery[state])
-        drawInteriorParts(colour: Robot.interiorColours[i])
+        guard let robot = Robot.all(build).first(where: { $0.interiorRoom == m.currentRoom }) else { return }
+        m.drawnSwitch = m.robotSwitch[robot.state]
+        drawBattery(charge: m.robotBattery[robot.state])
+        drawInteriorParts(colour: robot.interiorColour)
     }
 
     /// DRAW_BATTERY: frame, cells and an orange bar of charge + 1 rows (none when empty).

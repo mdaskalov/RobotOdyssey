@@ -64,7 +64,7 @@ nonisolated struct WorldMap {
     /// paintbrush), so an edge walled up from end to end keeps its exit:
     /// Level 5 opens the top of the player's room $28, which leads to $29.
     static func links(_ world: World) -> [[Room.Direction: Int]] {
-        let left = Set(Robot.interiorRooms.prefix(Robot.count(world.engine)).map(Int.init) + [World.nowhere])
+        let left = Set(world.robots.map { Int($0.interiorRoom) } + [World.nowhere])
         return (0 ..< World.roomCount).map { r in
             guard !left.contains(r) else { return [:] }
             let room = world.room(r)

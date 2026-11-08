@@ -361,7 +361,7 @@ struct LayerCheck {
             for _ in 0 ..< robotTicks {
                 do { try loop.runTick(maxSteps: 2_000_000) } catch CPU6502.CPUError.tooManySteps {}
                 let now = world.with(mem: loop.memory, bank1: loop.bank1)
-                let rooms = Set(now.robots.map { now.object($0.object).room })
+                let rooms = Set(now.robots.map { now.object(Int($0.body)).room })
                 for room in rooms where room < World.roomCount && world.codeRooms[room] == nil {
                     guard let frame = try? loop.previewFrame(room: room), !frame.items.isEmpty else { continue }
                     frames += 1
