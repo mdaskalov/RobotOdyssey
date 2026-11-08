@@ -209,28 +209,37 @@ struct CurrentRoomPanel: View {
         }
     }
 
-    /// The native routines with their entry points, each with a switch (off:
-    /// the original 6502 code runs there), the routines the loader found
-    /// modified (they run as the original code), and the loader's intro skip.
+    /// The native routines with their entry points, each with a switch: under
+    /// *Engine* the engine's (`Native.all`, as the loader's code check chose
+    /// them; *All* switches them all), those in Swift (off: the original 6502
+    /// code runs there), then those drawing on the native layer (marked; off:
+    /// the Apple's pixels), and those whose code differs (they run as the
+    /// original code); under *Loader* the loader's.
     private var natives: some View {
         let natives = model.natives(world: world)
-        let differing = world.codeCheck?.differing ?? []
-        let on = natives.count { !model.nativesOff.contains($0.name) }
+        let on = natives.count { !model.nativesOff.contains($0.native.name) }
         let summary = world.codeCheck.map { (on == natives.count ? "\(on)" : "\(on) of \(natives.count) on") + " · \($0.variant)" }
             ?? "none: unknown version"
+        let differing = differing
         return DisclosureGroup(isExpanded: $showNatives) {
+            if !natives.isEmpty || !differing.isEmpty {
+                Text("Engine").font(.caption).foregroundStyle(.secondary)
+                    .help("The engine's routines, the same in every world (the worlds' own code always runs as 6502 code)")
+            }
             if !natives.isEmpty {
-                Toggle("All", sources: natives.map { isOn($0.name) }, isOn: \.self)
-                    .help("Off: the whole engine runs as the original 6502 code")
+                Toggle("All", sources: natives.map { isOn($0.native.name) }, isOn: \.self)
+                    .help("Off: the whole engine runs as the original 6502 code, its drawing the Apple's pixels")
             }
-            ForEach(natives, id: \.name) { native in
-                nativeSwitch(native.name, String(format: "$%04X", native.entry))
-                    .help(reproduces(native.name))
+            ForEach(natives, id: \.native.name) { n in
+                nativeSwitch(n.native.name, String(format: "$%04X", n.entry), onLayer3: n.native.flags.contains(.drawsOnLayer3))
+                    .help(CurrentRoomPanel.help(n.native))
             }
-            ForEach(differing, id: \.self) { name in
-                LabeledContent(name) { Text("differs: 6502 code") }
+            ForEach(differing, id: \.native.name) { n in
+                LabeledContent(n.native.name) { Text("code differs: 6502") }
                     .font(.caption.monospaced())
                     .foregroundStyle(.orange)
+                    .help("The code of " + n.routines.joined(separator: ", ") + " differs from the version's "
+                          + "(a modified or damaged disk?): the original 6502 code runs there")
             }
             Text("Loader").font(.caption).foregroundStyle(.secondary)
             nativeSwitch(Loader.skipIntro, String(format: "$%04X", LoaderSymbols.address(\.playIntro)))
@@ -246,11 +255,43 @@ struct CurrentRoomPanel: View {
         }
     }
 
-    /// A native's switch: its name and entry point.
-    private func nativeSwitch(_ name: String, _ entry: String) -> some View {
+    /// The natives the loader's code check left out because the code of
+    /// routines they need differs from the version's (`CodeCheck.differing`),
+    /// with those routines.
+    private var differing: [(native: Native, routines: [String])] {
+        guard let differing = world.codeCheck?.differing, !differing.isEmpty else { return [] }
+        return Native.all.compactMap { n in
+            let names = ([n.routine] + n.uses).map(GameSymbols.name(of:)).filter(differing.contains)
+            return names.isEmpty ? nil : (n, names)
+        }
+    }
+
+    /// What a native's switch does: in Swift, with the routines it reproduces
+    /// besides its own (`Native.uses`); on the native layer.
+    private static func help(_ native: Native) -> String {
+        var help: [String] = []
+        if native.run != nil {
+            let uses = native.uses.map(GameSymbols.name(of:))
+            help.append("Off: the original 6502 code runs from its entry"
+                        + (uses.isEmpty ? "" : ". On, it also does the work of " + uses.joined(separator: ", ")
+                           + " in Swift, where it calls them"))
+        }
+        if native.flags.contains(.drawsOnLayer3) {
+            help.append("Its drawing on the native layer, drawn by the Mac at its resolution in the order the game draws "
+                        + "(texts in SF Mono Medium, sprites without colour fringes); the game draws it into its page as ever. "
+                        + "Off: the Apple's pixels. From the next page drawn")
+        }
+        return help.joined(separator: "\n")
+    }
+
+    /// A native's switch: its name, marked if it draws on the native layer, and its entry point.
+    private func nativeSwitch(_ name: String, _ entry: String, onLayer3: Bool = false) -> some View {
         Toggle(isOn: isOn(name)) {
             HStack {
                 Text(name)
+                if onLayer3 {
+                    Image(systemName: "square.3.layers.3d.top.filled").foregroundStyle(.secondary)
+                }
                 Spacer()
                 Text(entry).foregroundStyle(.secondary)
             }
@@ -263,14 +304,6 @@ struct CurrentRoomPanel: View {
         Binding { !model.nativesOff.contains(name) } set: { on in
             if on { model.nativesOff.remove(name) } else { model.nativesOff.insert(name) }
         }
-    }
-
-    /// The routines a native reproduces besides its own (`Native.uses`).
-    private func reproduces(_ name: String) -> String {
-        let uses = Native.all.first { $0.name == name }?.uses.map(GameSymbols.name(of:)) ?? []
-        let off = "Off: the original 6502 code runs from its entry"
-        return uses.isEmpty ? off : off + ". On, it also does the work of " + uses.joined(separator: ", ")
-            + " in Swift, where it calls them"
     }
 }
 

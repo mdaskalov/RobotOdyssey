@@ -17,6 +17,7 @@ import json
 import sys
 from pathlib import Path
 
+import apple2kit_data  # noqa: F401  (hires, dis6502: Apple2Kit's Data/)
 from hires import write_png
 from ro_render import render_room, to_rgb_rows, FONT, COLOR_TABLES
 from ro_world import load_all, NUM_ROOMS

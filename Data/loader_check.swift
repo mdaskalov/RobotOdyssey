@@ -40,6 +40,7 @@
 //            there: the disk holds just that one.
 //
 // With --png DIR the screens along the way are written there.
+import Apple2Kit
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -129,7 +130,7 @@ struct LoaderCheck {
     }
 
     static func png(_ session: Session, _ name: String) {
-        guard let pngDir, let image = HiresImage.make(session.loop.screen()),
+        guard let pngDir, let image = Screen.image(session.loop.screen()),
               let dest = CGImageDestinationCreateWithURL(pngDir.appending(path: name + ".png") as CFURL, "public.png" as CFString, 1, nil)
         else { return }
         CGImageDestinationAddImage(dest, image, nil)

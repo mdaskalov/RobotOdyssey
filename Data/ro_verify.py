@@ -11,6 +11,7 @@ with ro_render.render_room() byte for byte.
 import sys
 
 from aws_state import parse_state
+import apple2kit_data  # noqa: F401  (hires, dis6502: Apple2Kit's Data/)
 from hires import row_addr
 from ro_render import render_room
 from ro_timing import Machine

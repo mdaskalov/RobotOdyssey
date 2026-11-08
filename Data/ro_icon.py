@@ -15,6 +15,7 @@ import sys
 from pathlib import Path
 
 from aws_state import parse_state
+import apple2kit_data  # noqa: F401  (hires, dis6502: Apple2Kit's Data/)
 from hires import render, write_png
 from ro_timing import Machine
 

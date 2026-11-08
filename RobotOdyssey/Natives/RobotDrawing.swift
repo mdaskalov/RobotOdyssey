@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// What the robot drawing has fixed in its instructions, in every engine.
 nonisolated enum Robot {
@@ -101,11 +102,11 @@ nonisolated extension Engine {
     private func drawScanningRobot() {
         guard inRoom(2) else { return }
         let body = Robot.bodies[2]
-        var add = Adder()
+        var add = CPU6502.Adder()
         m.robotX = m.objX[body]
         m.lineX1 = add(m.robotX, 1)
         m.lineX2 = add(m.lineX1, 9)
-        add = Adder()
+        add = CPU6502.Adder()
         m.robotY = m.objY[body]
         m.lineY1 = add(m.robotY, 7)
         m.lineY2 = add(m.lineY1, 1)
@@ -154,7 +155,7 @@ nonisolated extension Engine {
         m.antennaColour = m.objColour[Robot.antennaObjects[robot]]
         m.antennaSignal = m.robotBattery[state] != 0 && m.objColour[Robot.signalObjects[robot]] == 5 ? 1 : 0
 
-        var add = Adder()                                   // bottom, top, left, right bumper
+        var add = CPU6502.Adder()                           // bottom, top, left, right bumper
         m.lineX1 = add(m.robotX, 3)
         m.lineX2 = add(m.lineX1, 5)
         m.drawY = m.robotY &- 2
@@ -164,7 +165,7 @@ nonisolated extension Engine {
         m.drawY = m.robotY &+ 0x12
         horizontalLine()
         m.lineColour = m.drawnBumpers[1]
-        add = Adder()
+        add = CPU6502.Adder()
         m.lineY1 = add(m.robotY, 3)
         m.lineY2 = add(m.lineY1, 9)
         m.drawX = m.robotX &- 2

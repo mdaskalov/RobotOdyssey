@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// Native port of the engine's input: READ_INPUT ($A90C), the first call of
 /// every world's main loop, and in the Robotropolis levels the three routines

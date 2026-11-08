@@ -14,7 +14,7 @@ faithful Swift version.
 | [CopyProtection.md](CopyProtection.md) | the copy protection: the E7 bitstream on track 1, the checks, the flag that turns off the soldering pen, the cracked dumps |
 | [Loader.md](Loader.md) | the loader in the app: boot stage 2, the loader and the menu as 6502 code with a native boot, RWTS and disk drive; the storage disk; following the game into the next world |
 | [Symbols.md](Symbols.md) | the symbol maps: how the code is shared between worlds and versions, names and addresses, the loader's code check, mapping a new routine, the `.sym` files in Mariani's debugger |
-| [Frontends.md](Frontends.md) | plan: switches for the natives with a live check against the original, a modern view (SpriteKit) from the draw phase's display list beside the Apple's, modern sound |
+| [Frontends.md](Frontends.md) | plan: switches for the natives with a live check against the original, the native layer (the Mac drawing the texts, sprites, plots and lines over the rest of the page) beside the Apple's, modern sound |
 | [../Data/README.md](../Data/README.md) | the Python tools, extracted data, Mariani symbol files |
 
 ## Current status (2026‑11‑01)
@@ -51,11 +51,11 @@ faithful Swift version.
   (at most 7 across and 15 up or down a tick, walls stop it), its button is
   the game's, one tick per press as the space key (take, drop, the
   toolbox, the remote, the soldering pen); ⌘ gives it back.
-* **The 6502** (`Packages/MOS6502`, a Swift package with its README, since
-  2026‑11‑03): the NMOS 6502 as AppleWin/Mariani runs it – all 256 opcodes,
+* **The 6502** (the `MOS6502` package, github.com/mdaskalov/MOS6502, with its
+  README; in the project since 2026‑11‑03): the NMOS 6502 as AppleWin/Mariani runs it – all 256 opcodes,
   the undocumented ones too, as `Opcode` values (no more parsed table),
   AppleWin's cycles, each read or write on its bus cycle. Against
-  AppleWin's own `cpu6502.h` (`Data/cpu_check.sh`): 2.56 M random
+  AppleWin's own `cpu6502.h` (the package's `Data/cpu_check.sh`): 2.56 M random
   instructions identical but where AppleWin's results aren't the 6502's
   (DCP/ISC's carry on a wrap, ARR in decimal mode; those match Tom Harte's
   SingleStepTests).
@@ -63,12 +63,25 @@ faithful Swift version.
   ported to Swift so far: the robot drawing, the input (READ_INPUT,
   DETECT_JOYSTICK and the levels' player routines), the object motion (moving objects across
   rooms, walls, screen edges, Engine.md "Input") and the sound player.
-  Each native has a switch in the *Current Room* panel's *Native routines* (and
-  *All*), kept between launches; off, the original code runs there from the
+  Each native has a switch in the *Current Room* panel's *Native routines*
+  (under *Engine*, with *All*; the loader's under *Loader*), kept between launches; off, the original code runs there from the
   next instruction on (Frontends.md). The loader's intro skip (PLAY_INTRO)
   has one too: off, Robotropolis' intro plays as on the Apple. The menu's
   drawing (DRAW_PICTURE, XOR_BLOCK) runs as natives too, so the intro's
   tunes don't wait for its pictures (Loader.md).
+* **The native layer** (since 2026‑11‑05, Frontends.md): each page in three
+  layers – the page as the game drew it, the page without what the texts,
+  sprites, plots and lines drew (DRAW_TEXT, DRAW_BIG_TEXT, DRAW_SPRITE, PLOT,
+  HORIZONTAL_LINE, VERTICAL_LINE), and those drawings drawn by the Mac at
+  its resolution over it, in the game's order: the texts in a modern
+  monospaced font (SF Mono Medium) at the Apple's letter size, in place of
+  the one‑pixel font the colour screen fringes in purple and green, the rest
+  as the Apple's pixels, drawn on the page without them in the game's order
+  with whatever else was written between them and coloured as the page is
+  (`LayerPixels`, Apple2Kit's `Screen.image`): the same pixels with their switches on and
+  off. The game draws everything into its page as ever. Each routine is a
+  native that draws on layer 3 (`Native.Flags.drawsOnLayer3`), with its
+  switch in *Native routines*, marked.
 * **Sound** (Sound.md): the native PLAY_SOUNDS runs the tone and noise loops
   as the original, reports every speaker click to the cycle and takes the
   sound's cycles (the game waits while a sound plays, as on the Apple); the
@@ -320,7 +333,10 @@ the new one over the tick. The toolbar has *Pause/Run* (also the space bar), *St
 (one tick, when paused) and *Restart*; the *Current Room* panel's *Game* section shows
 the tick and ticks/s, how the room is drawn and, folded, the native routines
 in use with their entry points (and any routine the loader found modified,
-which runs as 6502 code). The room thumbnails show the rooms after the world's
+which runs as 6502 code), each with a switch; marked among them, the
+routines whose drawing the Mac draws over the page as the rest of the code
+drew it – the texts, sprites, plots and lines (Frontends.md "The native
+layer"; the thumbnails and the map show the page as the game drew it). The room thumbnails show the rooms after the world's
 start‑up code; the selected room is shown live, and a room keeps its last
 live frame once you leave it, so the map shows the rooms as last seen. A room
 the player walks out of while playing is drawn again a tick later, without

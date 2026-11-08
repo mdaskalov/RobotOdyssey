@@ -11,6 +11,7 @@ left out: rooms $08 $0C $07 in the top row, $06 $17 $16 below.
 """
 import sys
 
+import apple2kit_data  # noqa: F401  (hires, dis6502: Apple2Kit's Data/)
 from hires import write_png
 from ro_render import render_room, to_rgb_rows
 from ro_world import load_all

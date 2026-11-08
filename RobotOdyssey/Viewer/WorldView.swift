@@ -1,3 +1,4 @@
+import Apple2Kit
 import SwiftUI
 
 /// The selected room large, and below it, if shown, the world: its rooms,
@@ -106,6 +107,15 @@ struct RoomCanvas: View {
                         .resizable()
                         .frame(width: geo.size.width, height: geo.size.height)
                 }
+                if !model.inLoader {
+                    let layer = model.liveItems(world: world, room: model.selectedRoom)
+                    if !layer.items.isEmpty {
+                        NativeLayer(items: layer.items, pixels: model.liveImage(world: world, room: model.selectedRoom),
+                                    afterTexts: layer.afterTexts, mono: model.mode == .monochrome)
+                            .equatable()
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                }
                 if model.showGrid && !model.inLoader { TileGrid(k: k) }
                 if !model.inLoader, let s = model.selection.flatMap(contents.sprite) {
                     Rectangle()
@@ -204,7 +214,7 @@ struct RoomImage: View {
             Rectangle().fill(.quaternary)
                 .overlay { Image(systemName: "curlybraces").foregroundStyle(.orange) }
         } else if showEmpty || world.isRoomUsed(room),
-                  let image = (room == model.selectedRoom ? model.liveImage(world: world, room: room) : nil)
+                  let image = (room == model.selectedRoom ? model.liveThumbnail(world: world, room: room) : nil)
                       ?? model.thumbnail(room: room) {
             Image(decorative: image, scale: 1).interpolation(.none).resizable()
         } else {

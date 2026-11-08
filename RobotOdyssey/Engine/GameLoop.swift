@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -22,7 +23,7 @@ import MOS6502
 /// animates the room it draws).
 nonisolated final class GameLoop {
     /// Apple IIe CPU clock in Hz (Data/ro_timing.py).
-    static let clock = 1_020_484.0
+    static let clock = Apple2.clock
 
     /// The running world's draw phase; nil while the loader runs (`inLoader`).
     private(set) var phase: DrawPhase?
@@ -50,8 +51,8 @@ nonisolated final class GameLoop {
     private var flipCycle: UInt64 = 0
     /// The room and draw start of the page before it (`inBetween`).
     private var previousShown: (room: Int?, drawStart: Machine?)?
-    /// The last in-between frame: of which page, what it moved, the page it drew.
-    private var lastInBetween: (flips: Int, moves: [Int], screen: HiresScreen)?
+    /// The last in-between frame: of which page, what it moved, the frame it drew.
+    private var lastInBetween: (flips: Int, moves: [Int], frame: PageFrame)?
     /// The loop's own CURRENT_ROOM while the draw phase draws `room`.
     private var loopRoom: UInt8?
     /// The world's `JMP (RESET_VECTOR)`, back to the loader.
@@ -79,6 +80,13 @@ nonisolated final class GameLoop {
     /// back to the loader (before it saves the world), in again in the next
     /// world's first tick.
     var mouse = false
+    /// The machine keeps the canvas's layers of the pages while a world runs
+    /// (`Machine.layers`, `PageLayers`), from the next world's start on (on
+    /// unless a check compares memory without them).  They change nothing in
+    /// memory; the viewer shows layer 1 or layers 2 and 3.
+    var keepsLayers = true {
+        didSet { if keepsLayers != oldValue { machine.layers = keepsLayers && phase != nil ? PageLayers() : nil } }
+    }
 
     /// A room drawn on a copy, and the draw state it started from and left:
     /// what its draw phase wrote besides the page (`drawStateRanges`), as
@@ -86,7 +94,7 @@ nonisolated final class GameLoop {
     private struct Preview {
         typealias State = [(address: Int, value: UInt8, was: UInt8)]
         let tick: Int
-        let screen: HiresScreen
+        let frame: PageFrame
         let from, left: State
     }
 
@@ -125,6 +133,7 @@ nonisolated final class GameLoop {
         self.room = room
         machine.cpu.pc = UInt16(phase.loopStart)
         machine.clicks = []
+        machine.layers = PageLayers()
         tickStart = machine.copy()
         exitJump = GameLoop.exitJump(in: machine.cpu.mem)
     }
@@ -177,6 +186,17 @@ nonisolated final class GameLoop {
 
     /// The hi-res page on screen.
     func screen() -> HiresScreen { machine.shownScreen() }
+
+    /// The page on screen with its layers (`PageFrame`).
+    func shownFrame() -> PageFrame { machine.shownFrame() }
+
+    /// `room` drawn by the draw phase on `machine` (`DrawPhase.draw`), with
+    /// its layers: the machine's copies keep them as it does.
+    private func frame(room: Int, on machine: Machine) throws -> PageFrame {
+        guard let phase else { throw Failure.inLoader }
+        _ = try phase.draw(room: room, on: machine)
+        return machine.drawnFrame()
+    }
 
     /// What the speaker played since the last call: the sounds of the native
     /// PLAY_SOUNDS (`Machine.takeSounds`), and the cycle of every click, in
@@ -264,17 +284,21 @@ nonisolated final class GameLoop {
     /// own animations go on as if the game drew the room tick after tick,
     /// rather than each tick showing the game's frozen values.  Once a tick.
     func preview(room: Int) throws -> HiresScreen {
-        guard let phase else { throw Failure.inLoader }
-        if let last = previews[room], last.tick == ticks { return last.screen }
+        try previewFrame(room: room).page
+    }
+
+    /// `preview` with its layers.
+    func previewFrame(room: Int) throws -> PageFrame {
+        if let last = previews[room], last.tick == ticks { return last.frame }
         let (machine, from) = previewStart(room)
-        let screen = try phase.draw(room: room, on: machine)
+        let frame = try frame(room: room, on: machine)
         let start = tickStart.cpu.mem, end = machine.cpu.mem
         var left: Preview.State = []
         for range in GameLoop.drawStateRanges {
             for a in range where end[a] != start[a] { left.append((a, end[a], start[a])) }
         }
-        previews[room] = Preview(tick: ticks, screen: screen, from: from, left: left)
-        return screen
+        previews[room] = Preview(tick: ticks, frame: frame, from: from, left: left)
+        return frame
     }
 
     /// A copy of the start of the current tick with `room`'s draw state
@@ -322,9 +346,10 @@ nonisolated final class GameLoop {
     /// that part of the way back where it was, drawn by the draw phase from
     /// where it drew the page.  So the page before turns into this one over
     /// the tick, as the Apple would show them a tick later each.  Nil where it
-    /// is the page itself: nothing moved, another room, the tick over.
-    func inBetween(at cycle: UInt64) throws -> HiresScreen? {
-        guard let phase, let room = shownRoom, let to = shownDrawStart,
+    /// is the page itself: nothing moved, another room, the tick over.  With
+    /// its layers (`frame`).
+    func inBetween(at cycle: UInt64) throws -> PageFrame? {
+        guard phase != nil, let room = shownRoom, let to = shownDrawStart,
               let previousShown, previousShown.room == room, let from = previousShown.drawStart
         else { return nil }
         let end = tickStart.cpu.cycles > shownTick ? tickStart.cpu.cycles : machine.cpu.cycles
@@ -359,12 +384,12 @@ nonisolated final class GameLoop {
             }
         }
         guard !moves.isEmpty else { return nil }
-        if let last = lastInBetween, last.flips == flips, last.moves == moves { return last.screen }
+        if let last = lastInBetween, last.flips == flips, last.moves == moves { return last.frame }
         let machine = to.copy()
         for m in moves { machine.cpu.mem[m >> 8] = UInt8(m & 0xFF) }
-        let screen = try phase.draw(room: room, on: machine)
-        lastInBetween = (flips, moves, screen)
-        return screen
+        let frame = try frame(room: room, on: machine)
+        lastInBetween = (flips, moves, frame)
+        return frame
     }
 
     /// Whether `code` is one of the world's movement keys (MOVE_KEYS: up,
@@ -452,6 +477,8 @@ nonisolated final class GameLoop {
         shownDrawStart = nil
         previousShown = nil
         lastInBetween = nil
+        // The loader's code lies where the engine's routines were.
+        machine.layers = nil
     }
 
     /// The loader jumps to WORLD_START: the world it loaded starts, its
@@ -481,6 +508,7 @@ nonisolated final class GameLoop {
         nextWorld = nil
         phase = world.phase
         machine.install(world.natives)
+        if keepsLayers { machine.layers = PageLayers() }
         tickStart = machine.copy()
     }
 }

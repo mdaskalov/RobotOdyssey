@@ -414,7 +414,19 @@ nonisolated final class Level1Symbols: Sendable {
     /// Queues sound X of the sound table for room A (WORLD_SOUND jumps here).
     let queueTableSound = Routine(0x0944)
     let keyCommands = Routine(0x0963)
+    /// Room TEXT_ROOMS[X] on both pages, the game standing still: X 0 room
+    /// $3E (L with a chip held: Esc loads it), 1 room $00 (Esc: Esc again
+    /// the menu, S saves), 3 room $01 (? or /: the help); KEY_COMMANDS then
+    /// waits for a key (WAIT_KEY), Return goes back.  With TEXT_ROOM_NOTES[X]
+    /// set also TEXT_ROOM_BACK.  Drawn outside the draw phase: DRAW_ROOM_TILES,
+    /// DRAW_ROOM_TEXTS, DRAW_TEXT, FLIP_PAGE.
     let showTextRoom = Routine(0x0A07)
+    /// SHOW_TEXT_ROOM's X.
+    let textRoomIndex = Byte(0x0A06)
+    let textRooms = Table(0x09FE)
+    let textRoomNotes = Table(0x0A02)
+    /// "To go back to the room you just left, press RETURN." (at x $16, y $26).
+    let textRoomBack = Table(0x0A43)
     let waitKey = Routine(0x0A77)
     /// The requests to the loader (MENU_MODE): 2 the next level (Y), 5 load
     /// chip Y, 1 the menu, 4 save the game; then EXIT_TO_LOADER.

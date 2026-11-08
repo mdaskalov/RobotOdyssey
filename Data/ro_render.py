@@ -7,6 +7,7 @@ bit 7 = palette bit) using the engine's tables, then converted to RGB.
 Coordinates: objects/texts use x = 0..139 (2 screen pixels each) and
 y = 0..191 counted from the BOTTOM; screen line = 191 - y.
 """
+import apple2kit_data  # noqa: F401  (hires, dis6502: Apple2Kit's Data/)
 from hires import write_png
 
 FONT = 0x9460          # glyph row r of char c (c >= $A0) at FONT + r*$60 + c

@@ -17,6 +17,7 @@ import sys
 from pathlib import Path
 
 from cpu6502 import CPU
+import apple2kit_data  # noqa: F401  (hires, dis6502: Apple2Kit's Data/)
 from hires import render, write_png
 from ro_disk import Disk
 

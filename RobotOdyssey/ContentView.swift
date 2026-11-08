@@ -1,3 +1,4 @@
+import Apple2Kit
 import SwiftUI
 
 /// The window: the worlds on the left, the selected world's room with the
@@ -103,9 +104,8 @@ struct ContentView: View {
         }
         ToolbarSpacer(.fixed)
         ToolbarItemGroup {
-            Toggle("Mono", systemImage: "circle.lefthalf.filled",
-                   isOn: Binding { model.mode == .monochrome } set: { model.mode = $0 ? .monochrome : .color })
-                .help("Mono: as on a green monochrome monitor (off: the Apple II's colours)")
+            Button(model.mode.rawValue, systemImage: model.mode.systemImage) { model.mode = model.mode.next }
+                .help(model.mode.help + " – click for \(model.mode.next.rawValue)")
             Toggle("Smooth", systemImage: "figure.walk.motion", isOn: $model.smooth)
                 .help("Smooth: between two ticks, what moves glides to where the next tick has it, "
                       + "drawn by the game's own code (off: only the ticks' pages, as on the Apple II)")
@@ -209,6 +209,30 @@ struct ResizeHandle: View {
                     )
             }
             .zIndex(1)                              // above the views next to it
+    }
+}
+
+/// The toolbar's display button: one press a mode, in turn.
+private extension Screen.Style {
+    var systemImage: String {
+        switch self {
+        case .filled: "paintpalette.fill"
+        case .color: "paintpalette"
+        case .monochrome: "circle.lefthalf.filled"
+        }
+    }
+
+    var help: String {
+        switch self {
+        case .color: "Color: each pixel in its colour, white where two touch, the gaps in a colour in a dark shade of it"
+        case .filled: "Color Filled: the gaps in a colour filled (as before the half-pixel shift)"
+        case .monochrome: "Mono: as on a green monochrome monitor"
+        }
+    }
+
+    var next: Screen.Style {
+        let all = Screen.Style.allCases
+        return all[(all.firstIndex(of: self)! + 1) % all.count]
     }
 }
 
