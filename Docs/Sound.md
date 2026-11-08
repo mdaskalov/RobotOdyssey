@@ -95,7 +95,7 @@ world's table against it.
 
 ## The port
 
-`Engine.playSounds` (Engine/Speaker.swift) is the native PLAY_SOUNDS, with
+`Engine.playSounds` (Natives/Speaker.swift) is the native PLAY_SOUNDS, with
 PLAY_TONE and PLAY_NOISE. It runs their loops as they are – counters, sweep,
 shift register, Y – so memory and registers are the original's, counts
 every instruction's cycles (two of the queue's tables cross a page for slots
@@ -112,7 +112,7 @@ hands them over with every click to the cycle: theirs, and those of the 6502
 code that reads $C030 itself (the loader's bell, the menu's and the intro's
 tunes, and the game's own PLAY_SOUNDS when its native is switched off),
 which `Machine` records. The viewer (`ViewerModel`) takes them after each
-step and plays them (`SoundPlayer`, AVAudioEngine): `SpeakerRenderer` makes
+step and plays them (Apple2Kit's `SoundPlayer`, AVAudioEngine): its `SpeakerRenderer` makes
 the speaker's sound from the clicks – the cone moves to its other side at
 each click; the square wave is averaged over each 44.1 kHz sample and the DC
 is taken out (a high pass at about 35 Hz, which lets the cone settle 50 ms

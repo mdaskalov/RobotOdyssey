@@ -18,7 +18,7 @@ they do **not** reset the rainbow step ($8E9B) before drawing robot 0.
 v1.0 differs from v1.1 only in `JSR $9CC3 / RTS` → `JMP $9CC3` at the end of
 the interior code (one byte, everything after it moves).
 
-Native port: `RobotOdyssey/Engine/RobotDrawing.swift`, the same code for
+Native port: `RobotOdyssey/Natives/RobotDrawing.swift`, the same code for
 all three builds; their addresses are in `GameSymbols` (Symbols.md), and the
 port replaces the 6502 code only where the code's MD5 is the build's and
 version's.

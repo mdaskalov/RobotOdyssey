@@ -50,7 +50,7 @@ nonisolated extension Engine {
     func drawSprite() {
         let x = Int(m.drawX), y = m.drawY
         guard x < 0x86, y < 0xB1 else { return }
-        m.drawingOnLayer(.drawSprite, {
+        m.drawingOnLayer(\.drawSprite, {
             let rows = m.spritePointer
             return .sprite(LayerSprite(rows: (0 ..< 16).map { m[rows + $0] }, x: x, y: Int(y),
                                        patternEven: m.patternEven, patternOdd: m.patternOdd))
@@ -91,7 +91,7 @@ nonisolated extension Engine {
     /// PLOT ($A14D): one colour pixel at (DRAW_X, DRAW_Y), with PLOT's masks
     /// for this byte and the next one.  A drawing on layer 3 (`PageLayers`).
     func plot(colour: UInt8) {
-        m.drawingOnLayer(.plot, {
+        m.drawingOnLayer(\.plot, {
             LayerLine.plot(x: m.drawX, y: m.drawY, colour: colour, m.lineColourPatterns).map(LayerItem.line)
         }) { plotPixel(colour: colour) }
     }
@@ -117,7 +117,7 @@ nonisolated extension Engine {
     /// max(x1, x2) + 1; otherwise it fills bytes with the colour's patterns,
     /// masking the first and the last byte.  A drawing on layer 3 (`PageLayers`).
     func horizontalLine() {
-        m.drawingOnLayer(.horizontalLine, {
+        m.drawingOnLayer(\.horizontalLine, {
             LayerLine.horizontal(x1: m.lineX1, x2: m.lineX2, y: m.drawY, colour: m.lineColour, m.lineColourPatterns).map(LayerItem.line)
         }) { horizontalLinePixels() }
     }
@@ -161,7 +161,7 @@ nonisolated extension Engine {
     /// LINE_COLOUR, pixel by pixel; leaves DRAW_Y at max(y1, y2) + 1.  A
     /// drawing on layer 3 (`PageLayers`).
     func verticalLine() {
-        m.drawingOnLayer(.verticalLine, {
+        m.drawingOnLayer(\.verticalLine, {
             LayerLine.vertical(x: m.drawX, y1: m.lineY1, y2: m.lineY2, colour: m.lineColour, m.lineColourPatterns).map(LayerItem.line)
         }) { verticalLinePixels() }
     }

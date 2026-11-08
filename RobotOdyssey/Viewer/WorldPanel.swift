@@ -1,3 +1,4 @@
+import Apple2Kit
 import SwiftUI
 
 /// How the world panel shows the rooms.
@@ -315,7 +316,7 @@ private struct WallTypesSection: View {
 /// [(b + 2) % 4] on odd); in the world panel and the current room's colours.
 struct TileSwatch: View {
     let pattern: [UInt8]
-    let mode: HiresImage.Mode
+    let mode: Screen.Style
     /// A tile's size on screen: 28 x 32, the canvas's at 560 wide; half that
     /// is the Apple's pixels at 2x.
     var tile = CGSize(width: 28, height: 32)
@@ -348,7 +349,7 @@ struct TileSwatch: View {
 
     /// The whole screen in the pattern, then two tiles each way from its
     /// middle: the colours as next to other tiles of the pattern.
-    private static func image(_ pattern: [UInt8], mode: HiresImage.Mode) -> CGImage? {
+    private static func image(_ pattern: [UInt8], mode: Screen.Style) -> CGImage? {
         let key = pattern.map { String(format: "%02X", $0) }.joined() + mode.rawValue
         if let image = made[key] { return image }
         var screen = HiresScreen()
@@ -358,7 +359,7 @@ struct TileSwatch: View {
             }
         }
         // Scale 2: a tile is 28 x 32.
-        let image = HiresImage.make(screen, mode: mode)?.cropping(to: CGRect(x: 4 * 28, y: 4 * 32, width: 56, height: 64))
+        let image = Screen.image(screen, style: mode)?.cropping(to: CGRect(x: 4 * 28, y: 4 * 32, width: 56, height: 64))
         made[key] = image
         return image
     }

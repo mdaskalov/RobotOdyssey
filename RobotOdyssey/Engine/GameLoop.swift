@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -22,7 +23,7 @@ import MOS6502
 /// animates the room it draws).
 nonisolated final class GameLoop {
     /// Apple IIe CPU clock in Hz (Data/ro_timing.py).
-    static let clock = 1_020_484.0
+    static let clock = Apple2.clock
 
     /// The running world's draw phase; nil while the loader runs (`inLoader`).
     private(set) var phase: DrawPhase?

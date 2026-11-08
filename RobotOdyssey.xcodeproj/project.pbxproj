@@ -7,7 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		000000000000000170000000 /* MOS6502 in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000160000000 /* MOS6502 */; };
+		C47D9408309EFCD3000F7844 /* Apple2Kit in Frameworks */ = {isa = PBXBuildFile; productRef = C47D9407309EFCD3000F7844 /* Apple2Kit */; };
+		C4B2956E309E3B6500705DC4 /* MOS6502 in Frameworks */ = {isa = PBXBuildFile; productRef = C4B2956D309E3B6500705DC4 /* MOS6502 */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,7 +27,8 @@
 		000000000000000130000000 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
-				000000000000000170000000 /* MOS6502 in Frameworks */,
+				C4B2956E309E3B6500705DC4 /* MOS6502 in Frameworks */,
+				C47D9408309EFCD3000F7844 /* Apple2Kit in Frameworks */,
 			);
 		};
 /* End PBXFrameworksBuildPhase section */
@@ -66,7 +68,8 @@
 			);
 			name = RobotOdyssey;
 			packageProductDependencies = (
-				000000000000000160000000 /* MOS6502 */,
+				C4B2956D309E3B6500705DC4 /* MOS6502 */,
+				C47D9407309EFCD3000F7844 /* Apple2Kit */,
 			);
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* RobotOdyssey.app */;
@@ -97,7 +100,8 @@
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				000000000000000150000000 /* XCLocalSwiftPackageReference "Packages/MOS6502" */,
+				C4B2956C309E3B6500705DC4 /* XCRemoteSwiftPackageReference "MOS6502" */,
+				C47D9406309EFCD3000F7844 /* XCRemoteSwiftPackageReference "Apple2Kit" */,
 			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
@@ -282,18 +286,19 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.innersoft.RobotOdyssey;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
 			};
 			name = Debug;
 		};
@@ -321,18 +326,19 @@
 				LD_RUNPATH_SEARCH_PATHS = "@executable_path/Frameworks";
 				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = "@executable_path/../Frameworks";
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "devplaceholder.$(PROJECT_UNIQUE_VALUE:identifier).$(PRODUCT_NAME:rfc1034identifier)";
+				PRODUCT_BUNDLE_IDENTIFIER = com.innersoft.RobotOdyssey;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = macosx;
+				SUPPORTED_PLATFORMS = "appletvos appletvsimulator macosx";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 3;
 			};
 			name = Release;
 		};
@@ -357,16 +363,34 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		000000000000000150000000 /* XCLocalSwiftPackageReference "Packages/MOS6502" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = Packages/MOS6502;
+/* Begin XCRemoteSwiftPackageReference section */
+		C47D9406309EFCD3000F7844 /* XCRemoteSwiftPackageReference "Apple2Kit" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mdaskalov/Apple2Kit.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.0;
+			};
 		};
-/* End XCLocalSwiftPackageReference section */
+		C4B2956C309E3B6500705DC4 /* XCRemoteSwiftPackageReference "MOS6502" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/mdaskalov/MOS6502.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 1.1.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		000000000000000160000000 /* MOS6502 */ = {
+		C47D9407309EFCD3000F7844 /* Apple2Kit */ = {
 			isa = XCSwiftPackageProductDependency;
+			package = C47D9406309EFCD3000F7844 /* XCRemoteSwiftPackageReference "Apple2Kit" */;
+			productName = Apple2Kit;
+		};
+		C4B2956D309E3B6500705DC4 /* MOS6502 */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C4B2956C309E3B6500705DC4 /* XCRemoteSwiftPackageReference "MOS6502" */;
 			productName = MOS6502;
 		};
 /* End XCSwiftPackageProductDependency section */

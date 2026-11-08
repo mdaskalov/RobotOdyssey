@@ -1,3 +1,4 @@
+import Apple2Kit
 import SwiftUI
 import UniformTypeIdentifiers
 import MOS6502
@@ -38,8 +39,10 @@ final class ViewerModel {
     }
     /// An object, another sprite drawn or a wire of the selected room (`contents`).
     var selection: RoomItem?
-    var mode: HiresImage.Mode = .color {
+    /// How the Apple's pixels are coloured (the toolbar's Display), kept.
+    var mode = UserDefaults.standard.string(forKey: "displayMode").flatMap(Screen.Style.init(rawValue:)) ?? .color {
         didSet {
+            UserDefaults.standard.set(mode.rawValue, forKey: "displayMode")
             thumbnails = [:]
             showLive()
         }
@@ -103,9 +106,9 @@ final class ViewerModel {
     }
     /// The native routines switched off, by name, and the loader's intro
     /// skip (`GameLoop.switchedOff`): the original 6502 code runs there,
-    /// from the running game's next instruction on.  With them the routines
-    /// that draw on the native layer (`LayerRoutine`) switched off: from the
-    /// next page drawn, their drawing stays the Apple's pixels.
+    /// from the running game's next instruction on.  A native that draws on
+    /// the native layer (`Native.Flags.drawsOnLayer3`) switched off: from
+    /// the next page drawn, its drawing stays the Apple's pixels.
     var nativesOff = Set(UserDefaults.standard.stringArray(forKey: "nativesOff") ?? []) {
         didSet {
             UserDefaults.standard.set(nativesOff.sorted(), forKey: "nativesOff")
@@ -127,9 +130,12 @@ final class ViewerModel {
     /// The canvas shows the loader's screen.
     var inLoader: Bool { loaderImage != nil }
     /// What the running loop shows of the selected room: the canvas's image
-    /// (layer 1, or layer 2 with the native layer), layer 3 drawn over it,
-    /// and with that the page as the game drew it for the thumbnail.
-    private(set) var liveFrame: (world: World.ID, room: Int, image: CGImage, items: [LayerItem], thumbnail: CGImage?)? {
+    /// (layer 1, or layers 2 and 3 as the Apple's pixels, `LayerPixels`),
+    /// layer 3 drawn over it (its texts, and by pixel how many texts came
+    /// before what was drawn there), and with that the page as the game drew
+    /// it for the thumbnail.
+    private(set) var liveFrame: (world: World.ID, room: Int, image: CGImage, items: [LayerItem], afterTexts: [UInt8],
+                                 thumbnail: CGImage?)? {
         didSet {
             // A room keeps its last live frame as its thumbnail: the room as last seen.
             if let old = oldValue, old.world == selectedWorldID, old.room != liveFrame?.room {
@@ -178,7 +184,7 @@ final class ViewerModel {
     /// native layer; and the page and layer 3 shown.
     @ObservationIgnored private var liveSource: (key: String, bytes: [UInt8], items: [LayerItem])?
     /// The live frame's thumbnail, the page as the game drew it: of which page, in which mode.
-    @ObservationIgnored private var pageThumbnail: (mode: HiresImage.Mode, bytes: [UInt8], image: CGImage?)?
+    @ObservationIgnored private var pageThumbnail: (mode: Screen.Style, bytes: [UInt8], image: CGImage?)?
     /// Source of `liveContents`: room and the draw on screen, or the preview.
     @ObservationIgnored private var contentsSource: String?
     @ObservationIgnored private var renderErrors: [String: String] = [:]
@@ -365,7 +371,7 @@ final class ViewerModel {
         if let live = liveImage(world: world, room: room) { return live }
         let key = "\(world.id)#\(room)#\(mode.rawValue)"
         if let cached = roomImage, cached.key == key { return cached.image }
-        let image = HiresImage.make(screen(world: world, room: room), mode: mode)
+        let image = Screen.image(screen(world: world, room: room), style: mode)
         roomImage = (key, image)
         return image
     }
@@ -376,10 +382,12 @@ final class ViewerModel {
         return live.image
     }
 
-    /// Layer 3, what the canvas draws over `liveImage` (`NativeLayer`).
-    func liveItems(world: World, room: Int) -> [LayerItem] {
-        guard let live = liveFrame, live.world == world.id, live.room == room else { return [] }
-        return live.items
+    /// Layer 3, what the canvas draws over `liveImage` (`NativeLayer`): its
+    /// items, and by dot how many texts came before what was drawn there
+    /// (`LayerPixels.afterTexts`).
+    func liveItems(world: World, room: Int) -> (items: [LayerItem], afterTexts: [UInt8]) {
+        guard let live = liveFrame, live.world == world.id, live.room == room else { return ([], []) }
+        return (live.items, live.afterTexts)
     }
 
     /// The room's thumbnail as the running loop shows it: as the game drew it.
@@ -467,7 +475,7 @@ final class ViewerModel {
     /// Every room's thumbnail but the code rooms', as `screen` draws it, and
     /// the map; nil when cancelled.
     @concurrent
-    private nonisolated static func prepare(_ world: World, mode: HiresImage.Mode, draw: Bool, layOut: Bool) async
+    private nonisolated static func prepare(_ world: World, mode: Screen.Style, draw: Bool, layOut: Bool) async
         -> (thumbnails: [Int: CGImage]?, map: WorldMap?, errors: [String: String])? {
         var errors: [String: String] = [:]
         var thumbnails: [Int: CGImage]?
@@ -483,7 +491,7 @@ final class ViewerModel {
                 guard !Task.isCancelled else { return nil }
                 let (drawn, error) = screen(world: world, room: room, game: gameScreen)
                 errors["\(world.id)#\(room)"] = error
-                images[room] = HiresImage.make(drawn, mode: mode, scale: 1)
+                images[room] = Screen.thumbnail(drawn, style: mode)
             }
             thumbnails = images
         }
@@ -502,8 +510,9 @@ final class ViewerModel {
                       game.phase.start, game.phase.end)
     }
 
-    /// The native routines the game runs in place of the original code (`CodeCheck`).
-    func natives(world: World) -> [(name: String, entry: UInt16)] {
+    /// The native routines the game runs in place of the original code
+    /// (`CodeCheck`), with their entry points.
+    func natives(world: World) -> [(native: Native, entry: UInt16)] {
         gameScreen(world)?.natives ?? []
     }
 
@@ -851,7 +860,7 @@ final class ViewerModel {
             let key = "loader#\(mode.rawValue)"
             guard liveSource?.key != key || liveSource?.bytes != screen.bytes else { return }
             liveSource = (key, screen.bytes, [])
-            loaderImage = HiresImage.make(screen, mode: mode)
+            loaderImage = Screen.image(screen, style: mode)
             return
         }
         if loaderImage != nil { loaderImage = nil }
@@ -885,16 +894,18 @@ final class ViewerModel {
             }
         }
         liveSource = (key, frame.apple.bytes, frame.items)
-        // With layer 3, the thumbnail is the page as the game drew it.
-        if let image = HiresImage.make(frame.apple, mode: mode) {
-            liveFrame = (world.id, room, image, frame.items, frame.items.isEmpty ? nil : thumbnail(frame.page))
+        // Layers 2 and 3 as the Apple's pixels, one image; with layer 3, the
+        // thumbnail is the page as the game drew it.
+        let pixels = LayerPixels(frame)
+        if let image = Screen.image(pixels.screen, style: mode) {
+            liveFrame = (world.id, room, image, frame.items, pixels.afterTexts, frame.items.isEmpty ? nil : thumbnail(frame.page))
         }
     }
 
     /// The thumbnail of `screen`, made again only when it changed (each new page, not each in-between frame).
     private func thumbnail(_ screen: HiresScreen) -> CGImage? {
         if let last = pageThumbnail, last.mode == mode, last.bytes == screen.bytes { return last.image }
-        let image = HiresImage.make(screen, mode: mode, scale: 1)
+        let image = Screen.thumbnail(screen, style: mode)
         pageThumbnail = (mode, screen.bytes, image)
         return image
     }
@@ -938,7 +949,7 @@ final class ViewerModel {
         rooms.subtract([now.object(0).room, selectedRoom])
         for room in rooms where world.codeRooms[room] == nil {
             guard let screen = try? loop.preview(room: room),
-                  let image = HiresImage.make(screen, mode: mode, scale: 1) else { continue }
+                  let image = Screen.thumbnail(screen, style: mode) else { continue }
             thumbnails[room] = image
         }
     }

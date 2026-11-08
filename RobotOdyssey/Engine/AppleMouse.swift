@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -151,7 +152,13 @@ nonisolated struct AppleMouse {
     struct Before {
         var device: UInt8
         let slotPointer: (UInt8, UInt8)
-        let rom: [UInt8]
+    }
+
+    /// The card in its slot (`Apple2.insert`): its ROM page; no switches
+    /// (the firmware's calls are hooks, `installMouseFirmware`).
+    final class Card: Apple2Card {
+        static let shared = Card()
+        let romPage = AppleMouse.romPage
     }
 }
 
@@ -185,13 +192,11 @@ nonisolated extension Machine {
     /// INPUT_DEVICE isn't 2 (a world started), it is again.  What the game
     /// had there is put back as the card comes out (`unplugMouse`).
     func plugMouse() {
-        let rom = AppleMouse.rom ..< AppleMouse.rom + 0x100
         let slotPointer = GameSymbols.address(\.slotPointer)
         if beforeMouse == nil {
             beforeMouse = AppleMouse.Before(device: cpu.mem[\.inputDevice],
-                                            slotPointer: (cpu.mem[slotPointer], cpu.mem[slotPointer + 1]),
-                                            rom: Array(cpu.mem[rom]))
-            cpu.mem.replaceSubrange(rom, with: AppleMouse.romPage)
+                                            slotPointer: (cpu.mem[slotPointer], cpu.mem[slotPointer + 1]))
+            apple.insert(AppleMouse.Card.shared, slot: AppleMouse.slot)
             devices.mouse = AppleMouse()
         }
         guard cpu.mem[\.inputDevice] != 2 else { return }
@@ -204,15 +209,15 @@ nonisolated extension Machine {
         (cpu.pc, cpu.sp, cpu.a, cpu.x, cpu.y, cpu.p, cpu.cycles) = registers
     }
 
-    /// Takes the card out: INPUT_DEVICE (if still 2), SLOT_POINTER and the
-    /// ROM page as they were before it went in.  The rest of its set-up
+    /// Takes the card out: INPUT_DEVICE (if still 2) and SLOT_POINTER as
+    /// they were before it went in, the slot empty.  The rest of its set-up
     /// (MOUSE_SLOT, the screen holes) only the mouse mode reads.
     func unplugMouse() {
         guard let before = beforeMouse else { return }
         let slotPointer = GameSymbols.address(\.slotPointer)
         if cpu.mem[\.inputDevice] == 2 { cpu.mem[\.inputDevice] = before.device }
         (cpu.mem[slotPointer], cpu.mem[slotPointer + 1]) = before.slotPointer
-        cpu.mem.replaceSubrange(AppleMouse.rom ..< AppleMouse.rom + 0x100, with: before.rom)
+        apple.insert(nil, slot: AppleMouse.slot)
         devices.mouse = nil
         beforeMouse = nil
     }

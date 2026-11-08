@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// The machine as a native routine sees it: memory with the game's symbols
 /// (`m`), the registers (`r`) and the input devices.  The ported routines are
@@ -14,7 +15,7 @@ import Foundation
 ///     }
 nonisolated struct Engine {
     let m: RAM
-    var r: Registers
+    var r: CPU6502.Registers
     var devices: InputDevices
     /// The CPU's cycle counter at the call.
     let cycles: UInt64
@@ -31,37 +32,88 @@ nonisolated struct Engine {
     func sprite(_ n: Int) -> Int { m.sprites.address + 16 * n }
 }
 
-/// A native routine: Swift in place of the engine routine `routine`, run
-/// when the 6502 code reaches its entry, returning like RTS.  It leaves
-/// memory exactly as the original does (and the registers, where callers use
-/// them), so it replaces the routine only where the code of the routine and
-/// of every routine it reproduces (`uses`) is exactly the code it was ported
-/// from: their fingerprints in GameSymbols (`CodeCheck`).
-/// Data/native_check.sh compares each with the original.
+/// A native routine: the Mac takes over the engine routine `routine` where
+/// the 6502 code reaches its entry, each with a switch (`Machine.switchedOff`,
+/// by `name`), in one of two ways (`Flags`), or both:
+///
+/// - Swift in place of the routine (`run`), returning like RTS.  It leaves
+///   memory exactly as the original does (and the registers, where callers
+///   use them, `leavesRegisters`), so it replaces the routine only where the
+///   code of the routine and of every routine it reproduces (`uses`) is
+///   exactly the code it was ported from: their fingerprints in GameSymbols
+///   (`CodeCheck`).  Data/native_check.sh compares each with the original.
+/// - Its drawing on layer 3 (`drawsOnLayer3`, `PageLayers`): what it draws,
+///   drawn by the Mac at its resolution, the page drawn as ever.  Without
+///   `run` the original code runs, and `Machine` follows it there
+///   (`drawing`); the Swift versions do it themselves (`RAM.drawingOnLayer`).
+///   Off: the Apple's pixels.
 nonisolated struct Native {
     let routine: KeyPath<GameSymbols, Routine>
     let uses: [KeyPath<GameSymbols, Routine>]
-    /// The worlds' code calls it and uses the registers it leaves, so it
-    /// leaves them as the original does; otherwise only memory counts.
-    let leavesRegisters: Bool
-    /// False: declined, having changed nothing, and the original code runs.
-    let run: (inout Engine) -> Bool
+    let flags: Flags
+    /// Swift in place of the routine; false: declined, having changed
+    /// nothing, and the original code runs.  nil: the original code runs
+    /// (a native that only draws on layer 3).
+    let run: ((inout Engine) -> Bool)?
+    /// How `Machine` follows the original code's drawing onto layer 3; nil
+    /// unless it draws there.
+    let drawing: Drawing?
 
     var name: String { GameSymbols.name(of: routine) }
+
+    /// What a native is (`Native.all` filters and sorts by them).
+    struct Flags: OptionSet {
+        let rawValue: Int
+
+        /// The worlds' code calls it and uses the registers it leaves, so it
+        /// leaves them as the original does; otherwise only memory counts.
+        static let leavesRegisters = Flags(rawValue: 1 << 0)
+        /// Its drawing is on layer 3 (`drawing`): switched off, the Apple's pixels.
+        static let drawsOnLayer3 = Flags(rawValue: 1 << 1)
+    }
+
+    /// A drawing on layer 3 as the 6502 code makes it (`Machine.followDrawing`):
+    /// looked at where the routine's code starts, from its parameters
+    /// (memory; PLOT's colour in A).
+    struct Drawing {
+        /// Whether the routine draws itself there: DRAW_TEXT jumps to
+        /// DRAW_BIG_TEXT for big text, which is followed there.
+        let draws: (CPU6502) -> Bool
+        /// What it draws; nil: nothing (off the screen).
+        let item: (CPU6502) -> LayerItem?
+    }
+
+    private init(_ routine: KeyPath<GameSymbols, Routine>, uses: [KeyPath<GameSymbols, Routine>], flags: Flags,
+                 run: ((inout Engine) -> Bool)?, drawing: Drawing?) {
+        self.routine = routine
+        self.uses = uses
+        self.flags = flags
+        self.run = run
+        self.drawing = drawing
+    }
 }
 
 nonisolated extension Native {
+    /// Swift in place of `routine`, reproducing the routines it `uses`.
     init(_ routine: KeyPath<GameSymbols, Routine>, uses: [KeyPath<GameSymbols, Routine>] = [],
          leavesRegisters: Bool = true, _ run: @escaping (inout Engine) -> Void) {
-        self.init(routine: routine, uses: uses, leavesRegisters: leavesRegisters) { e in
+        self.init(routine, uses: uses, flags: leavesRegisters ? .leavesRegisters : [], run: { e in
             run(&e)
             return true
-        }
+        }, drawing: nil)
     }
 
+    /// Swift in place of `routine` that may decline (the original code runs).
     init(_ routine: KeyPath<GameSymbols, Routine>, uses: [KeyPath<GameSymbols, Routine>],
          mayDecline run: @escaping (inout Engine) -> Bool) {
-        self.init(routine: routine, uses: uses, leavesRegisters: true, run: run)
+        self.init(routine, uses: uses, flags: .leavesRegisters, run: run, drawing: nil)
+    }
+
+    /// `routine`'s drawing on layer 3, the original code running: `item`
+    /// what it draws where its code starts, if it `draws` there.
+    init(drawing routine: KeyPath<GameSymbols, Routine>, draws: @escaping (CPU6502) -> Bool = { _ in true },
+         _ item: @escaping (CPU6502) -> LayerItem?) {
+        self.init(routine, uses: [], flags: .drawsOnLayer3, run: nil, drawing: Drawing(draws: draws, item: item))
     }
 
     /// What the robot drawing draws with.
@@ -72,7 +124,12 @@ nonisolated extension Native {
         \.stopAtWalls, \.testMove, \.stopAtTileColumn, \.stopAtTileRow, \.magnitude, \.roomWallsPointer, \.wallAt]
     private static let moving: [KeyPath<GameSymbols, Routine>] = [\.moveObject, \.moveObjectXY, \.setObjectRoom]
 
-    /// Every native routine, by address.
+    /// The patterns of line colour `c` (LINE_PATTERNS_EVEN/ODD), for `LayerLine`.
+    private static func linePatterns(_ mem: [UInt8]) -> LayerLine.Patterns {
+        { c in (mem[\.linePatternsEven, c], mem[\.linePatternsOdd, c]) }
+    }
+
+    /// Every native routine: those in Swift, then those drawing on layer 3.
     static let all: [Native] = [
         Native(\.roomWallsPointer) { $0.roomWallsPointer() },
         Native(\.moveObject, uses: moving) { $0.moveObject() },
@@ -92,6 +149,24 @@ nonisolated extension Native {
         Native(\.playerWalkSprite, uses: [\.magnitude]) { $0.playerWalkSprite() },
         Native(\.keepMove) { $0.keepMove() },
         Native(\.playSounds, uses: [\.playTone, \.playNoise]) { $0.playSounds() },
+
+        // On layer 3: after the tiles, everything the draw phase draws (Frontends.md "The native layer").
+        Native(drawing: \.drawText, draws: { $0.mem[\.currentTextStyle] != 2 }) { .text(DrawnText($0.mem)) },
+        Native(drawing: \.drawBigText) { .text(DrawnText($0.mem)) },
+        Native(drawing: \.drawSprite) { LayerSprite($0.mem).map(LayerItem.sprite) },
+        Native(drawing: \.plot) { cpu in
+            LayerLine.plot(x: cpu.mem[\.drawX], y: cpu.mem[\.drawY], colour: cpu.a, linePatterns(cpu.mem)).map(LayerItem.line)
+        },
+        Native(drawing: \.horizontalLine) { cpu in
+            let mem = cpu.mem
+            return LayerLine.horizontal(x1: mem[\.lineX1], x2: mem[\.lineX2], y: mem[\.drawY], colour: mem[\.lineColour],
+                                        linePatterns(mem)).map(LayerItem.line)
+        },
+        Native(drawing: \.verticalLine) { cpu in
+            let mem = cpu.mem
+            return LayerLine.vertical(x: mem[\.drawX], y1: mem[\.lineY1], y2: mem[\.lineY2], colour: mem[\.lineColour],
+                                      linePatterns(mem)).map(LayerItem.line)
+        },
     ]
 }
 
@@ -99,7 +174,9 @@ nonisolated extension Native {
 /// (before any of the code runs; the worlds' start-up code changes no engine
 /// code): which natives may replace their routines, and which routines differ
 /// from the version's code (a modified or damaged disk).  Those, and the
-/// natives that need them, run as the original 6502 code.
+/// natives that need them, run as the original 6502 code.  A native that only
+/// draws on layer 3 (no `run`) needs the fingerprints its routine has:
+/// DRAW_TEXT and DRAW_BIG_TEXT change their own code and have none.
 nonisolated struct CodeCheck {
     let variant: Variant
     /// The natives whose routines all have their fingerprints.
@@ -114,7 +191,7 @@ nonisolated struct CodeCheck {
         for routine in Set(Native.all.flatMap { [$0.routine] + $0.uses }) {
             matches[routine] = GameSymbols.map[keyPath: routine].matches(mem, variant)
         }
-        natives = Native.all.filter { n in ([n.routine] + n.uses).allSatisfy { matches[$0] == true } }
+        natives = Native.all.filter { n in ([n.routine] + n.uses).allSatisfy { matches[$0] ?? (n.run == nil) } }
         differing = matches.filter { !$0.value }.map { GameSymbols.name(of: $0.key) }.sorted()
     }
 }

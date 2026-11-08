@@ -1,4 +1,5 @@
 import Foundation
+import MOS6502
 
 /// Native port of the engine's object movement, shared by every world: the
 /// player's input (PlayerInput), the robots and the worlds' own code move

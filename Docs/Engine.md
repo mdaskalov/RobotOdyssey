@@ -501,23 +501,29 @@ these bounds and the main loop's first instruction in any world.
 ## The hybrid engine (Swift)
 
 The game runs as the original 6502 code on `CPU6502`, inside `Machine`.
-`CPU6502` is the `MOS6502` package (`Packages/MOS6502`, its README): the
+`CPU6502` is the `MOS6502` package (github.com/mdaskalov/MOS6502, its README): the
 NMOS 6502 of the Apple //e as AppleWin/Mariani runs it, all 256 opcodes, its
 cycle counts, every read or write on the cycle the 6502 makes it (a click is
 the cycle `LDA SPEAKER` reads $C030, its last); checked against AppleWin's
-own code (`Data/cpu_check.sh`). A BRK stops with an error (`stopsAtBRK`):
+own code (the package's `Data/cpu_check.sh`). A BRK stops with an error (`stopsAtBRK`):
 there is no ROM behind its vector.
 
-* 64K main RAM plus language card bank 1 (engine data, chips): a switch via
-  $C080‑$C08F swaps $D000‑$DFFF. The chips ($F56B) and sensors ($F44D) use
+* The machine is Apple2Kit's `Apple2` (github.com/mdaskalov/Apple2Kit), a
+  //e without ROMs (`Machine.apple`): 64K main RAM plus the language card's
+  RAM, always read and written; a switch via $C080‑$C08F picks its $D000
+  bank (bank 1: engine data, chips), which lies in `cpu.mem` at $D000 with
+  $E000‑$FFFF (Apple2Kit maps the card's RAM into flat memory, so natives
+  read it in place and the CPU runs the engine at full speed). The chips ($F56B) and sensors ($F44D) use
   bank 1 every tick. Worlds built from the disks get bank 1 (and chips 4‑7 at
   $E000‑$EFFF, the chip table at $F008) from the loader's set‑up after
   loading the world (`ChipSetup`, DiskLayout.md): Level 1, and with it levels
   2‑5, gets two chips (167 → $D000, 165 → $D400 – the Level 1 save state
   holds exactly these), the lab tutorial two others, the lab only empty
   chips; saved games bring their own.
-* soft switches: keyboard $C000/$C010, display page $C054/$C055, speaker
-  $C030, and the input devices (`InputDevices`): buttons $C061/$C062, paddle
+* soft switches: `Apple2`'s – display page $C054/$C055, speaker $C030, the
+  language card, the slots (the mouse card, `AppleMouse`) – and the game's
+  own, through its `ioHook` (`Machine.io`): keyboard $C000/$C010 and the
+  input devices (`InputDevices`, which the natives read too): buttons $C061/$C062, paddle
   timers $C064/$C065 started by $C070 and timed by the CPU's cycle counter
   (3072 cycles at position 255, the range READ_JOYSTICK measures; "Input").
   Without a joystick (the default) the timers never run out, so the engine

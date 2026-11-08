@@ -98,7 +98,7 @@ struct NativeCheck {
                 failures += 1
                 continue
             }
-            let natives = screen.natives.map { String(format: "%@ $%04X", $0.name, $0.entry) }
+            let natives = screen.natives.map { String(format: "%@ $%04X", $0.native.name, $0.entry) }
             print("\(world.name) (v\(set.versionName)): natives \(natives.joined(separator: ", "))")
             if let differing = world.codeCheck?.differing, !differing.isEmpty {
                 fail("\(world.name): code differs from the symbols' fingerprints: \(differing.joined(separator: ", "))")
@@ -152,7 +152,7 @@ struct NativeCheck {
         let native = screen.loop(room: nil)
         let original = screen.loop(room: nil, nativesEnabled: false)
         let mixed = screen.loop(room: nil)
-        let names = screen.natives.map(\.name)
+        let names = screen.natives.map(\.native.name)
         var rng = SplitMix(state: UInt64(world.name.utf8.count))
         var sounds = 0
         defer { if sounds > 0 { print("  \(sounds) sounds in the ticks") } }
@@ -291,7 +291,7 @@ struct NativeCheck {
                                    _ rng: inout SplitMix, trials: Int = 200) -> Int {
         guard let start = try? screen.render(room: 0).machine else { return 0 }
         let v = check.variant
-        let natives = check.natives.filter(\.leavesRegisters)
+        let natives = check.natives.filter { $0.run != nil && $0.flags.contains(.leavesRegisters) }
         // Objects in the room lists (so moving them keeps the lists intact).
         let mem0 = start.cpu.mem
         var listed: [UInt8] = []
@@ -339,7 +339,7 @@ struct NativeCheck {
             if !rng.chance(3) { devices.type(rng.chance(2) ? testKeys[Int(rng.byte(testKeys.count))] : rng.byte()) }
             if rng.chance(2) { devices.joystick = (rng.byte(), rng.byte()) }
             devices.buttons = [rng.chance(3), rng.chance(3)]
-            let regs = Registers(a: rng.byte(), x: rng.byte(0x40), y: object, p: rng.byte() & ~0x18 | 0x20)
+            let regs = CPU6502.Registers(a: rng.byte(), x: rng.byte(0x40), y: object, p: rng.byte() & ~0x18 | 0x20)
             for native in natives {
                 let entry = GameSymbols.map[keyPath: native.routine].entry(v)!
                 let original = Machine(memory: mem, bank1: start.bank1, variant: v)
@@ -354,7 +354,7 @@ struct NativeCheck {
                     fail("\(world.name) trial \(trial) \(native.name): \(error)")
                     return n
                 }
-                guard ported.call(native.run) else {
+                guard ported.call(native.run!) else {
                     fail("\(world.name) trial \(trial) \(native.name): declined")
                     return n
                 }
@@ -380,7 +380,7 @@ struct NativeCheck {
 
     /// The robot drawing called directly, on randomised states, 4 ticks each.
     static func checkRobotCalls(_ world: World, _ screen: GameScreen, _ check: CodeCheck, _ rng: inout SplitMix) -> Int {
-        let robots = check.natives.filter { !$0.leavesRegisters }
+        let robots = check.natives.filter { $0.run != nil && !$0.flags.contains(.leavesRegisters) }
         guard !robots.isEmpty, let start = try? screen.render(room: 0).machine else { return 0 }
         let v = check.variant
         let count = Robot.count(v.engine)
@@ -427,7 +427,7 @@ struct NativeCheck {
                         fail("\(world.name) trial \(trial): \(error)")
                         return n
                     }
-                    ported.call(native.run)
+                    ported.call(native.run!)
                     n += 1
                     // The stack below the caller ($01F0 down) only holds dead return addresses.
                     if let d = firstDifference(ported.cpu.mem, original.cpu.mem, ignoring: 0x0100 ... 0x01F0) {
@@ -480,7 +480,7 @@ struct NativeCheck {
             }
             let original = Machine(memory: mem, bank1: start.bank1, variant: v)
             let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
-            let regs = Registers(a: rng.byte(), x: rng.byte(), y: rng.byte(), p: rng.byte() & ~0x18 | 0x20)
+            let regs = CPU6502.Registers(a: rng.byte(), x: rng.byte(), y: rng.byte(), p: rng.byte() & ~0x18 | 0x20)
             for m in [original, ported] {
                 (m.cpu.a, m.cpu.x, m.cpu.y, m.cpu.p, m.cpu.sp) = (regs.a, regs.x, regs.y, regs.p, 0xF0)
             }
@@ -491,7 +491,7 @@ struct NativeCheck {
                 fail("\(world.name) sound trial \(trial): \(error)")
                 return n
             }
-            ported.call(native.run)
+            ported.call(native.run!)
             let sounds = ported.takeSounds()
             n += 1
             played += sounds.count

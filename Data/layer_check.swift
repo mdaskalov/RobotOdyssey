@@ -1,6 +1,7 @@
 // Checks the canvas's layers of the pages (PageLayers, Machine.layers:
 // layer 1 the page, layer 2 the page without what the routines that draw on
-// layer 3 draw -- LayerRoutine: the texts, sprites, plots and lines --,
+// layer 3 draw -- the natives with Native.Flags.drawsOnLayer3: the texts,
+// sprites, plots and lines --,
 // layer 3 those drawings as items), headless, in every world:
 //
 //   memory:  a loop keeping the layers and one without, from the world's
@@ -13,13 +14,28 @@
 //            undone (the page without them): layer 2 differs from it only in
 //            bytes they drew in (the bits drawing after them set again that
 //            they had set already: counted, not a failure -- none while
-//            everything after the tiles draws on layer 3); the loop's own
+//            everything after the tiles draws on layer 3); the canvas's
+//            Apple pixels (LayerPixels: layer 2 with layer 3's sprites,
+//            plots and lines drawn on it and the writes between them, in
+//            order) the page but for the letters' cells, with every routine
+//            on and with DRAW_SPRITE, PLOT, HORIZONTAL_LINE, VERTICAL_LINE,
+//            the plots and lines, or all switched off (drawn in their place:
+//            the same pixels on and off);
+//            the loop's own
 //            page on screen (shownFrame) has the same layers; the texts as many as the room's table has (as the
 //            draw finds it: the worlds' code moves texts; it may draw more);
 //            the letters as the canvas draws them (DrawnText.characters):
 //            no two in one cell -- an accent another text draws over a
 //            letter merged into it (Level 2's "Musé") -- except in room $3F
 //            (nowhere: its texts are junk);
+//   robots:  with each of those switch sets, the world run from its start
+//            (robotTicks ticks, no keys) and every room a robot is in
+//            previewed each tick: the canvas's Apple pixels the page but for
+//            the letters' cells -- the robots move, their bumpers light, so
+//            the drawings meet in ways a room's first draw doesn't (a sprite
+//            given the third byte's palette bit where a switched-off
+//            VERTICAL_LINE writes later: LayerPixels draws on layer 2 as it
+//            was at the first drawing, PageFrame.start);
 //   help:    ? typed (in the levels SHOW_TEXT_ROOM: the help room, drawn
 //            outside the draw phase, then a wait for a key) -- the help's
 //            page comes with its texts, layer 2 differing from the page only
@@ -65,6 +81,7 @@ struct LayerCheck {
             let game = try GameScreen(world: world)
             try memory(game)
             try rooms(world, game)
+            try robots(world, game)
             try help(game)
         }
         print(failures == 0 ? "all ok" : "\(failures) failures")
@@ -84,6 +101,43 @@ struct LayerCheck {
     static func lines(_ items: [LayerItem]) -> Int {
         items.count { if case .line = $0 { true } else { false } }
     }
+
+    /// The layers without the writes between the drawings (`PageWrites`):
+    /// natives and 6502 code may write a byte in other steps.
+    static func drawings(_ items: [LayerItem]) -> [LayerItem] {
+        items.filter { if case .writes = $0 { false } else { true } }
+    }
+
+    /// The bytes the writes between the drawings changed.
+    static func written(_ items: [LayerItem]) -> Int {
+        items.reduce(0) { n, item in
+            guard case .writes(let w) = item else { return n }
+            var count = 0
+            w.forEach { _, _, _ in count += 1 }
+            return n + count
+        }
+    }
+
+    /// The canvas's Apple pixels (`LayerPixels`) against the page: the bytes
+    /// that differ outside the texts' cells.
+    static func pixelsDiffer(_ frame: PageFrame) -> Int {
+        let cells = Set(texts(frame.items).flatMap { t in t.letters.flatMap { cell(t, $0) } })
+        let pixels = LayerPixels(frame).screen.bytes, page = frame.page.bytes
+        return (0 ..< page.count).count { pixels[$0] != page[$0] && !cells.contains($0) }
+    }
+
+    /// Natives that draw on layer 3 switched off for the pixels check.
+    static let switchSets: [(name: String, off: Set<String>)] = [
+        ("all on", []),
+        ("DRAW_SPRITE off", names([\.drawSprite])),
+        ("PLOT off", names([\.plot])),
+        ("HORIZONTAL_LINE off", names([\.horizontalLine])),
+        ("VERTICAL_LINE off", names([\.verticalLine])),
+        ("plots and lines off", names([\.plot, \.horizontalLine, \.verticalLine])),
+        ("sprites, plots and lines off", names([\.drawSprite, \.plot, \.horizontalLine, \.verticalLine])),
+    ]
+
+    static func names(_ routines: [RoutineSymbol]) -> Set<String> { Set(routines.map(GameSymbols.name(of:))) }
 
     /// The bytes of the page a letter's cell takes (top line first, 40 a line):
     /// a normal letter its byte column on 8 lines, a big one the bytes its
@@ -119,6 +173,7 @@ struct LayerCheck {
                     let line = 191 - y
                     return line < 0 ? [] : (l.x / 7 ... min((l.x + l.width) / 7, 39)).map { line * 40 + $0 }
                 }
+            case .writes: []        // in layer 2 too
             }
         })
     }
@@ -205,6 +260,7 @@ struct LayerCheck {
         var rooms = 0, layered = 0, textRooms = 0, spriteCount = 0, lineCount = 0, textCount = 0
         var outside: [String] = [], blind: [String] = [], blindBytes = 0, live: [String] = []
         var missing: [String] = [], accented: [String] = [], overlapping: [String] = []
+        var pixels: [String] = [], writes = [Int](repeating: 0, count: switchSets.count)
         for room in 0 ..< World.roomCount where world.codeRooms[room] == nil {
             let loop = game.loop(room: room)
             for _ in 0 ..< 2 { try loop.runTick() }
@@ -235,7 +291,21 @@ struct LayerCheck {
                     blindBytes += inside
                 }
             }
-            if frames[1].apple.bytes != frame.apple.bytes || frames[1].items != frame.items { live.append("\(hex(room)) (6502 code)") }
+            if frames[1].apple.bytes != frame.apple.bytes || drawings(frames[1].items) != drawings(frame.items)
+                || LayerPixels(frames[1]).screen.bytes != LayerPixels(frame).screen.bytes {
+                live.append("\(hex(room)) (6502 code)")
+            }
+            // The canvas's Apple pixels: the page but for the letters, any routine switched off.
+            for (k, switches) in switchSets.enumerated() {
+                let m = machine(world, start)
+                m.layers = PageLayers()
+                m.switchedOff = switches.off
+                _ = try game.phase.draw(room: room, on: m)
+                let drawn = m.drawnFrame()
+                writes[k] += written(drawn.items)
+                let differ = pixelsDiffer(drawn)
+                if differ != 0 { pixels.append("\(hex(room)) \(switches.name) (\(differ) bytes)") }
+            }
             let shown = loop.shownFrame()
             if shown.page.bytes != frame.page.bytes || shown.apple.bytes != frame.apple.bytes || shown.items != frame.items {
                 live.append("\(hex(room)) (on screen)")
@@ -266,12 +336,43 @@ struct LayerCheck {
               + (outside.isEmpty ? "" : " – not in " + outside.joined(separator: ", ")))
         print("  --   rooms: \(blindBytes) bytes differing in those: bits drawing after them set again"
               + (blind.isEmpty ? "" : ": " + blind.joined(separator: ", ")))
+        check(pixels.isEmpty, "rooms: the canvas's Apple pixels (layers 2 and 3) the page but for the letters, "
+              + zip(switchSets, writes).map { "\($0.name) (\($1) bytes written between the drawings)" }.joined(separator: ", ")
+              + (pixels.isEmpty ? "" : " – not in " + pixels.prefix(12).joined(separator: ", ")))
         check(live.isEmpty, "rooms: the same layers with every routine as 6502 code, and on screen"
               + (live.isEmpty ? "" : " – not in " + live.joined(separator: ", ")))
         check(missing.isEmpty, "rooms: each with its texts" + (missing.isEmpty ? "" : " – missing in " + missing.joined(separator: ", ")))
         check(overlapping.isEmpty, "rooms: the letters as the canvas draws them, never two in one cell"
               + (accented.isEmpty ? "" : " (accented: " + accented.joined(separator: ", ") + ")")
               + (overlapping.isEmpty ? "" : " – two in one in " + overlapping.joined(separator: ", ")))
+    }
+
+    /// Ticks the robots check runs each switch set (Level 1's lost palette
+    /// bit came at tick 2 with VERTICAL_LINE off, at tick 185 with
+    /// HORIZONTAL_LINE off).
+    static let robotTicks = 300
+
+    static func robots(_ world: World, _ game: GameScreen) throws {
+        var frames = 0, failed: [String] = []
+        for switches in switchSets {
+            let loop = game.loop(room: nil)
+            loop.switchedOff = switches.off
+            var bad = 0
+            for _ in 0 ..< robotTicks {
+                do { try loop.runTick(maxSteps: 2_000_000) } catch CPU6502.CPUError.tooManySteps {}
+                let now = world.with(mem: loop.memory, bank1: loop.bank1)
+                let rooms = Set(now.robots.map { now.object($0.object).room })
+                for room in rooms where room < World.roomCount && world.codeRooms[room] == nil {
+                    guard let frame = try? loop.previewFrame(room: room), !frame.items.isEmpty else { continue }
+                    frames += 1
+                    if pixelsDiffer(frame) != 0 { bad += 1 }
+                }
+            }
+            if bad != 0 { failed.append("\(switches.name) (\(bad) frames)") }
+        }
+        check(failed.isEmpty, "robots: \(robotTicks) ticks from the start with each switch set, \(frames) frames of the rooms "
+              + "robots are in, the canvas's Apple pixels the page but for the letters"
+              + (failed.isEmpty ? "" : " – not with " + failed.joined(separator: ", ")))
     }
 
     static func help(_ game: GameScreen) throws {

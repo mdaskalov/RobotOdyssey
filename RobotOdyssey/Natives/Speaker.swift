@@ -275,9 +275,9 @@ nonisolated extension Sound {
     /// `p` as PLAY_SOUNDS plays it alone in `world` (`Machine.playing`), to
     /// listen to: by the native if the world has it, else by the original code.
     static func play(_ p: Parameters, in world: World) throws -> Played {
-        if let check = world.codeCheck, let native = check.natives.first(where: { $0.routine == \.playSounds }) {
+        if let check = world.codeCheck, let run = check.natives.first(where: { $0.routine == \.playSounds })?.run {
             let machine = Machine.playing(p, in: world, variant: check.variant)
-            if machine.call(native.run), let played = machine.takeSounds().first { return played }
+            if machine.call(run), let played = machine.takeSounds().first { return played }
         }
         return try playOriginal(p, in: world)
     }

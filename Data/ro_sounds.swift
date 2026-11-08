@@ -17,6 +17,7 @@
 // the shift register at 0 and the sweep counter (Y) at 0, as FLIP_PAGE leaves
 // it every other tick; in the game both go on from what came before.  The
 // files are what the app plays (SpeakerRenderer), 16-bit mono.
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -107,7 +108,7 @@ struct SoundTool {
     static func nativePlay(_ p: Sound.Parameters, in world: World, _ native: Native) -> Sound.Played? {
         guard let check = world.codeCheck, check.natives.contains(where: { $0.routine == \.playSounds }) else { return nil }
         let machine = Machine.playing(p, in: world, variant: check.variant)
-        machine.call(native.run)
+        machine.call(native.run!)
         return machine.takeSounds().first
     }
 

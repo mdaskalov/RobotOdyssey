@@ -123,14 +123,23 @@ frames and ticks are identical with and without natives.
 
 ## Natives
 
-`Native.all` (Engine/Natives.swift) lists each native: the routine it
-replaces, the routines it reproduces besides (`uses` – what it calls or
-falls into, e.g. READ_INPUT uses the object motion), whether callers use the
-registers it leaves (`leavesRegisters`, compared by native_check), and the
-method to run. A native may report the cycles the original takes
-(`Engine.elapsed`; PLAY_SOUNDS does) and the sounds it played
-(`Engine.sounds`). Each listed routine has its code ranges and MD5s in
-GameSymbols.
+`Native.all` (Natives/Natives.swift; the ports beside it in RobotOdyssey/Natives)
+lists each native: the routine it takes over, the routines it reproduces
+besides (`uses` – what it calls or falls into, e.g. READ_INPUT uses the
+object motion), what it is (`Native.Flags`), the method to run (`run`) and,
+for one that draws on layer 3, what it draws (`drawing`). The flags:
+`leavesRegisters`, callers use the registers it leaves (compared by
+native_check); `drawsOnLayer3`, its drawing goes on the native layer
+(Frontends.md "The native layer"). The texts, sprites, plots and lines
+(DRAW_TEXT, DRAW_BIG_TEXT, DRAW_SPRITE, PLOT, HORIZONTAL_LINE,
+VERTICAL_LINE) are natives with no `run`: the original code runs, and the
+machine follows its drawing onto layer 3. A native may report the cycles the
+original takes (`Engine.elapsed`; PLAY_SOUNDS does) and the sounds it
+played (`Engine.sounds`). Each routine of a native that runs has its code
+ranges and MD5s in GameSymbols; one that only draws on layer 3 needs the
+fingerprints its routine has (DRAW_TEXT and DRAW_BIG_TEXT change their own
+code and have none). The viewer lists them all in one list, a switch each,
+those on layer 3 marked.
 
 ## Mapping a new routine
 

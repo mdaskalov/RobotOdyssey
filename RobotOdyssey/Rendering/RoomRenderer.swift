@@ -1,10 +1,5 @@
+import Apple2Kit
 import Foundation
-
-/// Apple II hi-res page: 192 lines x 40 bytes; bits 0-6 are pixels (bit 0 leftmost), bit 7 the palette.
-nonisolated struct HiresScreen {
-    static let width = 280, height = 192, bytesPerLine = 40
-    var bytes = [UInt8](repeating: 0, count: 192 * 40)
-}
 
 /// Draws a room exactly like the Apple II engine: identical, byte for byte, to
 /// the original drawing routines run on the emulator (Data/ro_verify.py).

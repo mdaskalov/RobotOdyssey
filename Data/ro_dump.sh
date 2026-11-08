@@ -5,8 +5,8 @@ set -e
 cd "$(dirname "$0")"
 APP=../RobotOdyssey
 OUT="${TMPDIR:-/tmp}/ro_dump"
-. ./mos6502.sh
-swiftc -O -wmo -parse-as-library $MOS6502 -o "$OUT" ro_dump.swift \
-    $APP/Engine/*.swift $APP/Symbols/*.swift $APP/Rendering/RoomRenderer.swift \
+. ./packages.sh
+swiftc -O -wmo -parse-as-library $PACKAGES -o "$OUT" ro_dump.swift \
+    $APP/Engine/*.swift $APP/Natives/*.swift $APP/Symbols/*.swift $APP/Rendering/RoomRenderer.swift \
     $APP/Model/DiskImage.swift $APP/Model/GameCatalog.swift $APP/Model/World.swift $APP/Model/WorldBuilder.swift
 "$OUT" "$@"

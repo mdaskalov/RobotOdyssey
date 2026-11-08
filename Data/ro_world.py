@@ -12,6 +12,7 @@ A world is the memory image $6000-$94FF.  Layout (see Docs/WorldFormat.md):
 (the tutorials and the lab keep their wire tables in their code, see ro_catalog)
 """
 from cpu6502 import CPU
+import apple2kit_data  # noqa: F401  (hires, dis6502: Apple2Kit's Data/)
 from dis6502 import OPS, _modes as MODE_LENGTH
 from ro_catalog import WORLDS, WORLD_BY_ID, ENGINE_MAIN, ENGINE_LEVELS, LEVEL_WIRES
 from ro_disk import Disk

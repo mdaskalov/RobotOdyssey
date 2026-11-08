@@ -1,3 +1,4 @@
+import Apple2Kit
 import SwiftUI
 
 /// The selected room large, and below it, if shown, the world: its rooms,
@@ -107,9 +108,10 @@ struct RoomCanvas: View {
                         .frame(width: geo.size.width, height: geo.size.height)
                 }
                 if !model.inLoader {
-                    let items = model.liveItems(world: world, room: model.selectedRoom)
-                    if !items.isEmpty {
-                        NativeLayer(items: items, mono: model.mode == .monochrome)
+                    let layer = model.liveItems(world: world, room: model.selectedRoom)
+                    if !layer.items.isEmpty {
+                        NativeLayer(items: layer.items, pixels: model.liveImage(world: world, room: model.selectedRoom),
+                                    afterTexts: layer.afterTexts, mono: model.mode == .monochrome)
                             .equatable()
                             .frame(width: geo.size.width, height: geo.size.height)
                     }

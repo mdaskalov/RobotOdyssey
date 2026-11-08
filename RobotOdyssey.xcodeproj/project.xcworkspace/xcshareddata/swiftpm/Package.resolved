@@ -1,0 +1,24 @@
+{
+  "originHash" : "7ca86a3f0eb4e655b03bc3ee712ca470c255607f9cd73a0e8e2763a6705ae706",
+  "pins" : [
+    {
+      "identity" : "apple2kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mdaskalov/Apple2Kit.git",
+      "state" : {
+        "revision" : "5b1473e1497e9fe4cff708ebaeba152e1609c0ec",
+        "version" : "1.1.0"
+      }
+    },
+    {
+      "identity" : "mos6502",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mdaskalov/MOS6502.git",
+      "state" : {
+        "revision" : "c822b55923ee01a8c99159d1d35ce3ee17c3e6b9",
+        "version" : "1.1.0"
+      }
+    }
+  ],
+  "version" : 3
+}
