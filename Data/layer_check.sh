@@ -7,6 +7,6 @@ APP=../RobotOdyssey
 OUT="${TMPDIR:-/tmp}/ro_layer_check"
 . ./packages.sh
 swiftc -O -wmo -parse-as-library $PACKAGES -o "$OUT" layer_check.swift \
-    $APP/Engine/*.swift $APP/Natives/*.swift $APP/Symbols/*.swift $APP/Rendering/RoomRenderer.swift \
+    $APP/Engine/*.swift $APP/Natives/*.swift $APP/Symbols/*.swift \
     $APP/Model/DiskImage.swift $APP/Model/GameCatalog.swift $APP/Model/World.swift $APP/Model/WorldBuilder.swift
 "$OUT" "$@"

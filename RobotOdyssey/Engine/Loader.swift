@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -26,23 +27,23 @@ nonisolated enum Loader {
         machine.hook(LoaderSymbols.address(\.rwts), rwts)
         // The checks read the drive's nibbles; they find the signature, as on an original disk.
         machine.hook(LoaderSymbols.address(\.bootCopyCheck)) { m in
-            m.cpu.p |= CPU6502.Flag.carry
-            m.cpu.pc = UInt16(LoaderSymbols.address(\.bootCopyDone))
+            m.apple.cpu.p |= CPU6502.Flag.carry
+            m.apple.cpu.pc = UInt16(LoaderSymbols.address(\.bootCopyDone))
             return true
         }
         machine.hook(LoaderSymbols.address(\.menuCopyCheck)) { m in
-            m.cpu.p |= CPU6502.Flag.carry
-            m.cpu.returnFromSubroutine()
+            m.apple.cpu.p |= CPU6502.Flag.carry
+            m.apple.cpu.returnFromSubroutine()
             return true
         }
         // Robotropolis' intro: stepped over, as a key press ends it at once.
         machine.hook(LoaderSymbols.address(\.playIntro), name: skipIntro) { m in
-            m.cpu.pc = UInt16(LoaderSymbols.address(\.playIntro) + 3)
+            m.apple.cpu.pc = UInt16(LoaderSymbols.address(\.playIntro) + 3)
             return true
         }
         // The disk asked for goes in before the loader reads which it is.
         machine.hook(LoaderSymbols.address(\.awaitSide)) { m in
-            if let disk = DiskDrive.Disk(rawValue: Int(m.cpu.mem[LoaderSymbols.address(\.wantedSide)])) {
+            if let disk = DiskDrive.Disk(rawValue: Int(m.apple.cpu.mem[LoaderSymbols.address(\.wantedSide)])) {
                 m.drive?.insert(disk)
             }
             return false
@@ -62,7 +63,7 @@ nonisolated enum Loader {
             _ = drive.insert(.sideA) || drive.insert(.sideB)
         }
         guard let track = drive.trackZero, drive.inserted != .storage else { return false }
-        let cpu = m.cpu
+        let cpu = m.apple.cpu
         cpu.mem.replaceSubrange(0x0800 ..< 0x0900, with: track[0 ..< 0x100])
         let boot2 = LoaderSymbols.address(\.boot2)
         cpu.mem.replaceSubrange(boot2 ..< boot2 + 0xF00, with: track[0x100 ..< 0x1000])
@@ -84,7 +85,7 @@ nonisolated enum Loader {
     /// error) and the carry set on an error.
     static func rwts(_ m: Machine) -> Bool {
         guard let drive = m.drive else { return false }
-        let cpu = m.cpu
+        let cpu = m.apple.cpu
         let iob = Int(cpu.a) << 8 | Int(cpu.y)
         let track = Int(cpu.mem[iob + 4]), sector = Int(cpu.mem[iob + 5])
         let buffer = Int(cpu.mem[iob + 8]) | Int(cpu.mem[iob + 9]) << 8

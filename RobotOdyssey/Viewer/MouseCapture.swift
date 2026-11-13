@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 
 /// The Mac's mouse taken by the canvas (`ViewerModel.takeMouse`): the pointer
@@ -109,3 +110,20 @@ final class MouseCapture {
         return event
     }
 }
+#else
+import CoreGraphics
+
+/// No mouse to take where there is no pointer (tvOS): the same calls, none
+/// of them doing anything.
+final class MouseCapture {
+    var onMove: ((CGFloat, CGFloat) -> Void)?
+    var onButton: ((Bool) -> Void)?
+    var onCommand: (() -> Void)?
+    private(set) var isTaken = false
+
+    func start() {}
+    func stop() {}
+    func take() {}
+    func give(at point: CGPoint? = nil) {}
+}
+#endif

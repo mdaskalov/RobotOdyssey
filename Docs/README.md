@@ -41,11 +41,11 @@ faithful Swift version.
   world the loader starts. Saved games go to `save.dsk` (or the first
   storage disk loaded; made if there is none), kept in the app's
   Application Support folder and loaded from there at launch.
-* **Input:** the Apple's keyboard, joystick (paddle timers by CPU cycles)
-  and buttons are emulated in `Machine`; the viewer uses the keyboard and a
+* **Input:** the Apple's keyboard, joystick (paddle timers by CPU cycles),
+  buttons and mouse card are Apple2Kit's; the viewer uses the keyboard and a
   game controller as the joystick (the further the stick is pushed, the
   faster the player moves, by the game's own joystick table). The mouse
-  (Frontends.md "Input") is an Apple mouse card (`AppleMouse`, slot 4) for
+  (Frontends.md "Input") is an Apple mouse card (Apple2Kit's `MouseCard`, slot 4) for
   the game's own mouse mode: in *Play* a press of ⌘ alone hides the
   pointer, the mouse walks the player at the game's pace
   (at most 7 across and 15 up or down a tick, walls stop it), its button is
@@ -354,9 +354,9 @@ Return, Esc, Tab; Delete is ←), so I J K M move, Ctrl‑I J K M move slowly,
 space picks up and drops, `?` gives hints and Esc asks to quit. The arrow keys
 move like I J K M, and with Shift slowly, as in the PC version (the Apple's
 own arrow keys send codes the game takes for other keys). A movement key
-(the world's MOVE_KEYS) held down is typed again at the start of every tick
-until it is let go, so the player walks on from the first tick, without the
-Mac's key repeat delay. A game controller (`GameControllers`) is the
+held down repeats as on the //e (after half a second, then faster than the
+ticks), so the player walks on until it is let go. A game controller
+(Apple2Kit's `GameControllers`) is the
 Apple's joystick with *Play*: the left stick or the d‑pad moves, A or X is
 button 0, B or Y button 1 (either picks up and drops). The game moves the
 player by how far the stick is pushed (Engine.md "Input"): a little, 1 step
@@ -384,3 +384,39 @@ In Debug builds `-openDisks <path>…` opens disks at launch (needs
 The extracted data, the Python tools and the app read **your own disk
 images**; nothing from the game is part of the app. `Data/Extracted` is game
 data – keep it out of public repositories.
+
+## The Apple TV app
+
+A second target, `RobotOdysseyTV` (its own scheme, bundle id
+`com.innersoft.RobotOdysseyTV`, tvOS only; the `RobotOdyssey` target is macOS
+only). It compiles the `RobotOdyssey/` folder – engine, model, natives,
+symbols, `ViewerModel`, `RoomCanvas`, the asset catalog and the bundled disks
+– without the Mac's panels (`RobotOdyssey.swift`, `ContentView.swift`,
+`WorldView`, `WorldPanel`, `WorldMapView`, `CurrentRoomPanel`: the target's
+membership exceptions in the project; `RoomCell` is shared), plus
+`RobotOdysseyTV/`: the game full screen from launch (`TVGameView`), the
+world played last (else the first), following the player and the loader.
+Menu opens the menu over it (`TVMenu`, the game paused while it is open):
+back to the game, Levels (the worlds and the saved games), Inspect Rooms
+(the world's rooms as thumbnails), Inspect This Room, Restart, the game's
+keys Esc, ? and Ctrl-S, the display. Inspecting (`playing` off, as the
+Mac's canvas out of Play): the arrows go to the room next door, select back
+to the player's room and the game. `MouseCapture` does nothing there (no pointer), the native
+layer's font is a `UIFont` (`PlatformFont`).
+
+Input: a game controller is the Apple's joystick (Apple2Kit's
+`GameControllers`, as on the Mac), a hardware keyboard the Apple's keyboard
+(`AppleKeyboard`). The Siri Remote: the clickpad's arrows each type one
+I J K M (the loader: the Apple's arrow keys), select types space (take or
+drop; the loader: Return), play/pause takes the next tool – cursor,
+soldering pen, remote control, by the key of TOOL_KEYS after TOOL_MODE's
+tool (`ViewerModel.nextToolKey`; TAKE_TOOL swaps one tool for another at
+once, the key of the tool in hand does nothing) – and pauses in the loader,
+Menu the menu. A game controller's shoulders take the tools (left C, right
+S, a trigger R), its ☰ the menu; the presses the system makes of its other
+buttons (select, arrows, B as Menu) are left out, the joystick has them.
+
+Not there yet: a tvOS app icon and top shelf image (the asset catalog has
+the Mac's only), opening other disk images (only those in the bundle), and
+storage that lasts – tvOS may purge the app's Application Support folder,
+where `StorageDisks` keeps the games saved.

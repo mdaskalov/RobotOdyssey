@@ -11,6 +11,18 @@ struct WorldGroup: Identifiable {
     let disks: DiskSet
 }
 
+extension WorldKind {
+    /// The symbol a world of this kind has in the lists of worlds.
+    var systemImage: String {
+        switch self {
+        case .level: "building.2"
+        case .tutorial: "graduationcap"
+        case .lab: "flask"
+        case .savedGame: "tray.and.arrow.down"
+        }
+    }
+}
+
 @Observable
 final class ViewerModel {
     private(set) var disks: [DiskImage] = []
@@ -163,8 +175,6 @@ final class ViewerModel {
     @ObservationIgnored private var loop: (world: World.ID, loop: GameLoop)?
     /// The cycle the running game should be at by the clock (`runGame`); nil while it doesn't run.
     @ObservationIgnored private var clockCycle: UInt64?
-    /// The movement keys held down, the newest last (`type`).
-    @ObservationIgnored private var heldKeys: [(key: String, code: UInt8)] = []
     @ObservationIgnored private let soundPlayer = SoundPlayer()
     /// Plays the sounds of the world panel's sound table (`play`).
     @ObservationIgnored private let soundPreview = SoundPlayer()
@@ -528,7 +538,6 @@ final class ViewerModel {
     func runGame() async {
         loop = nil
         clockCycle = nil
-        heldKeys = []
         releaseMouse()
         liveFrame = nil
         loaderImage = nil
@@ -564,7 +573,7 @@ final class ViewerModel {
                 continue
             }
             // A sound takes its cycles at once (the native PLAY_SOUNDS), and the loop waits here while it plays.
-            let cycles = (clockCycle ?? loop.cycles) + UInt64(elapsed * GameLoop.clock)
+            let cycles = (clockCycle ?? loop.cycles) + UInt64(elapsed * Apple2Machine.clock)
             clockCycle = cycles
             do {
                 try loop.run(until: cycles, finishingTick: true)
@@ -681,31 +690,39 @@ final class ViewerModel {
         session += 1
     }
 
-    /// A key typed on the Apple's keyboard (Play), `key` the Mac's: the game
-    /// reads it at its next tick.  A movement key (`GameLoop.walks`) is held
-    /// until `release`, typed again every tick, so the Mac's repeats of it
-    /// are dropped.
+    /// A key down on the Apple's keyboard (Play), `key` the Mac's, until
+    /// `release`: the game reads it at its next tick, and the //e repeats
+    /// it while it is held (Apple2Kit's `Keyboard`); the Mac's repeats are
+    /// dropped.
     func type(_ code: UInt8, key: String, repeated: Bool = false) {
-        guard let running = loop, running.world == selectedWorldID else { return }
-        if running.loop.walks(code) {
-            guard !repeated else { return }
-            heldKeys.removeAll { $0.key == key }
-            heldKeys.append((key, code))
-            running.loop.devices.held = code
-        }
-        running.loop.devices.type(code)
+        guard !repeated, let running = loop, running.world == selectedWorldID else { return }
+        running.loop.apple.keyDown(code, id: key.hashValue)
     }
 
-    /// A key let go: if it was held (`type`), the newest held before it walks on.
+    /// A key let go.
     func release(_ key: String) {
-        heldKeys.removeAll { $0.key == key }
-        loop?.loop.devices.held = heldKeys.last?.code
+        loop?.loop.apple.keyUp(id: key.hashValue)
     }
 
     /// Every key let go: the game lost the keyboard.
     func releaseKeys() {
-        heldKeys = []
-        loop?.loop.devices.held = nil
+        loop?.loop.apple.releaseKeys()
+    }
+
+    /// The key of TOOL_KEYS (C, S, R) that takes the tool after the one in
+    /// the player's hand (TOOL_MODE): the soldering pen after none, the
+    /// remote control after the pen, the player's own look after the remote.
+    /// TAKE_TOOL ($BDE1) puts the tool in hand away and takes the other at
+    /// once (the key of the tool in hand does nothing).  Nil in the loader.
+    var nextToolKey: UInt8? {
+        guard let running = loop, running.world == selectedWorldID, !running.loop.inLoader,
+              let world = selectedWorld, let toolMode = GameSymbols.map.toolMode.address(world.engine)
+        else { return nil }
+        switch running.loop.memory[toolMode] {
+        case 0x00: return 0xD3                      // S: the soldering pen
+        case 0xFD: return 0xD2                      // R: the remote control
+        default: return 0xC3                        // C: the player (the cursor)
+        }
     }
 
     // MARK: the mouse
@@ -735,7 +752,7 @@ final class ViewerModel {
     /// The canvas is shown: ⌘ is watched, the mouse can be taken.
     func canvasAppeared() {
         mouseCapture.onMove = { [weak self] in self?.moveMouse(by: $0, $1) }
-        mouseCapture.onButton = { [weak self] in self?.loop?.loop.mouseButton(down: $0) }
+        mouseCapture.onButton = { [weak self] in self?.loop?.loop.apple.mouseButton(down: $0) }
         mouseCapture.onCommand = { [weak self] in self?.commandPressed() }
         mouseCapture.start()
     }
@@ -764,7 +781,7 @@ final class ViewerModel {
     /// the pointer back on the player if the canvas shows it.
     func releaseMouse() {
         guard mouseTaken else { return }
-        loop?.loop.mouseButton(down: false)
+        loop?.loop.apple.mouseButton(down: false)
         loop?.loop.mouse = false
         mouseTaken = false
         mouseCapture.give(at: playerOnCanvas())
@@ -791,7 +808,7 @@ final class ViewerModel {
         let units = (x: mouseRest.x.rounded(.towardZero), y: mouseRest.y.rounded(.towardZero))
         mouseRest.x -= units.x
         mouseRest.y -= units.y
-        running.loop.moveMouse(dx: Int(units.x) * AppleMouse.countsPerUnit, dy: Int(units.y) * AppleMouse.countsPerUnit)
+        running.loop.apple.moveMouse(dx: Int(units.x) * AppleMouse.countsPerUnit, dy: Int(units.y) * AppleMouse.countsPerUnit)
     }
 
     /// The middle of the player on the canvas, in the window (as `canvasFrame`), if the canvas shows it.
@@ -810,17 +827,14 @@ final class ViewerModel {
         selection = contents(world).item(atX: point.x, y: point.y)
     }
 
-    /// The game controller as the Apple's joystick (`GameControllers`), every
-    /// display frame: its stick and buttons when playing, else centred with
-    /// the buttons up.  Once a controller is connected the joystick stays
-    /// plugged in: the game would read one unplugged as pushed right and down.
+    /// The game controller as the Apple's joystick (Apple2Kit's
+    /// `GameControllers`), every display frame: its stick and buttons when
+    /// playing, else let go.  Once a controller is connected the joystick
+    /// stays plugged in: the game would read one unplugged as pushed right
+    /// and down.
     private func readController(_ loop: GameLoop) {
-        let joystick = GameControllers.read()
-        if controllerName != joystick?.name { controllerName = joystick?.name }
-        guard joystick != nil || loop.devices.joystick != nil else { return }
-        let used = playing && self.loop?.world == selectedWorldID ? joystick : nil
-        loop.devices.joystick = used?.paddles ?? GameControllers.centre
-        for i in 0 ..< 2 { loop.devices.set(button: i, down: used?.buttons[i] ?? false) }
+        let name = loop.apple.readGameController(playing: playing && self.loop?.world == selectedWorldID)
+        if controllerName != name { controllerName = name }
     }
 
     /// The room drawings stay (GameScreen); only the loop stops.
@@ -844,7 +858,7 @@ final class ViewerModel {
         guard let running = loop, let world = selectedWorld, world.id == running.world else { return }
         let loop = running.loop
         loop.room = viewedRoom(world)
-        let speed = loop.tickCycles == 0 ? "" : String(format: " · %.1f ticks/s", GameLoop.clock / Double(loop.tickCycles))
+        let speed = loop.tickCycles == 0 ? "" : String(format: " · %.1f ticks/s", Apple2Machine.clock / Double(loop.tickCycles))
         var status = paused ? "Paused at tick \(loop.ticks)" : "Tick \(loop.ticks)" + speed
         if loop.halted, let exit = loop.exit {
             status = "Tick \(loop.ticks): the world hands back to the loader, \(exit) – no program disk to boot, Restart to play again"

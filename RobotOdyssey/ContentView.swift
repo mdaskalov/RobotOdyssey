@@ -153,7 +153,7 @@ private struct WorldList: View {
             ForEach(model.groups) { group in
                 Section(group.title) {
                     ForEach(group.worlds) { world in
-                        Label(world.name, systemImage: icon(world.kind)).tag(world.id)
+                        Label(world.name, systemImage: world.kind.systemImage).tag(world.id)
                     }
                 }
             }
@@ -165,15 +165,6 @@ private struct WorldList: View {
             if !model.disks.isEmpty {
                 Button("Close All Disks", role: .destructive) { model.closeAll() }
             }
-        }
-    }
-
-    private func icon(_ kind: WorldKind) -> String {
-        switch kind {
-        case .level: "building.2"
-        case .tutorial: "graduationcap"
-        case .lab: "flask"
-        case .savedGame: "tray.and.arrow.down"
         }
     }
 }
@@ -195,7 +186,9 @@ struct ResizeHandle: View {
                 Color.clear
                     .frame(width: vertical ? 7 : nil, height: vertical ? nil : 7)
                     .contentShape(Rectangle())
+                    #if os(macOS)
                     .pointerStyle(.frameResize(position: vertical ? .trailing : .top))
+                    #endif
                     .gesture(
                         // Global: the handle moves with the drag.
                         DragGesture(minimumDistance: 1, coordinateSpace: .global)

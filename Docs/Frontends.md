@@ -14,8 +14,8 @@ Apple's hardware and the app shows what that hardware puts out.
   flips them ($C054/$C055); the viewer shows the page on screen
   (Apple2Kit's `Screen.image`, colour or mono).
 * **Input:** keyboard $C000/$C010, buttons $C061/$C062, paddle timers by
-  CPU cycles (`InputDevices`); the Mac's keys and a game controller drive
-  them.
+  CPU cycles, the mouse card: Apple2Kit's (`Keyboard`, `GamePort`,
+  `MouseCard`); the Mac's keys and mouse and a game controller drive them.
 * **Sound:** the speaker's clicks ($C030), to the cycle, made into a square
   wave with the speaker's high pass (Apple2Kit's `SpeakerRenderer`).
 
@@ -295,7 +295,7 @@ Modern input is mapping onto those devices (held keys, the controller –
 done). Anything that goes around READ_INPUT (pointing where to walk, say)
 changes the game and would be an enhanced native.
 
-**The mouse** is the game's own: an Apple mouse card (`AppleMouse`, slot 4)
+**The mouse** is the game's own: an Apple mouse card (Apple2Kit's `MouseCard`, slot 4)
 for the mouse mode Robot Odyssey has (INPUT_DEVICE 2, Engine.md "Input"),
 so everything but taking the Mac's mouse is the game's code (the user,
 2026‑11‑04, after trying drags: moving objects was cheating everywhere,
@@ -313,8 +313,8 @@ and tools stayed behind).
   restart; the pointer comes back on the player
   (`CGWarpMouseCursorPosition`).
 * **The card** goes in where the next tick starts (`GameLoop.mouse`,
-  `Machine.plugMouse`) as a card in slot 4 (`AppleMouse.Card`,
-  Apple2Kit's `Apple2.insert`): its ROM page at $C400 (the Pascal bytes, the
+  `Machine.plugMouse`), Apple2Kit's card in slot 4 enabled
+  (`Apple2Machine.mouseEnabled`): its ROM page at $C400 (the Pascal bytes, the
   mouse's ID $C40C = $20 and $C4FB = $D6, the firmware's offsets), the game
   told as DETECT_JOYSTICK tells it when it finds one (INPUT_DEVICE 2,
   SLOT_POINTER $C400), and the game's own set‑up run (SET_UP_MOUSE $AC76:
@@ -342,7 +342,9 @@ and tools stayed behind).
   the soldering pen (a click on a pin, walk, a click on the other). The card
   reports a press at the first read after the button went down only and
   never sets status bit 6 (down at the last read), which READ_MOUSE takes
-  as down too (2026‑11‑04, the user: presses came double). The game reads a
+  as down too (2026‑11‑04, the user: presses came double): the card's
+  `reportsClickOnce`, which `Machine` sets (the real card's bits are
+  Apple2Kit's default, 2026‑11‑09). The game reads a
   button down over two ticks as one press held, and a press held on a pin
   with a wire cuts the wire and then starts a new one there: SOLDER_TOUCH's
   UNSOLDER leaves GRAB_STATE at 1 and SOLDER_WIRE takes it as a new press in
@@ -353,10 +355,11 @@ and tools stayed behind).
 * **Selecting** takes Option or Control: an Option‑ or Control‑click
   selects what is there.
 
-The firmware is the AppleMouse II's calls as the game makes them (CALL_MOUSE
-jumps to $C400 + the offset in the table at $C412 + Y; native hooks return
-like RTS, carry clear, no time taken), answered through slot 4's screen
-holes (text page 1, empty in every world). CLAMPMOUSE's bounds come from
+The firmware is Apple2Kit's (its Hardware.md "Mouse"): the AppleMouse II's
+routines (CALL_MOUSE jumps to $C400 + the offset in the table at $C412 + Y;
+the machine runs them and returns like RTS, carry clear, no time taken),
+answered through slot 4's screen holes (text page 1, empty in every world),
+with the card's interrupts (the game uses none: mode 1). CLAMPMOUSE's bounds come from
 slot 0's holes; the game's have high bytes 0 ($00E4–$001C across,
 $00C4–$003C up and down), read as signed bytes (−28…28, −60…60). The halving
 (HALVE_MOUSE_MOVE) skips only a IIc ($FBC0 = 0); in every world that byte

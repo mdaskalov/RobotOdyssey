@@ -8,6 +8,6 @@ APP=../RobotOdyssey
 OUT="${TMPDIR:-/tmp}/ro_symbols"
 . ./packages.sh
 swiftc -O -wmo -parse-as-library $PACKAGES -o "$OUT" ro_symbols.swift \
-    $APP/Engine/*.swift $APP/Natives/*.swift $APP/Symbols/*.swift $APP/Rendering/RoomRenderer.swift \
+    $APP/Engine/*.swift $APP/Natives/*.swift $APP/Symbols/*.swift \
     $APP/Model/DiskImage.swift $APP/Model/GameCatalog.swift $APP/Model/World.swift $APP/Model/WorldBuilder.swift
 "$OUT" "$@"

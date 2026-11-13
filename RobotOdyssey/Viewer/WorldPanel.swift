@@ -473,7 +473,7 @@ private struct SoundsSection: View {
     /// Plays each sound off the main thread to see how long it takes.
     @concurrent
     private nonisolated static func lengths(_ world: World) async -> [Double?] {
-        (world.sounds ?? []).map { p in (try? Sound.play(p, in: world)).map { Double($0.cycles) / GameLoop.clock } }
+        (world.sounds ?? []).map { p in (try? Sound.play(p, in: world)).map { Double($0.cycles) / Apple2Machine.clock } }
     }
 }
 

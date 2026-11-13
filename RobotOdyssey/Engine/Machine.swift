@@ -5,8 +5,8 @@ import MOS6502
 /// The Apple IIe as Robot Odyssey uses it, running the original code from the
 /// disks: Apple2Kit's `Apple2` without ROMs (`apple`: 64K of main RAM, the
 /// language card's RAM with its two $D000 banks, the soft switches, the
-/// speaker, the slots), with the game's input devices (`io`), the mouse
-/// card (`AppleMouse`), and native Swift routines in place of engine
+/// speaker, the keyboard, the game port, the mouse card in slot 4), and
+/// native Swift routines in place of engine
 /// routines that have been ported (`install`, `Native`).  A
 /// native routine runs when the 6502 code reaches its entry point and returns
 /// like RTS; it must leave memory exactly as the original does, and the
@@ -16,28 +16,13 @@ nonisolated final class Machine {
     /// an unknown version, everything runs as 6502 code.  Another world's
     /// when the loader starts one (`load(variant:)`).
     private(set) var variant: Variant?
-    /// The Apple: its memory, switches and speaker.  The game's code lives in
-    /// the language card's RAM (no ROMs: the card is always read and
-    /// written, $C080-$C08F pick its $D000 bank); it lies in `cpu.mem` with
-    /// main RAM, the $D000 bank selected at $D000.
-    let apple: Apple2
-    /// `apple`'s CPU.
-    let cpu: CPU6502
-    /// The language card's $D000 bank selected, 1 or 2: bank 1 (engine data)
-    /// while the engine code in bank 2 runs.
-    var bank: Int { apple.languageCardBank }
-    /// Hi-res page on screen, 1 or 2 ($C054/$C055).
-    var shownPage: Int { apple.video.page2 ? 2 : 1 }
-    /// The CPU cycle of every speaker click ($C030), when not nil (`GameLoop`
-    /// records them, Data/ro_sounds.sh).
-    var clicks: [UInt64]? {
-        get { apple.clicks }
-        set { apple.clicks = newValue }
-    }
+    /// The Apple: its CPU, memory, switches and speaker.  The game's code
+    /// lives in the language card's RAM (no ROMs: the card is always read
+    /// and written, $C080-$C08F pick its $D000 bank); it lies in
+    /// `apple.cpu.mem` with main RAM, the $D000 bank selected at $D000.
+    let apple: Apple2Machine
     /// The sounds the native PLAY_SOUNDS played and nobody has taken yet.
     private var sounds: [Sound.Played] = []
-    /// Keyboard, joystick, buttons and the mouse card.
-    var devices = InputDevices()
     /// What the mouse card took over as it went in (`plugMouse`); nil: it is out.
     var beforeMouse: AppleMouse.Before?
     /// The cycles of the last two reads of the keyboard ($C000) that found no
@@ -77,7 +62,7 @@ nonisolated final class Machine {
     /// (`DrawPhase.sprites`).  The natives draw without it: it sees every
     /// sprite only with them off.
     var onDrawSprite: ((Machine) -> Void)? {
-        didSet { cpu.traps[GameSymbols.address(\.drawSprite)] = true }
+        didSet { apple.cpu.traps[GameSymbols.address(\.drawSprite)] = true }
     }
     /// The canvas's layers of the pages (`PageLayers`), while a world runs
     /// (`GameLoop`); nil: none kept, the canvas shows the pages.  They look
@@ -93,22 +78,24 @@ nonisolated final class Machine {
     /// language card's bank 2 and $E000-$FFFF; $C000-$CFFF left out) and the
     /// card's `bank1`, bank 2 selected, the CPU's registers clear.
     convenience init(memory: [UInt8], bank1: [UInt8], variant: Variant?) {
-        let apple = Apple2(model: .apple2e, rom: nil, diskROM: nil)
+        let apple = Apple2Machine(model: .apple2e, rom: nil, diskROM: nil)
         apple.load(memory: memory, languageCard: bank1 + memory[0xD000 ..< 0x10000])
         let cpu = apple.cpu
         (cpu.a, cpu.x, cpu.y, cpu.sp, cpu.p, cpu.pc, cpu.cycles) = (0, 0, 0, 0xFF, CPU6502.Flag.unused | CPU6502.Flag.interrupt, 0, 0)
         self.init(apple: apple, variant: variant)
     }
 
-    private init(apple: Apple2, variant: Variant?) {
+    private init(apple: Apple2Machine, variant: Variant?) {
         self.variant = variant
         self.apple = apple
-        cpu = apple.cpu
-        cpu.stopsAtBRK = true                   // no ROM behind the vector: the code went astray
-        apple.ioHook = { [unowned self] a, write, _ in io(a, write: write) }
-        cpu.onWrite = { [unowned self] a, old, new in layers?.write(Int(a), old: old, new: new) }
-        cpu.onTrap = { [unowned self] in runNative(at: $0) }
-        installMouseFirmware()
+        apple.cpu.stopsAtBRK = true             // no ROM behind the vector: the code went astray
+        apple.ioHook = { [unowned self] a, write, _ in
+            if a == 0xC000 && !write { keyboardRead() }
+            return nil
+        }
+        apple.cpu.onWrite = { [unowned self] a, old, new in layers?.write(Int(a), old: old, new: new) }
+        apple.onTrap = { [unowned self] in runNative(at: $0) }
+        apple.mouseReportsClickOnce = true          // the game's (`AppleMouse.swift`)
     }
 
     /// Bank 1 of the language card as it is now, wherever it is mapped.
@@ -118,7 +105,6 @@ nonisolated final class Machine {
     /// soft switches, devices and natives (the native call count starts at 0).
     func copy() -> Machine {
         let m = Machine(apple: apple.copy(), variant: variant)
-        m.devices = devices
         m.beforeMouse = beforeMouse
         m.installed = installed
         m.natives = natives
@@ -129,7 +115,7 @@ nonisolated final class Machine {
         m.nativesEnabled = nativesEnabled
         m.layers = layers?.copy()
         m.layerReturns = layerReturns
-        m.cpu.traps = cpu.traps
+        m.apple.cpu.traps = apple.cpu.traps
         return m
     }
 
@@ -137,28 +123,14 @@ nonisolated final class Machine {
     /// finds none (`GameLoop.run` doesn't run ahead of the clock there).
     var waitsForKey: Bool {
         let (previous, last) = emptyKeyReads
-        return previous != 0 && last - previous < 256 && cpu.cycles - last < 256
+        return previous != 0 && last - previous < 256 && apple.cpu.cycles - last < 256
     }
 
-    /// The soft switches of the game's input devices (`apple`'s `ioHook`):
-    /// the keyboard ($C000, $C010), the buttons and paddles ($C060-$C06F)
-    /// and the paddles' strobe ($C070), from `devices`, which the natives
-    /// read too; nil: `apple`'s (the speaker, the display, the language
-    /// card, the slots).
-    private func io(_ a: UInt16, write: Bool) -> UInt8? {
-        switch a {
-        case 0xC000:
-            guard !write else { return nil }           // the //e's 80STORE
-            emptyKeyReads = devices.key & 0x80 == 0 ? (emptyKeyReads.1, cpu.cycles) : (0, 0)
-            return devices.key
-        case 0xC010: devices.key &= 0x7F
-        case 0xC061, 0xC062: return devices.buttons[Int(a - 0xC061)] ? 0x80 : 0
-        case 0xC064 ... 0xC067: return devices.paddleRunning(Int(a - 0xC064), after: cpu.cycles &- devices.strobe) ? 0x80 : 0
-        case 0xC060 ... 0xC06F: break
-        case 0xC070: devices.strobe = cpu.cycles
-        default: return nil
-        }
-        return 0
+    /// The code reads the keyboard ($C000, `apple`'s `ioHook`, before the
+    /// Apple answers): noted for `waitsForKey`.
+    private func keyboardRead() {
+        let cycles = apple.cpu.cycles
+        emptyKeyReads = apple.readKeyboard(at: cycles) & 0x80 == 0 ? (emptyKeyReads.1, cycles) : (0, 0)
     }
 
     // MARK: native routines
@@ -207,7 +179,7 @@ nonisolated final class Machine {
     /// hook, where a page's drawing starts and the drawings' returns while
     /// the layers are kept, `onDrawSprite`.
     private func refreshTrap(_ address: UInt16) {
-        cpu.traps[Int(address)] = hooks[address] != nil
+        apple.cpu.traps[Int(address)] = hooks[address] != nil
             || installed.contains { $0.entry == address && ($0.native.run != nil || layers != nil) }
             || layers != nil && address == Machine.drawRoomTiles || layerReturns.contains { $0.address == address }
             || onDrawSprite != nil && Int(address) == GameSymbols.address(\.drawSprite)
@@ -216,16 +188,16 @@ nonisolated final class Machine {
     /// Puts in a hook at `address`; one with a `name` can be switched off.
     func hook(_ address: Int, name: String? = nil, _ run: @escaping (Machine) -> Bool) {
         hooks[UInt16(address)] = (name, run)
-        cpu.traps[address] = true
+        apple.cpu.traps[address] = true
     }
 
     /// The random generator (RANDOM, a shift register) never leaves 0, and
     /// Level 4 waits for a usable number.  On the Apple the monitor's
     /// keyboard wait has stirred these bytes by the time a world starts.
     func stirRandom() {
-        if cpu.mem[\.randomLow] == 0 && cpu.mem[\.randomHigh] == 0 {
-            cpu.mem[\.randomLow] = 0x5A
-            cpu.mem[\.randomHigh] = 0xA5
+        if apple.cpu.mem[\.randomLow] == 0 && apple.cpu.mem[\.randomHigh] == 0 {
+            apple.cpu.mem[\.randomLow] = 0x5A
+            apple.cpu.mem[\.randomHigh] = 0xA5
         }
     }
 
@@ -236,27 +208,26 @@ nonisolated final class Machine {
         guard nativesEnabled, !(0xD000 ..< 0xE000).contains(pc) || apple.languageCardBank == 2,
               let run = natives[pc], call(run) else { return false }
         nativeCalls += 1
-        cpu.returnFromSubroutine()
+        apple.cpu.returnFromSubroutine()
         return true
     }
 
     /// Runs a native routine on the machine as it is: its memory (the CPU's
-    /// own), registers and devices, and takes the time it reports.  False if
-    /// the routine declined.
+    /// own), registers and the Apple's devices, and takes the time it
+    /// reports.  False if the routine declined.
     @discardableResult
     func call(_ run: (inout Engine) -> Bool) -> Bool {
         guard let variant else { return false }
-        let registers = cpu.registers
-        let (devices, cycles) = (devices, cpu.cycles)
+        let registers = apple.cpu.registers
+        let (apple, cycles) = (apple, apple.cpu.cycles)
         let layers = layers
-        let result = cpu.mem.withUnsafeMutableBufferPointer { bytes -> Engine? in
-            var engine = Engine(m: RAM(bytes.baseAddress!, variant, layers: layers), r: registers, devices: devices, cycles: cycles)
+        let result = apple.cpu.mem.withUnsafeMutableBufferPointer { bytes -> Engine? in
+            var engine = Engine(m: RAM(bytes.baseAddress!, variant, layers: layers), r: registers, apple: apple, cycles: cycles)
             return run(&engine) ? engine : nil
         }
         guard let result else { return false }
-        cpu.registers = result.r
-        self.devices = result.devices
-        cpu.cycles += result.elapsed
+        apple.cpu.registers = result.r
+        apple.cpu.cycles += result.elapsed
         sounds += result.sounds
         return true
     }
@@ -269,14 +240,9 @@ nonisolated final class Machine {
 
     // MARK: the hi-res pages
 
-    /// The page on screen ($C054/$C055), top line first.
-    func shownScreen() -> HiresScreen {
-        HiresScreen(cpu.mem, base: shownPage == 1 ? 0x2000 : 0x4000)
-    }
-
     /// The page on screen with its layers (`PageFrame`).
     func shownFrame() -> PageFrame {
-        frame(page: shownPage - 1, screen: shownScreen())
+        frame(page: apple.video.page2 ? 1 : 0, screen: apple.hiresScreen())
     }
 
     /// The page the engine draws on with its layers: what a draw phase drew.
@@ -292,7 +258,7 @@ nonisolated final class Machine {
 
     /// The page the engine draws on (LINE_HIGH_TABLE's), 0 or 1.
     private var drawnPage: Int {
-        PageLayers.page(lineHigh: cpu.mem[cpu.mem[\.lineHighTable]])
+        PageLayers.page(lineHigh: apple.cpu.mem[apple.cpu.mem[\.lineHighTable]])
     }
 
     /// Where a page's drawing starts: DRAW_ROOM_TILES.
@@ -301,7 +267,7 @@ nonisolated final class Machine {
     /// The layers came or went: the pages' writes followed, and DRAW_ROOM_TILES
     /// and the natives that draw on layer 3 trapped while they are kept.
     private func followLayers() {
-        for page in 0x20 ..< 0x60 { cpu.watchedPages[page] = layers != nil }
+        for page in 0x20 ..< 0x60 { apple.cpu.watchedPages[page] = layers != nil }
         activate()
         let returns = layerReturns.map(\.address)
         layerReturns = []
@@ -314,7 +280,7 @@ nonisolated final class Machine {
     /// starts) or returns.  The engine's routines, at the same place in
     /// every world; the layers are kept only while a world runs.
     private func followDrawing(at pc: UInt16, _ layers: PageLayers) {
-        if let r = layerReturns.last, r.address == pc, r.sp == cpu.sp {
+        if let r = layerReturns.last, r.address == pc, r.sp == apple.cpu.sp {
             layerReturns.removeLast()
             layers.end()
             refreshTrap(pc)
@@ -326,15 +292,15 @@ nonisolated final class Machine {
             layerReturns = []
             for address in returns { refreshTrap(address) }
         default:
-            guard let drawing = layerDrawings[pc], drawing.draws(cpu) else { break }
-            let item = layers.drawing > 0 ? nil : drawing.item(cpu)
+            guard let drawing = layerDrawings[pc], drawing.draws(apple.cpu) else { break }
+            let item = layers.drawing > 0 ? nil : drawing.item(apple.cpu)
             // It returns where the JSR that called it (or its caller, which jumped to it) goes back to.
-            let sp = Int(cpu.sp)
-            let back = (UInt16(cpu.mem[0x100 + (sp + 1) & 0xFF]) | UInt16(cpu.mem[0x100 + (sp + 2) & 0xFF]) << 8) &+ 1
-            layerReturns.append((back, cpu.sp &+ 2))
-            cpu.traps[Int(back)] = true
+            let sp = Int(apple.cpu.sp)
+            let back = (UInt16(apple.cpu.mem[0x100 + (sp + 1) & 0xFF]) | UInt16(apple.cpu.mem[0x100 + (sp + 2) & 0xFF]) << 8) &+ 1
+            layerReturns.append((back, apple.cpu.sp &+ 2))
+            apple.cpu.traps[Int(back)] = true
             let page = drawnPage
-            cpu.mem.withUnsafeBufferPointer { layers.begin(item, page: page, memory: $0.baseAddress!) }
+            apple.cpu.mem.withUnsafeBufferPointer { layers.begin(item, page: page, memory: $0.baseAddress!) }
         }
     }
 
@@ -342,7 +308,7 @@ nonisolated final class Machine {
     /// (LINE_LOW_TABLE, LINE_HIGH_TABLE), top line first.
     func drawnScreen() -> HiresScreen {
         var screen = HiresScreen()
-        let mem = cpu.mem
+        let mem = apple.cpu.mem
         let high = mem[\.lineHighTable]
         for line in 0 ..< HiresScreen.height {
             let y = 191 - line
@@ -384,11 +350,11 @@ nonisolated struct DrawPhase {
     /// Runs the draw phase for `room` on `machine`, a world between two ticks,
     /// and returns the page drawn.
     func draw(room: Int, on machine: Machine) throws -> HiresScreen {
-        machine.cpu.mem[\.currentRoom] = UInt8(room)
-        machine.cpu.sp = UInt8(DrawPhase.stack)
+        machine.apple.cpu.mem[\.currentRoom] = UInt8(room)
+        machine.apple.cpu.sp = UInt8(DrawPhase.stack)
         // A world's own loop (e.g. Level 5's transporter) may flip pages itself: stop there too.
         let flipPage = UInt16(GameSymbols.address(\.flipPage))
-        try machine.cpu.call(UInt16(start), stopAt: [UInt16(end), flipPage], maxSteps: 3_000_000)
+        try machine.apple.cpu.call(UInt16(start), stopAt: [UInt16(end), flipPage], maxSteps: 3_000_000)
         return machine.drawnScreen()
     }
 
@@ -402,7 +368,7 @@ nonisolated struct DrawPhase {
         // so the return address of each of its JSRs is at the bottom.
         let frame = 0x100 + DrawPhase.stack - 3
         machine.onDrawSprite = { [start, end] m in
-            let mem = m.cpu.mem
+            let mem = m.apple.cpu.mem
             let jsr = (Int(mem[frame]) | Int(mem[frame + 1]) << 8) - 2
             let routine = (start ..< end).contains(jsr) && mem[jsr] == 0x20 ? Int(mem[jsr + 1]) | Int(mem[jsr + 2]) << 8 : nil
             sprites.append(DrawnSprite(mem, routine: routine))
@@ -466,9 +432,9 @@ nonisolated final class GameScreen {
         self.phase = phase
         let machine = Machine(memory: world.mem, bank1: world.bank1, variant: world.codeCheck?.variant)
         machine.stirRandom()
-        machine.cpu.sp = 0xFF
+        machine.apple.cpu.sp = 0xFF
         let start = UInt16(GameSymbols.address(\.worldStart))
-        try machine.cpu.call(start, stopAt: [UInt16(phase.loopStart)], maxSteps: 2_000_000)
+        try machine.apple.cpu.call(start, stopAt: [UInt16(phase.loopStart)], maxSteps: 2_000_000)
         natives = machine.install(world.codeCheck?.natives ?? [])
         started = machine
     }

@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -253,7 +254,7 @@ nonisolated extension Machine {
     /// the game both go on from what came before.
     static func playing(_ p: Sound.Parameters, in world: World, variant: Variant?) -> Machine {
         let machine = Machine(memory: world.mem, bank1: world.bank1, variant: variant)
-        let cpu = machine.cpu
+        let cpu = machine.apple.cpu
         let slot = 7
         cpu.mem[\.soundFlags, slot] = p.kind.rawValue
         cpu.mem[\.soundLengths, slot] = p.length
@@ -286,14 +287,14 @@ nonisolated extension Sound {
     /// PLAY_TONE or PLAY_NOISE, and the cycles up to its RTS.
     static func playOriginal(_ p: Parameters, in world: World) throws -> Played {
         let machine = Machine.playing(p, in: world, variant: nil)
-        let cpu = machine.cpu
+        let cpu = machine.apple.cpu
         let generators = [GameSymbols.address(\.playTone), GameSymbols.address(\.playNoise)].map { UInt16($0) }
         try cpu.call(UInt16(GameSymbols.address(\.playSounds)), stopAt: Set(generators))
         let start = cpu.cycles
         let sp = cpu.sp
-        machine.clicks = []
+        machine.apple.clicks = []
         while cpu.sp <= sp { try cpu.step() }          // up to its RTS
         return Played(parameters: p, name: GameSounds.name(for: p), start: 0, cycles: cpu.cycles - start,
-                      clicks: machine.clicks!.map { UInt32($0 - start) })
+                      clicks: machine.apple.clicks!.map { UInt32($0 - start) })
     }
 }

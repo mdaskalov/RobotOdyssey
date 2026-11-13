@@ -96,7 +96,7 @@ struct SoundTool {
                 try wav.write(to: wavs.appendingPathComponent(name + ".wav"))
                 bytes += wav.count
             }
-            let ms = Double(original.cycles) / GameLoop.clock * 1000
+            let ms = Double(original.cycles) / Apple2Machine.clock * 1000
             print("\(name.padding(toLength: 16, withPad: " ", startingAt: 0)) \(parameters)  "
                   + String(format: "%8d cycles %7.1f ms %6d clicks", original.cycles, ms, original.clicks.count) + status)
         }

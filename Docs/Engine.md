@@ -115,10 +115,13 @@ skips it while SENTRY_HELD is 0: a sentry holds the player):
    button 1 alone → BUTTON_A ($9C3B), button 0 alone → BUTTON_B ($9C3C), both
    → neither. The counts run 0‑127 and the tables below take the centre at
    64 ($80), so the game wants a timer of about 3,060 cycles all the way
-   (a PREAD of about 278). `InputDevices` gives 3072 cycles at position
-   255 (12 a step): 128 is the centre, 0 and 255 the full moves. With a
-   PREAD's 11 cycles a step (AppleWin: 2816 at 255) the counts reach only
-   117, table entry 14: right 4 instead of 7, down 8 instead of 15.
+   (a PREAD of about 278). Apple2Kit's `GamePort` times as AppleWin does,
+   2816 cycles at 255 (11.04 a step), and a paddle at 255 as at 287 (from
+   KEGS: a joystick all the way over outlasts a PREAD): 128 counts 59,
+   table entry 7 (no move), 255 counts 127, entry 15; 254 only 116, entry
+   14. (Without the 287, all the way reached only entry 14: right 4
+   instead of 7, down 8 instead of 15; the game had its own 12 cycles a
+   step until 2026‑11‑09.) A strobe while a timer runs doesn't restart it.
 3. Keyboard: KEY_AS_STICK ($AA40) centres the stick ($80/$80) and looks the
    key up in MOVE_KEYS ($9C13, ten keys each world copies there at start‑up;
    Level 1 from $080B): up, down, left, right, button A, button B, then
@@ -476,17 +479,19 @@ ticks' pace but shows them earlier and in between (`GameLoop`):
   over the tick, from the tick's start to the next's, so a page is reached
   when the Apple would have shown it. It costs one draw phase per changed
   frame: about 0.7 ms in a Release build, 6 ms in a Debug one.
-* **Held keys.** A movement key held down (`InputDevices.held`, one of
-  MOVE_KEYS' movement keys) is typed again as each tick starts, where
-  READ_INPUT reads it, until it is let go: one step per tick from the first,
-  without the Mac's repeat delay, and never typed into a message's wait.
-* **Game controller** (`GameControllers`, read every display frame): the
-  joystick, its left stick or d‑pad as the paddles (the round gate
-  stretched to the Apple's square one, 0.2 around the centre the centre)
-  and A/X, B/Y as buttons 0 and 1. A button press reads as down until a
-  tick has started with it (`InputDevices.set(button:down:)`), so a press
-  shorter than a tick still reaches READ_INPUT, once. Without *Play* the
-  joystick stays plugged in, centred.
+* **Held keys.** The Mac's keys go down and up on the Apple's keyboard
+  (Apple2Kit's `Keyboard`, the Mac's repeats dropped), and a key held
+  repeats as on the //e: after half a second, 15 a second – faster than
+  the ticks, so the player walks every tick once it repeats; the first
+  step comes at once, then the //e's pause (2026‑11‑09; until then the
+  game typed a held movement key again at every tick).
+* **Game controller** (Apple2Kit's `GameControllers`, read every display
+  frame): the joystick, its left stick or d‑pad as the paddles (the round
+  gate stretched to the Apple's square one, 0.2 around the centre the
+  centre) and A/X, B/Y as buttons 0 and 1, as the hardware reads them: a
+  press shorter than the time between two reads can be missed. Without
+  *Play* the joystick stays plugged in, centred; once a controller was
+  connected it stays plugged in, centred, when it goes.
 
 ## The draw phase
 
@@ -520,12 +525,14 @@ there is no ROM behind its vector.
   2‑5, gets two chips (167 → $D000, 165 → $D400 – the Level 1 save state
   holds exactly these), the lab tutorial two others, the lab only empty
   chips; saved games bring their own.
-* soft switches: `Apple2`'s – display page $C054/$C055, speaker $C030, the
-  language card, the slots (the mouse card, `AppleMouse`) – and the game's
-  own, through its `ioHook` (`Machine.io`): keyboard $C000/$C010 and the
-  input devices (`InputDevices`, which the natives read too): buttons $C061/$C062, paddle
-  timers $C064/$C065 started by $C070 and timed by the CPU's cycle counter
-  (3072 cycles at position 255, the range READ_JOYSTICK measures; "Input").
+* soft switches: all Apple2Kit's `Apple2Machine`'s – display page
+  $C054/$C055, speaker $C030, the language card, the slots (the mouse card
+  in slot 4), the keyboard $C000/$C010 and the game port: buttons
+  $C061/$C062, paddle timers $C064/$C065 started by $C070 and timed by the
+  CPU's cycle counter ("Input"). The natives read them through `Engine.apple`
+  at the cycle the original does (READ_JOYSTICK strobes 13 cycles in,
+  DETECT_JOYSTICK 7). `Machine`'s `ioHook` only notes the keyboard's reads
+  (`waitsForKey`).
   Without a joystick (the default) the timers never run out, so the engine
   finds none and plays by keyboard; a joystick can be plugged in at any
   time (the viewer's game controller). Timers that run out at once read as

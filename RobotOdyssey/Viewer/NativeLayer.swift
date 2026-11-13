@@ -1,5 +1,10 @@
 import Apple2Kit
 import SwiftUI
+#if os(macOS)
+typealias PlatformFont = NSFont
+#else
+typealias PlatformFont = UIFont
+#endif
 
 /// The fonts the native layer's texts can take: monospaced ones, as the
 /// game's letters are, which macOS has (`NativeLayer.font`: SF Mono Medium,
@@ -10,14 +15,14 @@ enum TextFont: String, CaseIterable, Identifiable {
 
     var id: String { rawValue }
 
-    func font(size: CGFloat) -> NSFont {
+    func font(size: CGFloat) -> PlatformFont {
         switch self {
         case .sfMono: return .monospacedSystemFont(ofSize: size, weight: .regular)
         case .sfMonoMedium: return .monospacedSystemFont(ofSize: size, weight: .medium)
         default:
             let name = [TextFont.menlo: "Menlo-Regular", .monaco: "Monaco", .ptMono: "PTMono-Regular",
                         .andaleMono: "AndaleMono", .courierNew: "CourierNewPSMT"][self]
-            return name.flatMap { NSFont(name: $0, size: size) } ?? .monospacedSystemFont(ofSize: size, weight: .regular)
+            return name.flatMap { PlatformFont(name: $0, size: size) } ?? .monospacedSystemFont(ofSize: size, weight: .regular)
         }
     }
 

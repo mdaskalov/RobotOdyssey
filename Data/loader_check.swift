@@ -79,8 +79,8 @@ final class Session {
         self.phase = phase
         machine = Machine(memory: world.mem, bank1: world.bank1, variant: world.codeCheck?.variant)
         machine.stirRandom()
-        machine.cpu.sp = 0xFF
-        try machine.cpu.call(UInt16(GameSymbols.address(\.worldStart)), stopAt: [UInt16(phase.loopStart)], maxSteps: 2_000_000)
+        machine.apple.cpu.sp = 0xFF
+        try machine.apple.cpu.call(UInt16(GameSymbols.address(\.worldStart)), stopAt: [UInt16(phase.loopStart)], maxSteps: 2_000_000)
         machine.install(world.codeCheck?.natives ?? [])
         drive = DiskDrive(program: disks, storage: storage, inserted: world.engine == .levels ? .sideA : .sideB)
         Loader.install(on: machine, drive: drive)
@@ -89,7 +89,7 @@ final class Session {
 
     /// Runs `seconds` of the Apple's time.
     func run(_ seconds: Double) throws {
-        try loop.run(until: loop.cycles + UInt64(seconds * GameLoop.clock))
+        try loop.run(until: loop.cycles + UInt64(seconds * Apple2Machine.clock))
     }
 
     /// Types each key once the game has taken the one before and run `pause`
@@ -97,9 +97,9 @@ final class Session {
     func type(_ keys: [UInt8], pause: Double = 0.5, limit: Double = 60, until: () -> Bool = { false }) throws -> Bool {
         for key in keys {
             try run(pause)
-            loop.devices.type(key)
+            loop.apple.press(key)
             var waited = 0.0
-            while loop.devices.key & 0x80 != 0 && waited < limit {
+            while loop.apple.keyboard.latch & 0x80 != 0 && waited < limit {
                 try run(0.05)
                 waited += 0.05
             }
@@ -194,11 +194,11 @@ struct LoaderCheck {
                 fail("\(from.name): no exit code")
                 continue
             }
-            session.machine.cpu.pc = UInt16(entry)
+            session.machine.apple.cpu.pc = UInt16(entry)
             let ok = try session.type([esc], limit: 30) { session.arrived() }
             png(session, "next\(n + 1)")
             guard ok else {
-                fail("\(to.name) didn't start (exit \(session.loop.exit?.description ?? "none"), PC \(hex(Int(session.machine.cpu.pc))))")
+                fail("\(to.name) didn't start (exit \(session.loop.exit?.description ?? "none"), PC \(hex(Int(session.machine.apple.cpu.pc))))")
                 continue
             }
             if session.loop.loadedWorld?.id != "level\(n + 1)" {
@@ -233,7 +233,7 @@ struct LoaderCheck {
         let ok = try session.type([ret], limit: 30) { session.arrived() }
         png(session, "save5")
         guard ok else {
-            fail("not back in Level 1 (PC \(hex(Int(session.machine.cpu.pc))))")
+            fail("not back in Level 1 (PC \(hex(Int(session.machine.apple.cpu.pc))))")
             return nil
         }
         guard let disk = session.drive.takeWritten() else {
@@ -268,7 +268,7 @@ struct LoaderCheck {
             let ok = try session.type(Array(repeating: 0x8A, count: n) + [ret] + (n <= 1 ? [ret] : []), limit: 60) { session.arrived() }
             png(session, "menu-\(id)")
             guard ok else {
-                fail("\(id) didn't start (PC \(hex(Int(session.machine.cpu.pc))), drive \(String(describing: session.drive.inserted)))")
+                fail("\(id) didn't start (PC \(hex(Int(session.machine.apple.cpu.pc))), drive \(String(describing: session.drive.inserted)))")
                 continue
             }
             if session.loop.loadedWorld?.id != id { fail("the loader started \(session.loop.loadedWorld?.name ?? "an unknown world")") }
@@ -290,7 +290,7 @@ struct LoaderCheck {
         let session = try Session(level1, disks: set, storage: storage)
         var random: (UInt8, UInt8) = (0, 0)
         session.machine.hook(GameSymbols.address(\.worldStart)) { m in
-            random = (m.cpu.mem[\.randomLow], m.cpu.mem[\.randomHigh])
+            random = (m.apple.cpu.mem[\.randomLow], m.apple.cpu.mem[\.randomHigh])
             return false
         }
         _ = try session.type([esc, esc], limit: 10) { session.loop.exit != nil }
@@ -304,7 +304,7 @@ struct LoaderCheck {
         _ = try session.type(keys("A"), limit: 5) { false }
         png(session, "restore4")
         try session.run(0.5)
-        session.loop.devices.type(ret)
+        session.loop.apple.press(ret)
         var steps = 0
         while session.loop.worldsLoaded == 0 || session.loop.inLoader || session.loop.ticks == 0 {
             do { try session.loop.runTick(maxSteps: 100_000) } catch CPU6502.CPUError.tooManySteps {}
@@ -313,7 +313,7 @@ struct LoaderCheck {
         }
         png(session, "restore5")
         guard session.arrived() else {
-            fail("the game wasn't restored (PC \(hex(Int(session.machine.cpu.pc))))")
+            fail("the game wasn't restored (PC \(hex(Int(session.machine.apple.cpu.pc))))")
             return
         }
         guard let game = WorldBuilder(disks: set).savedGames(on: storage).first else { return }
@@ -346,7 +346,7 @@ struct LoaderCheck {
         png(session, "new2")
         let ok = try session.type(keys("A") + keys("NEW DISK") + [ret, ret], limit: 30) { session.arrived() }
         guard ok else {
-            fail("not back in Level 1 (PC \(hex(Int(session.machine.cpu.pc))))")
+            fail("not back in Level 1 (PC \(hex(Int(session.machine.apple.cpu.pc))))")
             return
         }
         guard let disk = session.drive.takeWritten() else {
@@ -374,20 +374,20 @@ struct LoaderCheck {
         _ = try session.type([esc, esc], limit: 10) { session.loop.exit != nil }
         try session.run(8)
         _ = session.loop.takeSpeaker()
-        session.loop.devices.type(esc)
+        session.loop.apple.press(esc)
         var clicks: [UInt64] = []
         for _ in 0 ..< 20 {
             try session.run(0.1)
             clicks += session.loop.takeSpeaker().clicks
         }
         print(String(format: "  the tune: %d clicks in %.2f s", clicks.count,
-                     Double((clicks.last ?? 0) - (clicks.first ?? 0)) / GameLoop.clock))
+                     Double((clicks.last ?? 0) - (clicks.first ?? 0)) / Apple2Machine.clock))
         if clicks.isEmpty { fail("no tune") }
         try session.run(25)
         png(session, "escape")
         let start = session.loop.cycles
         let ok = try session.type([ret, ret], limit: 20) { session.arrived() }
-        let seconds = Double(session.loop.cycles - start) / GameLoop.clock
+        let seconds = Double(session.loop.cycles - start) / Apple2Machine.clock
         print(String(format: "  Robotropolis started in %.1f s", seconds))
         if !ok || session.loop.loadedWorld?.id != "level1" { fail("Robotropolis didn't start") }
         if seconds > 5 { fail("the intro played") }
@@ -406,14 +406,14 @@ struct LoaderCheck {
         try session.run(8)
         _ = try session.type([ret], limit: 1) { false }
         _ = session.loop.takeSpeaker()
-        session.loop.devices.type(ret)
+        session.loop.apple.press(ret)
         let start = session.loop.cycles
         var stream = SpeakerStream()
         var stretches: [(clicks: [UInt64], samples: [Float])] = []
         var resting = true
         var frames = 0
         while !session.arrived() && frames < 60 * 60 {
-            try session.loop.run(until: start + UInt64(Double(frames + 1) / 60 * GameLoop.clock))
+            try session.loop.run(until: start + UInt64(Double(frames + 1) / 60 * Apple2Machine.clock))
             frames += 1
             let clicks = session.loop.takeSpeaker().clicks
             let samples = stream.samples(clicks, upTo: session.loop.cycles, lead: 0)
@@ -443,7 +443,7 @@ struct LoaderCheck {
             let sign: Float = zip(s.samples, once).first { abs($0.0) > 1e-3 }.map { ($0.0 > 0) == ($0.1 > 0) ? 1 : -1 } ?? 1
             if let i = zip(s.samples, once).enumerated().first(where: { abs($1.0 - sign * $1.1) > 1e-6 })?.offset {
                 fail(String(format: "stretch %d (at %.2f s): sample %d differs from the stretch rendered at once", n,
-                            Double(first - start) / GameLoop.clock, i))
+                            Double(first - start) / Apple2Machine.clock, i))
             }
         }
     }
@@ -473,17 +473,17 @@ struct LoaderCheck {
             var played: [(cycle: UInt64, time: Double)] = []
             for frame in 0 ..< 120 * names.count {
                 // Into the queue's last slot as QUEUE_SOUND puts it, at a tick's start: the tick plays it.
-                if queued < names.count, frame >= 120 * queued, Int(mem.cpu.pc) == session.phase.loopStart,
+                if queued < names.count, frame >= 120 * queued, Int(mem.apple.cpu.pc) == session.phase.loopStart,
                    let sound = GameSounds.pitches.first(where: { $0.name == names[queued] })?.parameters {
-                    mem.cpu.mem[\.soundQueue] = 7
-                    mem.cpu.mem[GameSymbols.address(\.soundFlags) + 7] = sound.kind.rawValue
-                    mem.cpu.mem[GameSymbols.address(\.soundLengths) + 7] = sound.length
-                    mem.cpu.mem[GameSymbols.address(\.soundSweeps) + 7] = sound.sweep
-                    mem.cpu.mem[GameSymbols.address(\.soundPitches) + 7] = sound.pitch
-                    mem.cpu.mem[GameSymbols.address(\.soundRooms) + 7] = 0xFF
+                    mem.apple.cpu.mem[\.soundQueue] = 7
+                    mem.apple.cpu.mem[GameSymbols.address(\.soundFlags) + 7] = sound.kind.rawValue
+                    mem.apple.cpu.mem[GameSymbols.address(\.soundLengths) + 7] = sound.length
+                    mem.apple.cpu.mem[GameSymbols.address(\.soundSweeps) + 7] = sound.sweep
+                    mem.apple.cpu.mem[GameSymbols.address(\.soundPitches) + 7] = sound.pitch
+                    mem.apple.cpu.mem[GameSymbols.address(\.soundRooms) + 7] = 0xFF
                     queued += 1
                 }
-                clock += UInt64(GameLoop.clock / 60)
+                clock += UInt64(Apple2Machine.clock / 60)
                 try loop.run(until: clock, finishingTick: true)
                 let clicks = loop.takeSpeaker().clicks
                 let quiet = loop.speakerQuiet
@@ -495,7 +495,7 @@ struct LoaderCheck {
                 playEnd = max(Double(frame) / 60, playEnd) + Double(samples.count) / Double(SpeakerRenderer.sampleRate)
                 // While it sounds, the stream renders up to the machine's cycle; quiet, until the cone has settled.
                 let end = quiet ? Double(clicks.last ?? 0) + Double(SpeakerRenderer.settle) * SpeakerRenderer.perSample : Double(loop.cycles)
-                played += clicks.map { ($0, playEnd - (end - Double($0)) / GameLoop.clock) }
+                played += clicks.map { ($0, playEnd - (end - Double($0)) / Apple2Machine.clock) }
             }
             heard.append(played.map(\.cycle))
             // The sounds: clicks less than 20,000 cycles apart.
@@ -508,9 +508,9 @@ struct LoaderCheck {
             if !played.isEmpty { sounds.append(played[first...]) }
             if sounds.count != names.count { fail("\(sounds.count) sounds played, not \(names.count)") }
             for (name, s) in zip(names, sounds) {
-                let pause = zip(s, s.dropFirst()).map { ($1.time - $0.time) - Double($1.cycle - $0.cycle) / GameLoop.clock }.max() ?? 0
+                let pause = zip(s, s.dropFirst()).map { ($1.time - $0.time) - Double($1.cycle - $0.cycle) / Apple2Machine.clock }.max() ?? 0
                 print(String(format: "  %@ %@: %d clicks, %.0f ms, the longest pause added %.1f ms", off ? "6502  " : "native", name,
-                             s.count, Double(s.last!.cycle - s.first!.cycle) / GameLoop.clock * 1000, max(pause, 0) * 1000))
+                             s.count, Double(s.last!.cycle - s.first!.cycle) / Apple2Machine.clock * 1000, max(pause, 0) * 1000))
                 if pause > 0.001 { fail("\(name) (\(off ? "6502" : "native")) pauses where the original doesn't") }
             }
             print(String(format: "  %@ the player ran dry with the cone at %.3f at most", off ? "6502  " : "native", cut))
@@ -533,23 +533,23 @@ struct LoaderCheck {
         for native in Loader.menuNatives {
             let code = LoaderSymbols.map[keyPath: native.routine].code[0]
             session.machine.hook(native.entry, name: native.name) { m in
-                guard code.matches(m.cpu.mem) else { return false }
+                guard code.matches(m.apple.cpu.mem) else { return false }
                 let original = m.copy()
                 original.switchedOff.insert(native.name)
-                let cpu = original.cpu
+                let cpu = original.apple.cpu
                 let back = (UInt16(cpu.mem[0x100 + Int(cpu.sp &+ 1)]) | UInt16(cpu.mem[0x100 + Int(cpu.sp &+ 2)]) << 8) &+ 1
                 let sp = cpu.sp &+ 2
                 var steps = 0
                 while !(cpu.pc == back && cpu.sp == sp), steps < 5_000_000, (try? cpu.step()) != nil { steps += 1 }
-                native.run(LoaderRAM(cpu: m.cpu))
-                m.cpu.returnFromSubroutine()
+                native.run(LoaderRAM(cpu: m.apple.cpu))
+                m.apple.cpu.returnFromSubroutine()
                 let n = calls[native.name, default: 0]
                 calls[native.name] = n + 1
                 let dead = 0x0100 ... 0x0100 + Int(sp)
-                if cpu.pc != back || m.cpu.pc != back || m.cpu.sp != sp {
+                if cpu.pc != back || m.apple.cpu.pc != back || m.apple.cpu.sp != sp {
                     fail("\(native.name) call \(n): returns to $\(String(cpu.pc, radix: 16)), not as the native")
-                } else if let a = (0 ..< 0x10000).first(where: { !dead.contains($0) && m.cpu.mem[$0] != cpu.mem[$0] }) {
-                    fail(String(format: "%@ call %d: $%04X is $%02X, the original's $%02X", native.name, n, a, m.cpu.mem[a], cpu.mem[a]))
+                } else if let a = (0 ..< 0x10000).first(where: { !dead.contains($0) && m.apple.cpu.mem[$0] != cpu.mem[$0] }) {
+                    fail(String(format: "%@ call %d: $%04X is $%02X, the original's $%02X", native.name, n, a, m.apple.cpu.mem[a], cpu.mem[a]))
                 } else if m.bank1 != original.bank1 {
                     fail("\(native.name) call \(n): bank 1 differs")
                 }
@@ -560,7 +560,7 @@ struct LoaderCheck {
         _ = try session.type([esc, esc], limit: 10) { session.loop.exit != nil }
         try session.run(8)
         let menu = calls
-        session.loop.devices.type(esc)
+        session.loop.apple.press(esc)
         try session.run(25)
         let title = calls
         let start = session.loop.cycles
@@ -570,7 +570,7 @@ struct LoaderCheck {
             Loader.menuNatives.map { "\($0.name) \(c[$0.name, default: 0] - before[$0.name, default: 0])" }.joined(separator: ", ")
         }
         print("  the menu: \(counts(menu)); the title: \(counts(title, menu)); the intro: \(counts(calls, title))")
-        print(String(format: "  Robotropolis started after %.1f s with the natives", Double(session.loop.cycles - start) / GameLoop.clock))
+        print(String(format: "  Robotropolis started after %.1f s with the natives", Double(session.loop.cycles - start) / Apple2Machine.clock))
         for native in Loader.menuNatives where calls[native.name, default: 0] == 0 { fail("\(native.name) never ran") }
     }
 

@@ -42,6 +42,7 @@
 //            in the letters' cells, and with the letters ORed back in the page.
 //
 // Build and run with layer_check.sh (compiles this file with the app's sources).
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -187,9 +188,9 @@ struct LayerCheck {
         m.nativesEnabled = false
         let layers = PageLayers()
         m.layers = layers
-        let follow = m.cpu.onWrite
-        m.cpu.onWrite = { [unowned m] a, old, new in
-            if layers.drawing > 0 { m.cpu.mem[Int(a)] = old } else { follow(a, old, new) }
+        let follow = m.apple.cpu.onWrite
+        m.apple.cpu.onWrite = { [unowned m] a, old, new in
+            if layers.drawing > 0 { m.apple.cpu.mem[Int(a)] = old } else { follow(a, old, new) }
         }
         _ = try game.phase.draw(room: room, on: m)
         return m.drawnScreen().bytes
@@ -239,7 +240,7 @@ struct LayerCheck {
         var time = (on: 0.0, off: 0.0)
         for key in keys {
             for loop in [on, off] {
-                if let key { loop.devices.type(key) }
+                if let key { loop.apple.press(key) }
                 let t0 = Date()
                 // A tick, or 2 M cycles where it waits for a key.
                 do { try loop.runTick(maxSteps: 1_000_000) } catch CPU6502.CPUError.tooManySteps {}
@@ -379,7 +380,7 @@ struct LayerCheck {
         let loop = game.loop(room: nil)
         try loop.runTick()
         let flips = loop.flips
-        loop.devices.type(0xBF)                     // ?
+        loop.apple.press(0xBF)                     // ?
         try loop.run(until: loop.cycles + 2_000_000)
         let frame = loop.shownFrame()
         guard loop.flips > flips, !texts(frame.items).isEmpty else {

@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -67,11 +68,11 @@ nonisolated extension Engine {
 
     /// READ_KEY ($AA25): LAST_KEY = the key typed, or 0; lower-case letters as capitals.
     private mutating func readKey() -> UInt8 {
-        var key = devices.key
+        var key = apple.readKeyboard(at: cycles)
         if key & 0x80 == 0 {
             key = 0
         } else {
-            devices.key &= 0x7F
+            apple.clearKeyStrobe(at: cycles)
             if (0xE1 ..< 0xFB).contains(key) { key &= m.caseMask }
         }
         m.lastKey = key
@@ -115,16 +116,17 @@ nonisolated extension Engine {
 
     /// READ_JOYSTICK ($AACB): the paddle counts, doubled, in PADDLE_X/Y and as
     /// the joystick position (STICK_Y upside down), and the buttons: button 1
-    /// alone is BUTTON_A, button 0 alone BUTTON_B.
+    /// alone is BUTTON_A, button 0 alone BUTTON_B.  It strobes 13 cycles in.
     private mutating func readJoystick() {
-        devices.strobe = cycles
-        let counts = Engine.paddleCounts(devices)
+        let strobe = cycles + 13
+        apple.triggerPaddles(at: strobe)
+        let counts = Engine.paddleCounts { [apple] in apple.paddleRunning($0, at: strobe + UInt64($1)) }
         m.paddleX = counts.x << 1
         m.paddleY = counts.y << 1
         m.stickX = counts.x << 1
         m.stickY = counts.y << 1 ^ 0xFF
         clearButtons()
-        let b0 = devices.buttons[0], b1 = devices.buttons[1]
+        let b0 = apple.gamePort.button(0), b1 = apple.gamePort.button(1)
         let button: ByteSymbol = b1 ? \.buttonA : \.buttonB
         if b0 != b1 { m[button] &+= 1 }
     }
@@ -133,8 +135,8 @@ nonisolated extension Engine {
     /// and paddle 1 at 23 cycles after the strobe, every 24 cycles, up to 127
     /// rounds.  Once paddle 0 has run out at round k, it reads paddle 1 at
     /// 25 + 24j (j from k); once paddle 1 has, paddle 0 at 17 + 24j (j from k + 1).
-    static func paddleCounts(_ d: InputDevices) -> (x: UInt8, y: UInt8) {
-        func running(_ paddle: Int, _ cycles: Int) -> Bool { d.paddleRunning(paddle, after: UInt64(cycles)) }
+    /// `running`: whether a paddle's timer runs that many cycles after the strobe.
+    static func paddleCounts(_ running: (_ paddle: Int, _ cycles: Int) -> Bool) -> (x: UInt8, y: UInt8) {
         for k in 0 ..< 128 {
             if !running(0, 14 + 24 * k) {
                 let y = (k ..< 128).first { !running(1, 25 + 24 * $0) } ?? 127
@@ -154,9 +156,12 @@ nonisolated extension Engine {
     /// and Y the reads left and made); else it looks for a mouse card from
     /// slot 7 down (its ROM's $Cn0C = $20 and $CnFB = $D6), finds none and
     /// INPUT_DEVICE is 0.  Declines for a mouse card: the original sets it up.
+    /// It strobes 7 cycles in.
     mutating func detectJoystick() -> Bool {
+        let strobe = cycles + 7
+        apple.triggerPaddles(at: strobe)            // again where it declines and the original runs: no change
         let found = (0 ..< 1280).first { n in
-            !devices.paddleRunning(0, after: UInt64(10 + 11 * n + 4 * (n >> 8)))
+            !apple.paddleRunning(0, at: strobe + UInt64(10 + 11 * n + 4 * (n >> 8)))
         }
         var x: UInt8 = 0xFF, y: UInt8 = 0
         if let n = found {
@@ -172,7 +177,6 @@ nonisolated extension Engine {
             }
             m.slotPointer = 0xC000
         }
-        devices.strobe = cycles
         r.bit(r.a, m[0xCFFF])
         r.a = found == nil ? 0 : 1
         r.x = x

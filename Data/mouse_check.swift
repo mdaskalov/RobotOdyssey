@@ -30,6 +30,7 @@
 //           game's own CARRY_WIRES, by KEEP_MOVE).
 //
 // Build and run with mouse_check.sh (compiles this file with the app's sources).
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -106,14 +107,14 @@ struct MouseCheck {
 
     /// The mouse moved by (dx, dy) units of the player's move (y up), then a tick.
     static func move(_ loop: GameLoop, _ dx: Int, _ dy: Int) throws {
-        loop.moveMouse(dx: dx * AppleMouse.countsPerUnit, dy: -dy * AppleMouse.countsPerUnit)
+        loop.apple.moveMouse(dx: dx * AppleMouse.countsPerUnit, dy: -dy * AppleMouse.countsPerUnit)
         try loop.runTick()
     }
 
     /// A click: the button down and up before the next tick (a press for one tick), and the ticks for it.
     static func click(_ loop: GameLoop) throws {
-        loop.mouseButton(down: true)
-        loop.mouseButton(down: false)
+        loop.apple.mouseButton(down: true)
+        loop.apple.mouseButton(down: false)
         for _ in 0 ..< 3 { try loop.runTick() }
     }
 
@@ -233,14 +234,14 @@ struct MouseCheck {
         try loop.runTick()
         let before = loop.memory
         let slotPointer = GameSymbols.address(\.slotPointer)
-        let rom = AppleMouse.rom
+        let rom = 0xC000 | MouseCard.slot << 8
         loop.mouse = true
         try loop.runTick()
         var mem = loop.memory
         check(mem[\.inputDevice] == 2 && mem[\.slotPointer] == rom && mem[rom + 0x0C] == 0x20 && mem[rom + 0xFB] == 0xD6
-              && mem[\.mouseSlot] == UInt8(rom >> 8) && mem[\.mouseSlot16] == UInt8(AppleMouse.slot << 4),
+              && mem[\.mouseSlot] == UInt8(rom >> 8) && mem[\.mouseSlot16] == UInt8(MouseCard.slot << 4),
               "plug: INPUT_DEVICE 2, SLOT_POINTER \(hex(mem[\.slotPointer])), the card's ROM, MOUSE_SLOT \(hex(Int(mem[\.mouseSlot])))")
-        let clamp = loop.devices.mouse?.clamp
+        let clamp = loop.apple.mouseEnabled ? loop.apple.mouse.clamp : nil
         check(clamp?.x == -28 ... 28 && clamp?.y == -60 ... 60,
               "plug: the game's CLAMPMOUSE: across \(clamp.map { "\($0.x)" } ?? "-"), up and down \(clamp.map { "\($0.y)" } ?? "-")")
 
@@ -257,7 +258,7 @@ struct MouseCheck {
         try move(loop, 0, 30)
         check(player(loop) == (at.x, at.y + 15), "pace: 30 up from \(at): at \(player(loop)) (15)")
         at = player(loop)
-        loop.devices.type(0xCB)                     // K: right
+        loop.apple.press(0xCB)                     // K: right
         try loop.runTick()
         check(player(loop) == (at.x + 7, at.y), "keys: K with the card in, from \(at): at \(player(loop))")
 
@@ -266,7 +267,7 @@ struct MouseCheck {
         mem = loop.memory
         check(mem[\.inputDevice] == before[\.inputDevice] && mem[slotPointer] == before[slotPointer]
               && mem[slotPointer + 1] == before[slotPointer + 1] && Array(mem[rom ..< rom + 0x100]) == Array(before[rom ..< rom + 0x100])
-              && loop.devices.mouse == nil,
+              && !loop.apple.mouseEnabled,
               "unplug: INPUT_DEVICE \(hex(Int(mem[\.inputDevice]))), SLOT_POINTER, the ROM page as before")
     }
 
@@ -279,7 +280,7 @@ struct MouseCheck {
         }), let (p, q) = freePins(in: room, mem0, v) else { return fail("solder: no room with free pins of both types") }
         let loop = try GameScreen(world: playerIn(room, at: spot(on: p, mem0, v), world)).loop(room: nil)
         try loop.runTick()
-        loop.devices.type(0xD3)                     // S: the soldering pen
+        loop.apple.press(0xD3)                     // S: the soldering pen
         try loop.runTick()
         try loop.runTick()
         guard loop.memory[address(\.toolMode, v)] == 0xFD else {       // TOOL_MODE: the soldering pen
@@ -300,11 +301,11 @@ struct MouseCheck {
 
         if let (p, q) = freePins(in: room, loop.memory, v) {
             if try walk(loop, to: spot(on: p, loop.memory, v)) {
-                loop.mouseButton(down: true)
+                loop.apple.mouseButton(down: true)
                 try move(loop, 0, 1)
                 try move(loop, 0, -1)
                 try loop.runTick()
-                loop.mouseButton(down: false)
+                loop.apple.mouseButton(down: false)
                 for _ in 0 ..< 3 { try loop.runTick() }
                 check(Int(loop.memory[solderPin]) == p,
                       "held: pressed on pin \(hex(p)) for 3 ticks, the mouse wobbling, let go: one press, the wire still being made")
@@ -335,9 +336,9 @@ struct MouseCheck {
         let mem2 = loop.memory
         if let (o2, wire2) = wires(mem2, v).first(where: { Int(mem2[\.objRoom, $0.key]) == room && (1 ... 2).contains(pinType($0.key, mem2, v)) }),
            try walk(loop, to: spot(on: o2, mem2, v)) {
-            loop.mouseButton(down: true)
+            loop.apple.mouseButton(down: true)
             for _ in 0 ..< 4 { try loop.runTick() }
-            loop.mouseButton(down: false)
+            loop.apple.mouseButton(down: false)
             try loop.runTick()
             check(!connects(loop.memory, v, o2, wire2.to) && loop.memory[solderPin] == 0,
                   "cut: pressed on pin \(hex(o2)) (wired to \(hex(wire2.to))) for 4 ticks: the wire cut, no new one started (SOLDER_PIN \(hex(Int(loop.memory[solderPin]))))")

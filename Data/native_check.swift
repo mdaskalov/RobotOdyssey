@@ -29,6 +29,7 @@
 //
 // Every world's engine code must match the symbols' fingerprints (the
 // loader's CodeCheck), and still match after the ticks.
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -128,11 +129,11 @@ struct NativeCheck {
                 let original = try screen.render(room: room, nativesEnabled: false)
                 n += 1
                 nativeCalls += native.machine.nativeCalls
-                let deadStack = 0x0100 ... 0x0100 + Int(original.machine.cpu.sp)
-                if native.machine.cpu.sp != original.machine.cpu.sp {
+                let deadStack = 0x0100 ... 0x0100 + Int(original.machine.apple.cpu.sp)
+                if native.machine.apple.cpu.sp != original.machine.apple.cpu.sp {
                     fail("\(world.name) room \(room): stack pointer differs")
-                } else if let d = firstDifference(native.machine.cpu.mem, original.machine.cpu.mem, ignoring: deadStack) {
-                    fail("\(world.name) room \(room): memory \(hex(d)) native \(native.machine.cpu.mem[d]) original \(original.machine.cpu.mem[d])")
+                } else if let d = firstDifference(native.machine.apple.cpu.mem, original.machine.apple.cpu.mem, ignoring: deadStack) {
+                    fail("\(world.name) room \(room): memory \(hex(d)) native \(native.machine.apple.cpu.mem[d]) original \(original.machine.apple.cpu.mem[d])")
                 } else if native.machine.bank1 != original.machine.bank1 {
                     fail("\(world.name) room \(room): bank 1 differs")
                 } else if native.screen.bytes != original.screen.bytes {
@@ -193,9 +194,9 @@ struct NativeCheck {
     static func checkInputTicks(_ world: World, _ screen: GameScreen, _ rng: inout SplitMix, count: Int = 300) -> Int {
         let native = screen.loop(room: nil)
         let original = screen.loop(room: nil, nativesEnabled: false)
-        func apply(_ change: (inout InputDevices) -> Void) {
-            change(&native.devices)
-            change(&original.devices)
+        func apply(_ change: (Apple2Machine) -> Void) {
+            change(native.apple)
+            change(original.apple)
         }
         var key: UInt8 = 0, hold = 0
         var rooms = Set<UInt8>(), keyTicks = 0, stickTicks = 0, sounds = 0
@@ -213,18 +214,18 @@ struct NativeCheck {
                     let position = { (r: inout SplitMix) -> UInt8 in r.chance(3) ? [0, 128, 255][Int(r.byte(3))] : r.byte() }
                     let stick = (position(&rng), position(&rng))
                     let buttons = [rng.chance(4), rng.chance(4)]
-                    apply { d in
-                        d.joystick = unplug ? nil : stick
-                        d.buttons = buttons
+                    apply { a in
+                        a.gamePort.joystick = unplug ? nil : GamePort.Joystick(x: stick.0, y: stick.1)
+                        a.gamePort.buttons = buttons + [false]
                     }
                 }
             }
             hold -= 1
             if key != 0 {
-                apply { $0.type(key) }
+                apply { $0.press(key) }
                 keyTicks += 1
             }
-            if joystickPhase && native.devices.joystick != nil { stickTicks += 1 }
+            if joystickPhase && native.apple.gamePort.joystick != nil { stickTicks += 1 }
             do {
                 try native.runTick()
                 try original.runTick()
@@ -248,7 +249,7 @@ struct NativeCheck {
             } else if native.screen().bytes != original.screen().bytes {
                 fail("\(world.name) input tick \(tick): screen differs")
                 return tick
-            } else if native.devices.key != original.devices.key {
+            } else if native.apple.keyboard.latch != original.apple.keyboard.latch {
                 fail("\(world.name) input tick \(tick): keyboard latch differs")
                 return tick
             } else if native.exit?.description != original.exit?.description {
@@ -293,7 +294,7 @@ struct NativeCheck {
         let v = check.variant
         let natives = check.natives.filter { $0.run != nil && $0.flags.contains(.leavesRegisters) }
         // Objects in the room lists (so moving them keeps the lists intact).
-        let mem0 = start.cpu.mem
+        let mem0 = start.apple.cpu.mem
         var listed: [UInt8] = []
         for room in 0 ..< World.roomCount {
             var o = mem0[\.roomFirstObject, room], steps = 0
@@ -335,21 +336,21 @@ struct NativeCheck {
                     m.grabState = rng.byte(3)
                 }
             }
-            var devices = InputDevices()
-            if !rng.chance(3) { devices.type(rng.chance(2) ? testKeys[Int(rng.byte(testKeys.count))] : rng.byte()) }
-            if rng.chance(2) { devices.joystick = (rng.byte(), rng.byte()) }
-            devices.buttons = [rng.chance(3), rng.chance(3)]
+            let key: UInt8? = rng.chance(3) ? nil : rng.chance(2) ? testKeys[Int(rng.byte(testKeys.count))] : rng.byte()
+            let stick = rng.chance(2) ? GamePort.Joystick(x: rng.byte(), y: rng.byte()) : nil
+            let buttons = [rng.chance(3), rng.chance(3), false]
             let regs = CPU6502.Registers(a: rng.byte(), x: rng.byte(0x40), y: object, p: rng.byte() & ~0x18 | 0x20)
             for native in natives {
                 let entry = GameSymbols.map[keyPath: native.routine].entry(v)!
                 let original = Machine(memory: mem, bank1: start.bank1, variant: v)
                 let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
                 for m in [original, ported] {
-                    m.devices = devices
-                    (m.cpu.a, m.cpu.x, m.cpu.y, m.cpu.p, m.cpu.sp) = (regs.a, regs.x, regs.y, regs.p, 0xF0)
+                    if let key { m.apple.press(key) }
+                    (m.apple.gamePort.joystick, m.apple.gamePort.buttons) = (stick, buttons)
+                    (m.apple.cpu.a, m.apple.cpu.x, m.apple.cpu.y, m.apple.cpu.p, m.apple.cpu.sp) = (regs.a, regs.x, regs.y, regs.p, 0xF0)
                 }
                 do {
-                    try original.cpu.call(entry)
+                    try original.apple.cpu.call(entry)
                 } catch {
                     fail("\(world.name) trial \(trial) \(native.name): \(error)")
                     return n
@@ -359,7 +360,7 @@ struct NativeCheck {
                     return n
                 }
                 n += 1
-                let o = original.cpu, c = ported.cpu
+                let o = original.apple.cpu, c = ported.apple.cpu
                 let what = "\(world.name) trial \(trial) \(native.name) object \(hex(Int(object)))"
                 if let d = firstDifference(c.mem, o.mem, ignoring: 0x0100 ... 0x01F0) {
                     fail("\(what): \(hex(d)) native \(c.mem[d]) original \(o.mem[d])")
@@ -368,7 +369,7 @@ struct NativeCheck {
                     fail(String(format: "%@: registers native A=%02X X=%02X Y=%02X P=%02X original A=%02X X=%02X Y=%02X P=%02X",
                                 what, c.a, c.x, c.y, c.p & 0xCF, o.a, o.x, o.y, o.p & 0xCF))
                     return n
-                } else if ported.devices.key != original.devices.key {
+                } else if ported.apple.keyboard.latch != original.apple.keyboard.latch {
                     fail("\(what): keyboard latch differs")
                     return n
                 }
@@ -386,7 +387,7 @@ struct NativeCheck {
         let all = Array(Robot.all(v.engine))
         var n = 0
         for trial in 0 ..< 300 {
-            var mem = start.cpu.mem
+            var mem = start.apple.cpu.mem
             let interior = rng.chance(3)
             let room = interior ? all[Int(rng.byte(all.count))].interiorRoom : rng.byte(0x40)
             mem.withRAM(v) { m in
@@ -420,9 +421,9 @@ struct NativeCheck {
             for tick in 0 ..< 4 {
                 for native in robots {
                     let entry = GameSymbols.map[keyPath: native.routine].entry(v)!
-                    original.cpu.sp = 0xF0
+                    original.apple.cpu.sp = 0xF0
                     do {
-                        try original.cpu.call(entry)
+                        try original.apple.cpu.call(entry)
                     } catch {
                         fail("\(world.name) trial \(trial): \(error)")
                         return n
@@ -430,8 +431,8 @@ struct NativeCheck {
                     ported.call(native.run!)
                     n += 1
                     // The stack below the caller ($01F0 down) only holds dead return addresses.
-                    if let d = firstDifference(ported.cpu.mem, original.cpu.mem, ignoring: 0x0100 ... 0x01F0) {
-                        fail("\(world.name) trial \(trial) tick \(tick) room \(room) \(native.name): \(hex(d)) native \(ported.cpu.mem[d]) original \(original.cpu.mem[d])")
+                    if let d = firstDifference(ported.apple.cpu.mem, original.apple.cpu.mem, ignoring: 0x0100 ... 0x01F0) {
+                        fail("\(world.name) trial \(trial) tick \(tick) room \(room) \(native.name): \(hex(d)) native \(ported.apple.cpu.mem[d]) original \(original.apple.cpu.mem[d])")
                         return n
                     }
                 }
@@ -458,7 +459,7 @@ struct NativeCheck {
                                       \.noisePeriod, \.soundSweep]
         var n = 0, played = 0, clickCount = 0
         for trial in 0 ..< trials {
-            var mem = start.cpu.mem
+            var mem = start.apple.cpu.mem
             mem.withRAM(v) { m in
                 let queued = Int(rng.byte(9))
                 m.soundQueue = UInt8(8 - queued)
@@ -482,11 +483,11 @@ struct NativeCheck {
             let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
             let regs = CPU6502.Registers(a: rng.byte(), x: rng.byte(), y: rng.byte(), p: rng.byte() & ~0x18 | 0x20)
             for m in [original, ported] {
-                (m.cpu.a, m.cpu.x, m.cpu.y, m.cpu.p, m.cpu.sp) = (regs.a, regs.x, regs.y, regs.p, 0xF0)
+                (m.apple.cpu.a, m.apple.cpu.x, m.apple.cpu.y, m.apple.cpu.p, m.apple.cpu.sp) = (regs.a, regs.x, regs.y, regs.p, 0xF0)
             }
-            original.clicks = []
+            original.apple.clicks = []
             do {
-                try original.cpu.call(entry, maxSteps: 50_000_000)
+                try original.apple.cpu.call(entry, maxSteps: 50_000_000)
             } catch {
                 fail("\(world.name) sound trial \(trial): \(error)")
                 return n
@@ -495,8 +496,8 @@ struct NativeCheck {
             let sounds = ported.takeSounds()
             n += 1
             played += sounds.count
-            clickCount += original.clicks!.count
-            let o = original.cpu, c = ported.cpu
+            clickCount += original.apple.clicks!.count
+            let o = original.apple.cpu, c = ported.apple.cpu
             let what = "\(world.name) sound trial \(trial)"
             if let d = firstDifference(c.mem, o.mem, ignoring: 0x0100 ... 0x01F0) {
                 fail("\(what): \(hex(d)) native \(c.mem[d]) original \(o.mem[d])")
@@ -510,9 +511,9 @@ struct NativeCheck {
                 return n
             }
             let clicks = sounds.flatMap { s in s.clicks.map { s.start + UInt64($0) } }
-            if clicks != original.clicks! {
-                let i = zip(clicks, original.clicks!).enumerated().first { $1.0 != $1.1 }?.offset ?? min(clicks.count, original.clicks!.count)
-                fail("\(what): \(clicks.count) clicks, original \(original.clicks!.count), from click \(i) on they differ")
+            if clicks != original.apple.clicks! {
+                let i = zip(clicks, original.apple.clicks!).enumerated().first { $1.0 != $1.1 }?.offset ?? min(clicks.count, original.apple.clicks!.count)
+                fail("\(what): \(clicks.count) clicks, original \(original.apple.clicks!.count), from click \(i) on they differ")
                 return n
             }
         }

@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -66,9 +67,9 @@ nonisolated extension Loader {
         for native in menuNatives {
             let code = Fingerprint(native.routine)
             machine.hook(native.entry, name: native.name) { m in
-                guard code.matches(m.cpu.mem) else { return false }
-                native.run(LoaderRAM(cpu: m.cpu))
-                m.cpu.returnFromSubroutine()
+                guard code.matches(m.apple.cpu.mem) else { return false }
+                native.run(LoaderRAM(cpu: m.apple.cpu))
+                m.apple.cpu.returnFromSubroutine()
                 return true
             }
         }

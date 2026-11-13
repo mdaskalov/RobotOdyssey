@@ -1,8 +1,10 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
 /// The machine as a native routine sees it: memory with the game's symbols
-/// (`m`), the registers (`r`) and the input devices.  The ported routines are
+/// (`m`), the registers (`r`) and the Apple's devices (`apple`: the keyboard,
+/// the game port, the mouse card).  The ported routines are
 /// its methods, one file per part of the engine (EngineGraphics,
 /// ObjectMotion, PlayerInput, RobotDrawing, Speaker), and read like the code
 /// they replace:
@@ -16,7 +18,9 @@ import MOS6502
 nonisolated struct Engine {
     let m: RAM
     var r: CPU6502.Registers
-    var devices: InputDevices
+    /// The Apple, for its devices: a routine reads and switches them at the
+    /// cycle the original does (`cycles` + where in it).
+    let apple: Apple2Machine
     /// The CPU's cycle counter at the call.
     let cycles: UInt64
     /// The cycles the original takes, added to the CPU's when the routine
