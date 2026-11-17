@@ -97,8 +97,9 @@ struct MouseCheck {
         return world.with(mem: mem, bank1: world.bank1)
     }
 
-    static func address<S: Symbol>(_ s: KeyPath<GameSymbols, S>, _ v: Variant) -> Int {
-        GameSymbols.map[keyPath: s].address(v)!
+    /// Where one of the names the engines share is in `v`'s.
+    static func address<S: Symbol>(_ s: KeyPath<any EngineSymbols, S>, _ v: Variant) -> Int {
+        v.symbols[keyPath: s].address
     }
 
     static func player(_ loop: GameLoop) -> (x: Int, y: Int) {

@@ -117,14 +117,14 @@ final class ViewerModel {
         }
     }
     /// The native routines switched off, by name, and the loader's intro
-    /// skip (`GameLoop.switchedOff`): the original 6502 code runs there,
+    /// skip (`Apple2Machine.switchedOff`): the original 6502 code runs there,
     /// from the running game's next instruction on.  A native that draws on
     /// the native layer (`Native.Flags.drawsOnLayer3`) switched off: from
     /// the next page drawn, its drawing stays the Apple's pixels.
     var nativesOff = Set(UserDefaults.standard.stringArray(forKey: "nativesOff") ?? []) {
         didSet {
             UserDefaults.standard.set(nativesOff.sorted(), forKey: "nativesOff")
-            loop?.loop.switchedOff = nativesOff
+            loop?.loop.apple.switchedOff = nativesOff
             showLive()
         }
     }
@@ -555,7 +555,7 @@ final class ViewerModel {
             DiskDrive(program: $0.disks, storage: storageDisk, inserted: world.engine == .levels ? .sideA : .sideB)
         }
         let loop = game.loop(room: viewedRoom(world), drive: drive)
-        loop.switchedOff = nativesOff
+        loop.apple.switchedOff = nativesOff
         self.loop = (world.id, loop)
         driveDisk = drive?.inserted
         showLive()
@@ -716,8 +716,9 @@ final class ViewerModel {
     /// once (the key of the tool in hand does nothing).  Nil in the loader.
     var nextToolKey: UInt8? {
         guard let running = loop, running.world == selectedWorldID, !running.loop.inLoader,
-              let world = selectedWorld, let toolMode = GameSymbols.map.toolMode.address(world.engine)
+              let world = selectedWorld
         else { return nil }
+        let toolMode = world.engine.symbols.toolMode.address
         switch running.loop.memory[toolMode] {
         case 0x00: return 0xD3                      // S: the soldering pen
         case 0xFD: return 0xD2                      // R: the remote control

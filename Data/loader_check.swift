@@ -400,7 +400,7 @@ struct LoaderCheck {
     static func checkIntro(_ level1: World, _ set: DiskSet) throws {
         print("intro: the menu, PLAY_INTRO switched off, Robotropolis")
         let session = try Session(level1, disks: set, storage: nil)
-        session.loop.switchedOff = [Loader.skipIntro]
+        session.loop.apple.switchedOff = [Loader.skipIntro]
         try session.run(1)
         _ = try session.type([esc, esc], limit: 10) { session.loop.exit != nil }
         try session.run(8)
@@ -463,7 +463,7 @@ struct LoaderCheck {
         var heard: [[UInt64]] = []
         for off in [false, true] {
             let session = try Session(level1, disks: set, storage: nil)
-            if off { session.loop.switchedOff = [GameSymbols.name(of: \.playSounds)] }
+            if off { session.loop.apple.switchedOff = [GameSymbols.name(of: \.playSounds)] }
             let loop = session.loop, mem = session.machine
             var stream = SpeakerStream()
             var clock = loop.cycles
@@ -528,20 +528,20 @@ struct LoaderCheck {
     static func checkMenuNatives(_ level1: World, _ set: DiskSet) throws {
         print("menu natives: the menu, the title and the intro, each call against the original")
         let session = try Session(level1, disks: set, storage: nil)
-        session.loop.switchedOff = [Loader.skipIntro]
+        session.loop.apple.switchedOff = [Loader.skipIntro]
         var calls: [String: Int] = [:]
         for native in Loader.menuNatives {
-            let code = LoaderSymbols.map[keyPath: native.routine].code[0]
+            let code = LoaderSymbols.map[keyPath: native.routine].code!
             session.machine.hook(native.entry, name: native.name) { m in
                 guard code.matches(m.apple.cpu.mem) else { return false }
                 let original = m.copy()
-                original.switchedOff.insert(native.name)
+                original.apple.switchedOff.insert(native.name)
                 let cpu = original.apple.cpu
                 let back = (UInt16(cpu.mem[0x100 + Int(cpu.sp &+ 1)]) | UInt16(cpu.mem[0x100 + Int(cpu.sp &+ 2)]) << 8) &+ 1
                 let sp = cpu.sp &+ 2
                 var steps = 0
                 while !(cpu.pc == back && cpu.sp == sp), steps < 5_000_000, (try? cpu.step()) != nil { steps += 1 }
-                native.run(LoaderRAM(cpu: m.apple.cpu))
+                m.apple.cpu.withRAM(LoaderSymbols.map) { native.run($0) }
                 m.apple.cpu.returnFromSubroutine()
                 let n = calls[native.name, default: 0]
                 calls[native.name] = n + 1

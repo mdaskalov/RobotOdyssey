@@ -22,6 +22,11 @@ import MOS6502
 /// a 24-cycle loop, at most 127; with the keyboard the paddles are still read
 /// every tick and the first change switches to the joystick, a key back to
 /// the keyboard.
+/// What each of the ten keys in MOVE_KEYS does.
+private nonisolated let keyActions: [(ByteSymbol, UInt8)] = [
+    (\.stickY, 0xFF), (\.stickY, 0x00), (\.stickX, 0x00), (\.stickX, 0xFF), (\.buttonA, 1),
+    (\.buttonB, 1), (\.stickY, 0xC0), (\.stickY, 0x3F), (\.stickX, 0x3F), (\.stickX, 0xC0)]
+
 nonisolated extension Engine {
     /// READ_INPUT ($A90C); declines for the mouse.
     mutating func readInput() -> Bool {
@@ -79,11 +84,6 @@ nonisolated extension Engine {
         return key
     }
 
-    /// What each of the ten keys in MOVE_KEYS does.
-    private static let keyActions: [(ByteSymbol, UInt8)] = [
-        (\.stickY, 0xFF), (\.stickY, 0x00), (\.stickX, 0x00), (\.stickX, 0xFF), (\.buttonA, 1),
-        (\.buttonB, 1), (\.stickY, 0xC0), (\.stickY, 0x3F), (\.stickX, 0x3F), (\.stickX, 0xC0)]
-
     /// KEY_AS_STICK ($AA40): the key as a joystick position (or a button); a
     /// movement key is used up.  MOVE_KEYS: up, down, left, right, button A,
     /// button B, slowly up, down, left, right.
@@ -91,9 +91,9 @@ nonisolated extension Engine {
         m.stickX = 0x80
         m.stickY = 0x80
         let key = m.lastKey
-        guard let i = Engine.keyActions.indices.first(where: { m.moveKeys[$0] == key }) else { return }
-        let (variable, value) = Engine.keyActions[i]
-        m[variable] = value
+        guard let i = keyActions.indices.first(where: { m.moveKeys[$0] == key }) else { return }
+        let (variable, value) = keyActions[i]
+        m[GameSymbols.address(variable)] = value
         m.lastKey = 0
     }
 
@@ -103,7 +103,7 @@ nonisolated extension Engine {
     private func moveByKey() { move(by: m.keyMoveX, m.keyMoveY) }
     private func moveByStick() { move(by: m.stickMoveX, m.stickMoveY) }
 
-    private func move(by x: Bytes, _ y: Bytes) {
+    private func move(by x: Bytes<Map>, _ y: Bytes<Map>) {
         m.moveDX = x[m.stickX >> 4]
         m.moveDY = y[m.stickY >> 4]
     }
@@ -127,7 +127,7 @@ nonisolated extension Engine {
         m.stickY = counts.y << 1 ^ 0xFF
         clearButtons()
         let b0 = apple.gamePort.button(0), b1 = apple.gamePort.button(1)
-        let button: ByteSymbol = b1 ? \.buttonA : \.buttonB
+        let button = b1 ? m.address(\.buttonA) : m.address(\.buttonB)
         if b0 != b1 { m[button] &+= 1 }
     }
 
@@ -186,8 +186,11 @@ nonisolated extension Engine {
         return true
     }
 
-    // MARK: the levels' player routines
+}
 
+// MARK: the levels' player routines
+
+nonisolated extension Engine where Map == LevelsSymbols {
     /// PLAYER_WALK_SPRITE ($DFA3, v1.0 $DFA4): the player's sprite (sprite 0)
     /// for the move: two steps for each of up, down, right, left (frames 0-7
     /// of PLAYER_SPRITES), the larger part of the move choosing, a new step

@@ -2,40 +2,10 @@ import Apple2Kit
 import Foundation
 import MOS6502
 
-/// Memory as the loader's natives see it: the CPU's own 64K with the loader's
-/// symbols by name (`m.pictureRow`, `m.tileBank`); addresses wrap at 64K like
-/// the 6502's.
-@dynamicMemberLookup
-nonisolated struct LoaderRAM {
-    let cpu: CPU6502
-
-    subscript(_ a: Int) -> UInt8 {
-        get { cpu.mem[a & 0xFFFF] }
-        nonmutating set { cpu.mem[a & 0xFFFF] = newValue }
-    }
-
-    func word(_ a: Int) -> Int { Int(self[a]) | Int(self[a + 1]) << 8 }
-
-    func setWord(_ a: Int, _ v: Int) {
-        self[a] = UInt8(v & 0xFF)
-        self[a + 1] = UInt8(v >> 8 & 0xFF)
-    }
-
-    subscript(dynamicMember s: KeyPath<LoaderSymbols, Byte>) -> UInt8 {
-        get { self[LoaderSymbols.address(s)] }
-        nonmutating set { self[LoaderSymbols.address(s)] = newValue }
-    }
-
-    subscript(dynamicMember s: KeyPath<LoaderSymbols, Word>) -> Int {
-        get { word(LoaderSymbols.address(s)) }
-        nonmutating set { setWord(LoaderSymbols.address(s), newValue) }
-    }
-
-    /// Entry `i` of a table.
-    subscript(_ s: KeyPath<LoaderSymbols, Table>, _ i: Int) -> UInt8 {
-        self[LoaderSymbols.address(s) + i]
-    }
-}
+/// Memory as the loader's natives see it (Apple2Kit's `RAM`): the CPU's own
+/// 64K with the loader's symbols by name (`m.pictureRow`, `m.tileBank`,
+/// `m.lineLow[y]`); addresses wrap at 64K like the 6502's.
+typealias LoaderRAM = Apple2Kit.RAM<LoaderSymbols>
 
 /// The menu program's drawing as natives (Docs/Loader.md): DRAW_PICTURE
 /// (op 00) and XOR_BLOCK (op 06) of its bytecode interpreter, which the title
@@ -68,7 +38,7 @@ nonisolated extension Loader {
             let code = Fingerprint(native.routine)
             machine.hook(native.entry, name: native.name) { m in
                 guard code.matches(m.apple.cpu.mem) else { return false }
-                native.run(LoaderRAM(cpu: m.apple.cpu))
+                m.apple.cpu.withRAM(LoaderSymbols.map) { native.run($0) }
                 m.apple.cpu.returnFromSubroutine()
                 return true
             }
@@ -187,7 +157,7 @@ nonisolated extension Loader {
     /// its last ADC leaves, which DRAW_TILE_AGAIN adds with the column.
     private static func cellAddress(_ row: UInt8, _ m: LoaderRAM) -> Bool {
         let half = Int(row >> 1)
-        let entry = m[\.rowLowTable, half]
+        let entry = m.rowLowTable[half]
         let cell = LoaderSymbols.address(\.cellPointer)
         m[cell] = entry >> 1 | (row & 1) << 7
         let high = Int(UInt8(half & 3) | m.picturePage) + 0x1C + Int(entry & 1)
@@ -211,7 +181,7 @@ nonisolated extension Loader {
         var data = (block + 5) & 0xFFFF
         var y = line
         repeat {
-            m.cellPointer = Int(m[\.lineLow, Int(y)]) | Int(m[\.lineHigh, Int(y)]) << 8
+            m.cellPointer = Int(m.lineLow[y]) | Int(m.lineHigh[y]) << 8
             var x = column
             repeat {
                 let a = m.cellPointer + Int(x)
@@ -235,7 +205,7 @@ private nonisolated final class Fingerprint {
     private var last: (bytes: [UInt8], matches: Bool)?
 
     init(_ routine: KeyPath<LoaderSymbols, Routine>) {
-        code = LoaderSymbols.map[keyPath: routine].code[0]
+        code = LoaderSymbols.map[keyPath: routine].code!
     }
 
     func matches(_ mem: [UInt8]) -> Bool {

@@ -45,7 +45,7 @@ nonisolated extension Engine {
             }
             let slot = Int(r.x)
             let room = m.soundRooms[slot]
-            elapsed += 2 + 4 + crossing(\.soundRooms, slot) + 2     // BEQ, LDA SOUND_ROOMS,X, CMP #$FF
+            elapsed += 2 + 4 + crossing(m.address(\.soundRooms), slot) + 2     // BEQ, LDA SOUND_ROOMS,X, CMP #$FF
             if room == 0xFF {
                 elapsed += 3
                 playSound(slot)
@@ -72,8 +72,8 @@ nonisolated extension Engine {
         m.soundSweep = parameters.sweep
         r.a = parameters.pitch
         m.soundFlags[slot] = flags << 1 | 1
-        elapsed += 4 + crossing(\.soundLengths, slot) + 3 + 2 + 3     // LDA, STA, LDA #0, STA
-            + 4 + crossing(\.soundSweeps, slot) + 3 + 4 + crossing(\.soundPitches, slot) + 7    // LDA, STA, LDA, ROL
+        elapsed += 4 + crossing(m.address(\.soundLengths), slot) + 3 + 2 + 3     // LDA, STA, LDA #0, STA
+            + 4 + crossing(m.address(\.soundSweeps), slot) + 3 + 4 + crossing(m.address(\.soundPitches), slot) + 7    // LDA, STA, LDA, ROL
         let start: UInt64
         let took: UInt64
         var clicks: [UInt32] = []
@@ -239,8 +239,8 @@ nonisolated extension Engine {
     }
 
     /// 1 when `LDA table,X` crosses a page, which takes a cycle more.
-    private func crossing(_ table: KeyPath<GameSymbols, Table>, _ x: Int) -> UInt64 {
-        (m.address(table) & 0xFF) + x > 0xFF ? 1 : 0
+    private func crossing(_ table: Int, _ x: Int) -> UInt64 {
+        (table & 0xFF) + x > 0xFF ? 1 : 0
     }
 }
 
@@ -276,9 +276,9 @@ nonisolated extension Sound {
     /// `p` as PLAY_SOUNDS plays it alone in `world` (`Machine.playing`), to
     /// listen to: by the native if the world has it, else by the original code.
     static func play(_ p: Parameters, in world: World) throws -> Played {
-        if let check = world.codeCheck, let run = check.natives.first(where: { $0.routine == \.playSounds })?.run {
+        if let check = world.codeCheck, let run = check.natives.first(where: { $0.replaces(\.playSounds) })?.run {
             let machine = Machine.playing(p, in: world, variant: check.variant)
-            if machine.call(run), let played = machine.takeSounds().first { return played }
+            if run(machine), let played = machine.takeSounds().first { return played }
         }
         return try playOriginal(p, in: world)
     }

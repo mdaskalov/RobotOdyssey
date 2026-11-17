@@ -150,14 +150,6 @@ nonisolated final class GameLoop {
     /// The loader's disk drive.
     var drive: DiskDrive? { machine.drive }
 
-    /// The natives switched off by name, the loader's intro too
-    /// (`Machine.switchedOff`): from the next instruction on, the original
-    /// code runs there.
-    var switchedOff: Set<String> {
-        get { machine.switchedOff }
-        set { machine.switchedOff = newValue }
-    }
-
     /// The Apple the game runs on: its keyboard, game port and mouse card
     /// are the game's input (`keyDown`, `gamePort`, `moveMouse`...).
     var apple: Apple2Machine { machine.apple }
@@ -206,7 +198,7 @@ nonisolated final class GameLoop {
     /// The code of the game's sound player: PLAY_SOUNDS, PLAY_TONE and
     /// PLAY_NOISE (engine main, the same in every world).
     private static let soundCode = [\GameSymbols.playSounds, \.playTone, \.playNoise].flatMap {
-        GameSymbols.map[keyPath: $0].code.flatMap(\.ranges)
+        GameSymbols.common[keyPath: $0].code?.ranges ?? []
     }
 
     /// Runs until the cycle counter reaches `cycles` (or the loop halts).
@@ -354,9 +346,9 @@ nonisolated final class GameLoop {
         let objRoom = GameSymbols.address(\.objRoom), objX = GameSymbols.address(\.objX), objY = GameSymbols.address(\.objY)
         let inRoom = (0 ..< World.objectCount).filter { a[objRoom + $0] == room && b[objRoom + $0] == room }
         for o in inRoom { move(objX + o, objY + o) }
-        if let engine = machine.variant?.engine, let wireTo = GameSymbols.map.wireTo.address(engine),
-           let ax = GameSymbols.map.wireAX.address(engine), let ay = GameSymbols.map.wireAY.address(engine),
-           let bx = GameSymbols.map.wireBX.address(engine), let by = GameSymbols.map.wireBY.address(engine) {
+        if let symbols = machine.variant?.symbols {
+            let wireTo = symbols.wireTo.address
+            let (ax, ay, bx, by) = (symbols.wireAX.address, symbols.wireAY.address, symbols.wireBX.address, symbols.wireBY.address)
             for o in inRoom where a[wireTo + o] != 0 && b[wireTo + o] != 0 {
                 move(ax + o, ay + o)
                 move(bx + o, by + o)

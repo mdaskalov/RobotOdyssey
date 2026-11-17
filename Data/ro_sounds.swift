@@ -80,12 +80,11 @@ struct SoundTool {
     /// `wavs`, as files.  Returns the sounds where the two differ.
     static func checkSounds(in world: World, wavs: URL?) throws -> Int {
         if let wavs { try FileManager.default.createDirectory(at: wavs, withIntermediateDirectories: true) }
-        let native = Native.all.first { $0.routine == \.playSounds }!
         var failures = 0, bytes = 0
         for (name, parameters) in GameSounds.pitches {
             let original = try Sound.playOriginal(parameters, in: world)
             var status = ""
-            if let ported = nativePlay(parameters, in: world, native) {
+            if let ported = nativePlay(parameters, in: world) {
                 if ported.cycles != original.cycles || ported.clicks != original.clicks {
                     status = "  NATIVE DIFFERS: \(ported.cycles) cycles, \(ported.clicks.count) clicks"
                     failures += 1
@@ -105,10 +104,10 @@ struct SoundTool {
     }
 
     /// The sound by the native PLAY_SOUNDS, if the world has it.
-    static func nativePlay(_ p: Sound.Parameters, in world: World, _ native: Native) -> Sound.Played? {
-        guard let check = world.codeCheck, check.natives.contains(where: { $0.routine == \.playSounds }) else { return nil }
+    static func nativePlay(_ p: Sound.Parameters, in world: World) -> Sound.Played? {
+        guard let check = world.codeCheck, let run = check.natives.first(where: { $0.replaces(\.playSounds) })?.run else { return nil }
         let machine = Machine.playing(p, in: world, variant: check.variant)
-        machine.call(native.run!)
+        _ = run(machine)
         return machine.takeSounds().first
     }
 

@@ -15,12 +15,12 @@ import Foundation
 /// `Native.Flags.drawsOnLayer3`: the texts, sprites, plots and lines;
 /// `Machine` follows them as 6502 code, the Swift ones themselves) draw on
 /// the page as ever, and nothing they write goes to layer 2.  Everything else written to a page goes to layer 2 too, the 6502
-/// code's (the CPU's `onWrite`) and the natives' (`RAM`): the bits the write
+/// code's and the natives' (both through the CPU's `onWrite`): the bits the write
 /// changed only; after a drawing on layer 3 also to the writes between the
 /// drawings.  A byte the 6502 code reads from the page and writes back with
 /// its own pixels has layer 3's pixels in it too, which it doesn't change:
 /// they stay out of layer 2.  A routine switched off (by its name in
-/// `Machine.switchedOff`) draws on layers 1 and 2 only, in its place among
+/// `Apple2Machine.switchedOff`) draws on layers 1 and 2 only, in its place among
 /// the drawings.
 ///
 /// A page's layer 3 is emptied where its drawing starts (DRAW_ROOM_TILES draws
@@ -55,9 +55,6 @@ nonisolated final class PageLayers {
     /// inside HORIZONTAL_LINE's): what they write stays out of layer 2, and
     /// only the outermost is an item.
     private(set) var drawing = 0
-    /// The entry points of the routines that draw on layer 3, those
-    /// switched on (`Machine`: its natives that draw there).
-    var routines: Set<Int> = []
 
     init() {}
 
@@ -65,13 +62,8 @@ nonisolated final class PageLayers {
         let c = PageLayers()
         c.pages = pages
         c.drawing = drawing
-        c.routines = routines
         return c
     }
-
-    /// The routine at `entry` draws on layer 3.
-    @inline(__always)
-    func isOn(_ entry: Int) -> Bool { routines.contains(entry) }
 
     /// The page (0 or 1) whose bytes the line high byte `high` is in.
     static func page(lineHigh high: UInt8) -> Int { high >= 0x40 ? 1 : 0 }
@@ -194,6 +186,12 @@ nonisolated struct LayerLine: Equatable {
     let x, width, y, height: Int
     let patternEven, patternOdd: UInt8
 
+    /// x as the line routines clamp it (CLAMP_X).
+    static func clampX(_ v: UInt8) -> Int { v < 0x8B ? Int(v) : (v < 0xCF ? 0x8A : 0) }
+
+    /// y as the line routines clamp it (CLAMP_Y).
+    static func clampY(_ v: UInt8) -> Int { v < 0xC0 ? Int(v) : (v < 0xDF ? 0xBF : 0) }
+
     /// A colour's patterns (even, odd byte columns).
     typealias Patterns = (Int) -> (even: UInt8, odd: UInt8)
 
@@ -208,7 +206,7 @@ nonisolated struct LayerLine: Equatable {
     /// HORIZONTAL_LINE: from x1 to x2 (clamped, both drawn) at y; nil for y ≥ $C0.
     static func horizontal(x1: UInt8, x2: UInt8, y: UInt8, colour: UInt8, _ patterns: Patterns) -> LayerLine? {
         guard y < 0xC0 else { return nil }
-        let a = Engine.clampX(x1), b = Engine.clampX(x2)
+        let a = clampX(x1), b = clampX(x2)
         let low = min(a, b), end = max(a, b) + 1
         let p = patterns(Int(colour))
         return LayerLine(x: 2 * low, width: 2 * (end - low), y: Int(y), height: 1, patternEven: p.even, patternOdd: p.odd)
@@ -217,7 +215,7 @@ nonisolated struct LayerLine: Equatable {
     /// VERTICAL_LINE: from y1 to y2 (clamped, both drawn) at x; nil for x ≥ $8B.
     static func vertical(x: UInt8, y1: UInt8, y2: UInt8, colour: UInt8, _ patterns: Patterns) -> LayerLine? {
         guard x < 0x8B else { return nil }
-        let a = Engine.clampY(y1), b = Engine.clampY(y2)
+        let a = clampY(y1), b = clampY(y2)
         let p = patterns(Int(colour))
         return LayerLine(x: 2 * Int(x), width: 2, y: min(a, b), height: abs(a - b) + 1, patternEven: p.even, patternOdd: p.odd)
     }

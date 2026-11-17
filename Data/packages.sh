@@ -1,7 +1,8 @@
 # Sourced by the scripts that build Swift (from Data/): compiles the packages
 # the app uses into modules and static libraries and sets PACKAGES to the
-# swiftc flags that use them: MOS6502 and Apple2Kit's emulator core
-# (Sources/Apple2Kit/Emulator; its UI needs SwiftUI and stays out).
+# swiftc flags that use them: MOS6502 and Apple2Kit's core (Sources/Apple2Kit:
+# Emulator, the machine, and Natives, the symbols and memory by name; its UI
+# needs SwiftUI and stays out).
 # Each package's sources: $MOS6502_PACKAGE / $APPLE2KIT_PACKAGE if set (a
 # working copy), else the working copy beside this project (../MOS6502,
 # ../Apple2Kit, as the Xcode project takes Apple2Kit), else a clone of
@@ -34,5 +35,6 @@ swiftc -O -wmo -parse-as-library -cross-module-optimization -module-name MOS6502
 swiftc -O -wmo -parse-as-library -cross-module-optimization -module-name Apple2Kit \
     -I "$PACKAGES_OUT" \
     -emit-module -emit-module-path "$PACKAGES_OUT/Apple2Kit.swiftmodule" \
-    -emit-library -static -o "$PACKAGES_OUT/libApple2Kit.a" "$APPLE2KIT_PACKAGE"/Sources/Apple2Kit/Emulator/*.swift
+    -emit-library -static -o "$PACKAGES_OUT/libApple2Kit.a" \
+    "$APPLE2KIT_PACKAGE"/Sources/Apple2Kit/Emulator/*.swift "$APPLE2KIT_PACKAGE"/Sources/Apple2Kit/Natives/*.swift
 PACKAGES="-I $PACKAGES_OUT -L $PACKAGES_OUT -lApple2Kit -lMOS6502"

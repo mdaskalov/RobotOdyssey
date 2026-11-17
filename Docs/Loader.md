@@ -55,7 +55,7 @@ down.
 | $5D58 BOOT_COPY_CHECK | the nibble check at boot | goes on at BOOT_COPY_DONE ($5DD3) with the carry set: the check passed |
 | $6255 MENU_COPY_CHECK | the menu's check | returns with the carry set |
 | $4B85 AWAIT_SIDE | swapping disks | puts the disk WANTED_SIDE ($0E) asks for in the drive, then the original code runs: it reads the side and finds it |
-| $4550 PLAY_INTRO | – | steps over START_CHOSEN_WORLD's `JSR $6000`: Robotropolis' intro (pictures, wipes and tunes in the menu's bytecode, 26 s) doesn't play; a key press ends it on the Apple too. The one with original code to fall back to: switched off in the *Current Room* panel (`Machine.switchedOff`, `Loader.skipIntro`), the intro plays – 7 tunes, 25,966 clicks in v1.1 |
+| $4550 PLAY_INTRO | – | steps over START_CHOSEN_WORLD's `JSR $6000`: Robotropolis' intro (pictures, wipes and tunes in the menu's bytecode, 26 s) doesn't play; a key press ends it on the Apple too. The one with original code to fall back to: switched off in the *Current Room* panel (`Apple2Machine.switchedOff`, `Loader.skipIntro`), the intro plays – 7 tunes, 25,966 clicks in v1.1 |
 | $0A71 DRAW_PICTURE | the menu interpreter's op 00 | the picture in Swift, at once (`Loader.menuNatives`, Natives/MenuDrawing.swift): the menu's frame, the title's five pictures (into the wipe's buffer), the intro's eight. On the Apple 0.07‑0.34 s each, while the intro's tunes wait |
 | $0D21 XOR_BLOCK | op 06 | the block XORed onto page 1 at once: the menu's highlight, the intro's flashing between its short tunes (22 ms each on the Apple, two in a row) |
 

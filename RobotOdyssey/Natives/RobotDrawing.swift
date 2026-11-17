@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -75,9 +76,10 @@ nonisolated enum Robot: Int, CaseIterable, CustomStringConvertible {
 /// after these.
 ///
 /// The three engines run the same code with the variables, tables and
-/// sprites elsewhere (GameSymbols has them all); the levels' has a fourth
+/// sprites elsewhere (each engine's symbols have them, `EngineSymbols` the
+/// names); the levels' has a fourth
 /// robot and resets the rainbow's step before every draw.  See Docs/Robots.md.
-nonisolated extension Engine {
+nonisolated extension Engine where Map: EngineSymbols {
     // MARK: outside
 
     /// DRAW_ROBOTS ($D2BC in the levels): robots 0, 1, 2 (and 3), each only
@@ -151,8 +153,15 @@ nonisolated extension Engine {
         if m.scanPosition & 0x80 != 0 { m.scanPosition = 0x0D }
     }
 
-    /// DRAW_ROBOT3_PULSE (levels only): three nested squares, the orange one moving inwards.
+    /// DRAW_ROBOT3_PULSE: the levels' fourth robot, with symbols only they have.
     private func drawPulser() {
+        (self as? Engine<LevelsSymbols>)?.drawPulse()
+    }
+}
+
+nonisolated extension Engine where Map == LevelsSymbols {
+    /// DRAW_ROBOT3_PULSE (levels only): three nested squares, the orange one moving inwards.
+    fileprivate func drawPulse() {
         m.drawX = m.robotX &+ 3
         m.drawY = m.robotY &+ 3
         m.spritePointer = m.blankSprite
@@ -168,6 +177,9 @@ nonisolated extension Engine {
         }
     }
 
+}
+
+nonisolated extension Engine where Map: EngineSymbols {
     /// DRAW_ROBOT_PARTS: what every robot has: bumpers (lines in the bumpers'
     /// colours), thruster flames, grabbers, the antenna and its signal.
     private func drawParts(of robot: Robot) {

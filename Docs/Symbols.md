@@ -7,6 +7,13 @@ native replaces, the fingerprint of its code. The native routines use the
 names, the loader checks the fingerprints when it loads a world, and the
 Mariani `.sym` files are written from the same maps (`Data/ro_symbols.sh`).
 
+What a symbol map is made of is Apple2Kit's, for other games too
+(`Sources/Apple2Kit/Natives`, its Docs/Natives.md): the kinds of symbol, a
+routine's fingerprint (`Code`), the names, memory by name (`RAM`) and the
+`.sym` writer (`SymbolFile`). A symbol there has one address; a program in
+several builds has a map for each, classes with a common parent. The maps
+and the natives are here.
+
 ## How the code is shared
 
 | Part | Where | Shared by |
@@ -42,8 +49,24 @@ checked as it comes from the disk.
 
 ## The maps
 
-* `GameSymbols` – the game's memory: zero page, the world image
-  ($6000‑$94FF), engine main, the three builds' pieces.
+The game's are split the way its code is shared: a parent for what every
+world has at the same place, a class an engine for the rest. A world's
+engine and the disks' version make its `Variant`, and `Variant.symbols` is
+its map – the engine's class, made for the version.
+
+* `GameSymbols` – the parent: the zero page, the world image
+  ($6000‑$94FF) and engine main, 256 symbols, the same in every world and
+  version. `GameSymbols.address(\.drawSprite)` and `mem[\.currentRoom]` need
+  no world.
+* `LevelsSymbols`, `KitSymbols`, `LabSymbols` – the three engines (135, 84
+  and 91 symbols): their pieces at $B8E0/$B900, $D000 and $F000, the robots'
+  state and the drawing's variables, tables and sprites, which the levels
+  keep in the world image and the kit and the lab in the world's code. Each
+  file is in the levels' order, so the three read side by side.
+* `EngineSymbols` – a protocol with the 84 names all three engines have,
+  each at places of its own (`robotX` is $8EBF in the levels, $1BCF in the
+  kit, $1390 in the lab). Code that runs in every engine is written for
+  it; the compiler checks that each engine's class has them all.
 * `LoaderSymbols` – the loader (RobotOdysseyLoader.sym): boot stage 2, the
   loader's requests, saving and restoring, its prompts and the addresses of
   the app's loader natives (Loader.md); and how its file table tells the
@@ -55,28 +78,37 @@ checked as it comes from the disk.
   (Sound.md). Data/ro_sounds.sh checks every world's sound table against it.
 
 A symbol is a `Byte`, a `Word` (low byte first), a `Table` (bytes indexed
-from the address), a `Sprite` (16 rows) or a `Routine`. Its `Address` is
-either the same everywhere or given per engine, nil where an engine has
-none, with v1.0's place where the code moved:
+from the address), a `Routine` (Apple2Kit's kinds) or a `Sprite` (16 rows,
+the game's own), with its address:
 
 ```swift
-let moveDX = Byte(0x9C22)                                   // every world, every version
-let robotX = Byte(levels: 0x8EBF, kit: 0x1BCF, lab: 0x1390) // per engine
-let pulsePhase = Byte(levels: 0x8E9E)                       // the levels only
-let drawInteriorParts = Routine(levels: 0xD7D0, kit: 0xD705, lab: 0xD705, levelsV1_0: 0xD7D1)
+let moveDX = Byte(0x9C22)               // GameSymbols: every world, every version
+let robotX = Byte(0x8EBF)               // LevelsSymbols; KitSymbols has Byte(0x1BCF), LabSymbols Byte(0x1390)
+let pulsePhase = Byte(0x8E9E)           // LevelsSymbols: the levels only
 ```
 
-A world's engine and the disks' version make its `Variant`, which places
-every symbol. The name of a symbol is its property's: `moveDX` is MOVE_DX in
-the `.sym` files, `drawRobot2Scan` DRAW_ROBOT2_SCAN, `engDA44` ENG_DA44 (a
-trailing address); a `guess` adds `_Q`. One name for Swift and the debugger.
+The ten routines that moved in v1.0 (eight in the levels, PLAYER_IN_ROBOT
+in the kit and the lab) and the two whose code differs get their value in
+the class's initialiser, from the version:
+
+```swift
+let drawInteriorParts: Routine
+init(_ version: Version) {
+    drawInteriorParts = Routine(version == .v1_0 ? 0xD7D1 : 0xD7D0)
+```
+
+The name of a symbol is its property's: `moveDX` is MOVE_DX in the `.sym`
+files, `drawRobot2Scan` DRAW_ROBOT2_SCAN, `engDA44` ENG_DA44 (a trailing
+address); a `guess` adds `_Q`. One name for Swift and the debugger. Each
+`.sym` file is one map's symbols, its parent's included
+(`Variant.symbols.named`).
 
 ## Native code by name
 
 The native routines are methods of `Engine` (the machine as a native sees
-it: memory `m`, registers `r`, the input devices). `m` is `RAM`, the CPU's
-own memory with every symbol of the map as a property, in the world's
-variant:
+it: memory `m`, registers `r`, the input devices). `m` is Apple2Kit's `RAM`
+by the map of the world's engine, the CPU's own memory with every symbol of
+the map as a property:
 
 ```swift
 m.robotX = m.objX[body]           // a Byte is a UInt8, a Table indexes from its address
@@ -85,18 +117,35 @@ m.spritePointer = m.blankSprite   // a Word is an Int, a Sprite its address
 drawSprite(colour: 4)
 ```
 
+`Engine` is written for any engine's map (`Engine<Map>`), and each native
+for the symbols it needs: engine main's routines for what every world has
+(`extension Engine`), the robot drawing for the names the engines share
+(`extension Engine where Map: EngineSymbols`), the levels' own routines for
+`LevelsSymbols`. The compiler makes a version of each for the engines that
+run it, the addresses folded in; `Natives<Map>` lists them for an engine
+and `Native.all(variant)` has the list of each.
+
 Routines that take a variable as a parameter pass its symbol
 (`limit(\.moveDX, to: \.limitX)`, then `m[move]`). Code that looks at a
-memory image (the model, the viewer, the checks) reads symbols that are the
-same everywhere straight from the array: `mem[\.currentRoom]`,
-`mem[\.objRoom, o]`.
+memory image (the model, the viewer, the checks) reads the symbols every
+world has straight from the array, `mem[\.currentRoom]`,
+`mem[\.objRoom, o]`, and an engine's own through its map:
+`world.engine.symbols.wireTo.address`.
 
-`m.robotX` compiles to a load from the map and a byte access; `RAM`'s
-accessors are `@inline(__always)` so the compiler can fold the key path,
-which needs whole‑module optimisation (Release builds; the scripts in Data
-build with `-wmo`). The robot drawing takes about as long as before the
-symbols (4.7 µs against 3.0 µs per call with three robots on screen); in
-Debug builds it is about 4× slower than before.
+`m.robotX` compiles to a load of the address from the engine's map and a
+byte access: `RAM`'s accessors are the kit's, `@inlinable`, so the
+compiler folds the key path into the native's own code, which needs an
+optimised build (Release; the scripts in Data build with `-O -wmo`). One
+pitfall: in code for any engine's map (`Engine<Map>`) the compiler now and
+then leaves a key path to be made at every call – it did for
+VERTICAL_LINE_END, written by its address now. A symbol passed from one
+native to another goes as its address (`limit(m.address(\.moveDX), …)`),
+not as a key path. Measured 2026‑11‑14 (v1.1, three robots in the room):
+the native DRAW_ROBOTS takes 2.9 µs a call, 12.8 µs while the canvas's
+layers are kept (11.1 µs and 20.1 µs with the app's own single map
+before); a tick of Level 1 1.55 ms of the Mac's time (1.94 ms). In Debug
+builds the natives go through the key path at every access, many times
+slower.
 
 ## The loader's check
 
@@ -105,7 +154,7 @@ Debug builds it is about 4× slower than before.
    for both v1.1 sides. The cracks patch the loader's code, not its table.
 2. **Variant.** `WorldBuilder` loads a world with its engine
    (`WorldDefinition.engine`; a saved game takes the matching level's), so it
-   knows the variant.
+   knows the variant, and with it the world's map.
 3. **Fingerprints.** It checks every routine the natives need right after
    loading (`CodeCheck`): the MD5 of the routine's code ranges (variables
    inside left out) must be the variant's. `CodeCheck.natives` are the natives
@@ -123,8 +172,8 @@ frames and ticks are identical with and without natives.
 
 ## Natives
 
-`Native.all` (Natives/Natives.swift; the ports beside it in RobotOdyssey/Natives)
-lists each native: the routine it takes over, the routines it reproduces
+`Natives.all` (Natives/Natives.swift; the ports beside it in RobotOdyssey/Natives)
+lists each native of an engine: the routine it takes over, the routines it reproduces
 besides (`uses` – what it calls or falls into, e.g. READ_INPUT uses the
 object motion), what it is (`Native.Flags`), the method to run (`run`) and,
 for one that draws on layer 3, what it draws (`drawing`). The flags:
@@ -136,23 +185,27 @@ VERTICAL_LINE) are natives with no `run`: the original code runs, and the
 machine follows its drawing onto layer 3. A native may report the cycles the
 original takes (`Engine.elapsed`; PLAY_SOUNDS does) and the sounds it
 played (`Engine.sounds`). Each routine of a native that runs has its code
-ranges and MD5s in GameSymbols; one that only draws on layer 3 needs the
+ranges and MD5 in the symbol maps; one that only draws on layer 3 needs the
 fingerprints its routine has (DRAW_TEXT and DRAW_BIG_TEXT change their own
 code and have none). The viewer lists them all in one list, a switch each,
 those on layer 3 marked.
 
 ## Mapping a new routine
 
-1. Name its variables, tables and entry in GameSymbols (one line each, per
-   engine where they differ).
+1. Name its variables, tables and entry: in GameSymbols if every world has
+   them at the same place (engine main), else in each engine's class under
+   the same name, and in `EngineSymbols` if code for all three is to use
+   them.
 2. Give the routine its code: the ranges from its entry up to the next
    routine, without the variables between, with `md5: ""`:
-   `Routine(0x9C53, code: 0x9C53 ..< 0x9C88, md5: "")`, or per engine with
-   `.levels(…)`, `.kit(…)`, `.lab(…)` and `.levels(.v1_0, …)`.
+   `Routine(0x9C53, code: 0x9C53 ..< 0x9C88, md5: "")`, in each engine's
+   class with that engine's ranges.
 3. `Data/ro_symbols.sh --code` on the v1.0 and v1.1 disks prints its MD5 in
-   every variant (and whether all worlds agree); copy them in.
-4. Port it as a method of `Engine`, add it to `Native.all` with what it uses,
-   and run `Data/native_check.sh` on both versions.
+   every variant (and whether all worlds agree); copy them in. Where the
+   versions differ, the routine gets its value in the initialiser.
+4. Port it as a method of `Engine` (for the maps that have its symbols), add
+   it to `Natives.all` with what it uses, and run `Data/native_check.sh` on
+   both versions.
 5. `Data/ro_symbols.sh` rewrites the `.sym` files.
 
 ## Symbol files

@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 
 /// What the canvas and the current room show of the selected room: the world as
@@ -112,8 +113,8 @@ struct RoomWire: Identifiable {
 
     /// A, the corner and B, in object coordinates (y from the bottom).
     var points: [(x: Int, y: Int)] {
-        let ax = Engine.clampX(UInt8(wire.ax)), bx = Engine.clampX(UInt8(wire.bx))
-        let ay = Engine.clampY(UInt8(wire.ay)), by = Engine.clampY(UInt8(wire.by))
+        let ax = LayerLine.clampX(UInt8(wire.ax)), bx = LayerLine.clampX(UInt8(wire.bx))
+        let ay = LayerLine.clampY(UInt8(wire.ay)), by = LayerLine.clampY(UInt8(wire.by))
         return [(ax, ay), (bx, ay), (bx, by)]
     }
 
@@ -157,12 +158,18 @@ struct RoomSprite: Identifiable {
         if (sprites ..< sprites + 64 * 16).contains(address), (address - sprites) % 16 == 0 {
             return String(format: "sprite $%02X", (address - sprites) / 16)
         }
-        return GameSymbols.name(Sprite.self, at: address, in: world.codeCheck?.variant) ?? String(format: "sprite at $%04X", address)
+        return Self.symbols(of: world).name(Sprite.self, at: address) ?? String(format: "sprite at $%04X", address)
     }
 
     /// The draw phase's routine that drew it, by name if it has one.
     func drawnBy(in world: World) -> String? {
         guard let routine = drawn?.routine else { return drawn == nil ? nil : "?" }
-        return GameSymbols.name(Routine.self, at: routine, in: world.codeCheck?.variant) ?? String(format: "$%04X", routine)
+        return Self.symbols(of: world).name(Routine.self, at: routine) ?? String(format: "$%04X", routine)
+    }
+
+    /// The symbols of the world's engine; of a version the loader doesn't
+    /// know only what every world has.
+    private static func symbols(of world: World) -> GameSymbols {
+        world.codeCheck?.variant.symbols ?? GameSymbols.common
     }
 }

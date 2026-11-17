@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -16,6 +17,9 @@ import MOS6502
 ///
 /// Positions: x 0-$85 in a room (two pixels each, 7 per wall tile), y 0-$B0
 /// from the bottom (16 per tile); 20 × 12 tiles.  An object is a 7 × 16 box.
+/// What TEST_MOVE finds at the object's corners.
+private nonisolated let wallHit: UInt8 = 1, offRight: UInt8 = 2, offTop: UInt8 = 4
+
 nonisolated extension Engine {
     // MARK: walls
 
@@ -86,7 +90,7 @@ nonisolated extension Engine {
 
     /// One coordinate of `moveObjectXY`: below 0 ($D8 and more) it goes on in
     /// the room `before`, at `size` and more in the room `after`.
-    private mutating func wrap(_ v: UInt8, size: UInt8, _ room: inout Int, before: Bytes, after: Bytes) -> UInt8 {
+    private mutating func wrap(_ v: UInt8, size: UInt8, _ room: inout Int, before: Bytes<Map>, after: Bytes<Map>) -> UInt8 {
         var v = v
         r.compare(v, 0xD8)
         if r.carry {
@@ -183,7 +187,7 @@ nonisolated extension Engine {
 
     /// A = the move from `position` to the far edge (`edges`[0]) or, if the
     /// coordinate `v` went below 0 ($D8 and more), to the near one (`edges`[1]).
-    private mutating func toEdge(_ edges: Bytes, from position: UInt8, _ v: UInt8) {
+    private mutating func toEdge(_ edges: Bytes<Map>, from position: UInt8, _ v: UInt8) {
         r.compare(v, 0xD8)
         r.x = r.carry ? 1 : 0
         r.carry = true
@@ -194,11 +198,14 @@ nonisolated extension Engine {
     mutating func limitMove() {
         m.limitX = r.x
         m.limitY = r.y
-        limit(\.moveDX, to: \.limitX)
-        limit(\.moveDY, to: \.limitY)
+        limit(m.address(\.moveDX), to: m.address(\.limitX))
+        limit(m.address(\.moveDY), to: m.address(\.limitY))
     }
 
-    private mutating func limit(_ move: ByteSymbol, to limit: ByteSymbol) {
+    /// The move at `move` kept within the limit at `limit`.  (By address: a
+    /// symbol passed on from this code, written for any engine's map, would
+    /// be a key path made at every call.)
+    private mutating func limit(_ move: Int, to limit: Int) {
         r.a = r.magnitude(m[move])
         r.compare(r.a, m[limit])
         guard r.carry && !r.zero else { return }
@@ -222,9 +229,6 @@ nonisolated extension Engine {
 
     // MARK: walls in the way
 
-    /// What TEST_MOVE finds at the object's corners.
-    static let wallHit: UInt8 = 1, offRight: UInt8 = 2, offTop: UInt8 = 4
-
     /// STOP_AT_WALLS ($AD40): stops CUR_OBJECT's move at walls.  If one of
     /// the object's corners (a 7 × 16 box) would end on a wall, it first keeps
     /// the longer part of the move and stops the other at the edge of the tile
@@ -247,7 +251,7 @@ nonisolated extension Engine {
 
     private mutating func findWay() -> UInt8 {
         var found = testMove()
-        r.compare(found, Engine.wallHit)
+        r.compare(found, wallHit)
         guard r.zero else { return found }
         m.sizeDX = r.magnitude(m.moveDX)
         m.sizeDY = r.magnitude(m.moveDY)
@@ -261,7 +265,7 @@ nonisolated extension Engine {
                 m.tryDY = r.nz(m.moveDY)
             }
             found = testMove()
-            r.compare(found, Engine.wallHit)
+            r.compare(found, wallHit)
             guard r.zero else { return found }
         }
         stopAtTileColumn()
@@ -287,7 +291,7 @@ nonisolated extension Engine {
             x = r.adc(x, m.tryDX)
             r.compare(x, 0x8C)
             if r.carry {
-                m.testResult |= Engine.offRight
+                m.testResult |= offRight
             } else {
                 m.wallColumn = m.xByteTable[x] >> 1
                 r.carry = false
@@ -296,11 +300,11 @@ nonisolated extension Engine {
                 y = r.adc(y, m.tryDY)
                 r.compare(y, 0xC0)
                 if r.carry {
-                    m.testResult |= Engine.offTop
+                    m.testResult |= offTop
                 } else {
                     m.wallRow = y >> 4
                     wallAt()
-                    if !r.zero { m.testResult |= Engine.wallHit }
+                    if !r.zero { m.testResult |= wallHit }
                 }
             }
             m.testCorner &-= 1
@@ -331,7 +335,7 @@ nonisolated extension Engine {
             }
         }
         m.tryDX = a
-        keepShorter(\.moveDX, or: \.tryDX, sizes: \.sizeDX, \.sizeTryDX)
+        keepShorter(m.address(\.moveDX), or: m.address(\.tryDX), sizes: m.address(\.sizeDX), m.address(\.sizeTryDX))
     }
 
     /// STOP_AT_TILE_ROW ($AE2A): TRY_DY = the move to the edge of
@@ -349,12 +353,11 @@ nonisolated extension Engine {
             }
         }
         m.tryDY = a
-        keepShorter(\.moveDY, or: \.tryDY, sizes: \.sizeDY, \.sizeTryDY)
+        keepShorter(m.address(\.moveDY), or: m.address(\.tryDY), sizes: m.address(\.sizeDY), m.address(\.sizeTryDY))
     }
 
     /// The move `wanted` replaces the move `aligned` if it is shorter.
-    private mutating func keepShorter(_ wanted: ByteSymbol, or aligned: ByteSymbol,
-                                      sizes wantedSize: ByteSymbol, _ alignedSize: ByteSymbol) {
+    private mutating func keepShorter(_ wanted: Int, or aligned: Int, sizes wantedSize: Int, _ alignedSize: Int) {
         m[wantedSize] = r.magnitude(m[wanted])
         m[alignedSize] = r.magnitude(m[aligned])
         r.a = r.nz(m[wantedSize])

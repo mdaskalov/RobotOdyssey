@@ -8,6 +8,7 @@
 
 /* Begin PBXBuildFile section */
 		000000000000000260000000 /* Apple2Kit in Frameworks */ = {isa = PBXBuildFile; productRef = 000000000000000250000000 /* Apple2Kit */; };
+		C40DC0A030A9C7AC00B1C856 /* Apple2Kit in Frameworks */ = {isa = PBXBuildFile; productRef = C40DC09F30A9C7AC00B1C856 /* Apple2Kit */; };
 		C4318B9330A2090500FED8D8 /* Apple2Kit in Frameworks */ = {isa = PBXBuildFile; productRef = C4318B9230A2090500FED8D8 /* Apple2Kit */; };
 /* End PBXBuildFile section */
 
@@ -52,6 +53,7 @@
 			isa = PBXFrameworksBuildPhase;
 			files = (
 				C4318B9330A2090500FED8D8 /* Apple2Kit in Frameworks */,
+				C40DC0A030A9C7AC00B1C856 /* Apple2Kit in Frameworks */,
 			);
 		};
 		000000000000000230000000 /* Frameworks */ = {
@@ -100,6 +102,7 @@
 			name = RobotOdyssey;
 			packageProductDependencies = (
 				C4318B9230A2090500FED8D8 /* Apple2Kit */,
+				C40DC09F30A9C7AC00B1C856 /* Apple2Kit */,
 			);
 			productName = MyApp;
 			productReference = 000000000000000000000120 /* RobotOdyssey.app */;
@@ -155,7 +158,7 @@
 			mainGroup = 000000000000000000000001;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				C4DA8EA430A3C21D007E4886 /* XCRemoteSwiftPackageReference "Apple2Kit" */,
+				C40DC09E30A9C7AC00B1C856 /* XCRemoteSwiftPackageReference "Apple2Kit" */,
 			);
 			preferredProjectObjectVersion = 90;
 			productRefGroup = 000000000000000000000020 /* Products */;
@@ -491,12 +494,12 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		C4DA8EA430A3C21D007E4886 /* XCRemoteSwiftPackageReference "Apple2Kit" */ = {
+		C40DC09E30A9C7AC00B1C856 /* XCRemoteSwiftPackageReference "Apple2Kit" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/mdaskalov/Apple2Kit.git";
 			requirement = {
 				kind = upToNextMajorVersion;
-				minimumVersion = 1.3.0;
+				minimumVersion = 1.4.0;
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
@@ -504,6 +507,11 @@
 /* Begin XCSwiftPackageProductDependency section */
 		000000000000000250000000 /* Apple2Kit */ = {
 			isa = XCSwiftPackageProductDependency;
+			productName = Apple2Kit;
+		};
+		C40DC09F30A9C7AC00B1C856 /* Apple2Kit */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = C40DC09E30A9C7AC00B1C856 /* XCRemoteSwiftPackageReference "Apple2Kit" */;
 			productName = Apple2Kit;
 		};
 		C4318B9230A2090500FED8D8 /* Apple2Kit */ = {

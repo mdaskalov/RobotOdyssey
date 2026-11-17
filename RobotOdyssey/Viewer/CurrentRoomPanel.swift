@@ -1,3 +1,4 @@
+import Apple2Kit
 import SwiftUI
 
 /// The selected room's properties, the running game (tick, what is
@@ -259,9 +260,9 @@ struct CurrentRoomPanel: View {
     /// routines they need differs from the version's (`CodeCheck.differing`),
     /// with those routines.
     private var differing: [(native: Native, routines: [String])] {
-        guard let differing = world.codeCheck?.differing, !differing.isEmpty else { return [] }
-        return Native.all.compactMap { n in
-            let names = ([n.routine] + n.uses).map(GameSymbols.name(of:)).filter(differing.contains)
+        guard let check = world.codeCheck, !check.differing.isEmpty else { return [] }
+        return Native.all(check.variant).compactMap { n in
+            let names = n.routines.map(\.name).filter(check.differing.contains)
             return names.isEmpty ? nil : (n, names)
         }
     }
@@ -271,7 +272,7 @@ struct CurrentRoomPanel: View {
     private static func help(_ native: Native) -> String {
         var help: [String] = []
         if native.run != nil {
-            let uses = native.uses.map(GameSymbols.name(of:))
+            let uses = native.uses.map(\.name)
             help.append("Off: the original 6502 code runs from its entry"
                         + (uses.isEmpty ? "" : ". On, it also does the work of " + uses.joined(separator: ", ")
                            + " in Swift, where it calls them"))

@@ -300,7 +300,7 @@ struct LayerCheck {
             for (k, switches) in switchSets.enumerated() {
                 let m = machine(world, start)
                 m.layers = PageLayers()
-                m.switchedOff = switches.off
+                m.apple.switchedOff = switches.off
                 _ = try game.phase.draw(room: room, on: m)
                 let drawn = m.drawnFrame()
                 writes[k] += written(drawn.items)
@@ -357,7 +357,7 @@ struct LayerCheck {
         var frames = 0, failed: [String] = []
         for switches in switchSets {
             let loop = game.loop(room: nil)
-            loop.switchedOff = switches.off
+            loop.apple.switchedOff = switches.off
             var bad = 0
             for _ in 0 ..< robotTicks {
                 do { try loop.runTick(maxSteps: 2_000_000) } catch CPU6502.CPUError.tooManySteps {}

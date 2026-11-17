@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 
 /// The loader by name: boot stage 2 (track 0, at $4F00-$5DFF) and the
@@ -10,7 +11,7 @@ import Foundation
 /// versions differ in eight file lengths, so the file table tells the
 /// version.  The loader's code is left unchecked: every cracked dump patches
 /// it differently (Docs/DiskLayout.md).
-nonisolated final class LoaderSymbols: Sendable {
+nonisolated final class LoaderSymbols: SharedSymbolMap {
     static let map = LoaderSymbols()
 
     /// Track 1: the disk pages loaded to $4000-$4EFF.
@@ -380,17 +381,6 @@ nonisolated final class LoaderSymbols: Sendable {
         .v1_1: "73210005c79882515ea055fa76a8faca",
     ]
 
-    /// The address of a loader symbol (the same in every version).
-    static func address<S: Symbol>(_ s: KeyPath<LoaderSymbols, S>) -> Int {
-        map[keyPath: s].address.everywhere!
-    }
-
-    /// The .sym name of a routine.
-    static func name(of routine: KeyPath<LoaderSymbols, Routine>) -> String {
-        let address = map[keyPath: routine].address
-        return namedSymbols(of: map).first { ($0.symbol as? Routine)?.address == address }?.name ?? "?"
-    }
-
     /// The version of a program disk side, by its loader's file table; nil if unknown.
     static func version(of disk: DiskImage) -> Version? {
         let track = disk.read(page: track1.page, length: track1.length)
@@ -403,7 +393,7 @@ nonisolated final class LoaderSymbols: Sendable {
 /// Level 1's own code ($0803-$18FF, $8EF0-$94FF) by name, for the debugger:
 /// L1_ in RobotOdyssey.sym.  The same addresses in v1.0 and v1.1.  The other
 /// worlds' code is laid out differently and has no names yet.
-nonisolated final class Level1Symbols: Sendable {
+nonisolated final class Level1Symbols: SharedSymbolMap {
     static let map = Level1Symbols()
 
     let initialise = Routine(0x0816)

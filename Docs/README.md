@@ -94,14 +94,19 @@ faithful Swift version.
 * **Copy protection** (CopyProtection.md): the worlds skip the soldering
   pen unless the loader's flag says the disk passed the check; the app
   loads every world with the flag set, as an original disk does.
-* **Symbol maps** (Symbols.md): every address the Swift code uses, with its
-  place in each engine build and version, is in `RobotOdyssey/Symbols`
-  (game, loader, Level 1's code); the native routines use the names
+* **Symbol maps** (Symbols.md): every address the Swift code uses is in
+  `RobotOdyssey/Symbols`: what every world has in `GameSymbols`, each
+  engine's own in a class of it (`LevelsSymbols`, `KitSymbols`,
+  `LabSymbols`), the loader, Level 1's code; the native routines use the names
   (`m.robotX = m.objX[body]`) and the Mariani `.sym` files are written from
   the maps. The loader tells the version by its file table and, loading a
   world, checks the fingerprint of every routine a native replaces: a
   routine that differs (a modified disk) runs as 6502 code, an unknown
-  version runs on the original code only.
+  version runs on the original code only. What a map is made of (the kinds
+  of symbol, a place per variant, fingerprints, memory by name, the `.sym`
+  writer) is Apple2Kit's since 2026‑11‑14, for other games too; the app
+  takes the kit from the working copy beside it (`../Apple2Kit`, a local
+  package) while that part of the kit is being made.
 * **Verified:** every native routine against the original code
   (`Data/native_check.sh`), per drawn room, per direct call (memory, and
   registers and flags for the routines the worlds' code calls; cycles and

@@ -148,7 +148,7 @@ struct NativeCheck {
 
     /// The main loop with and without the native routines, tick by tick;
     /// and with them switched on and off at random, in the middle of a tick
-    /// (`GameLoop.switchedOff`).
+    /// (`Apple2Machine.switchedOff`).
     static func checkTicks(_ world: World, _ screen: GameScreen, count: Int = 40) -> Int {
         let native = screen.loop(room: nil)
         let original = screen.loop(room: nil, nativesEnabled: false)
@@ -163,7 +163,7 @@ struct NativeCheck {
                 try original.runTick()
                 // Well within a tick (natives on, the shortest take some 50,000 cycles).
                 try mixed.run(until: mixed.cycles + rng.next() % 20_000)
-                mixed.switchedOff = Set(names.filter { _ in rng.chance(2) })
+                mixed.apple.switchedOff = Set(names.filter { _ in rng.chance(2) })
                 if mixed.ticks == tick { try mixed.runTick() }
             } catch {
                 fail("\(world.name) tick \(tick): \(error)")
@@ -312,7 +312,7 @@ struct NativeCheck {
         for trial in 0 ..< trials {
             var mem = mem0
             let object = listed[Int(rng.byte(listed.count))]
-            mem.withRAM(v) { m in
+            mem.withRAM(GameSymbols.common) { m in
                 for o in [0, Int(object)] {
                     m.objX[o] = rng.chance(4) ? rng.byte() : rng.byte(0x86)
                     m.objY[o] = rng.chance(4) ? rng.byte() : rng.byte(0xB1)
@@ -330,7 +330,9 @@ struct NativeCheck {
                 m.wallRow = rng.chance(5) ? rng.byte() : rng.byte(14)
                 m.buttonA = rng.byte(2)
                 m.buttonB = rng.byte(2)
-                if v.engine == .levels {
+            }
+            if let levels = v.symbols as? LevelsSymbols {
+                mem.withRAM(levels) { m in
                     // Frames stay 0-7 in the game; from 8 on the sprite may be read from the I/O page.
                     m.walkFrame = rng.byte(8)
                     m.grabState = rng.byte(3)
@@ -341,7 +343,7 @@ struct NativeCheck {
             let buttons = [rng.chance(3), rng.chance(3), false]
             let regs = CPU6502.Registers(a: rng.byte(), x: rng.byte(0x40), y: object, p: rng.byte() & ~0x18 | 0x20)
             for native in natives {
-                let entry = GameSymbols.map[keyPath: native.routine].entry(v)!
+                let entry = native.entry
                 let original = Machine(memory: mem, bank1: start.bank1, variant: v)
                 let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
                 for m in [original, ported] {
@@ -355,7 +357,7 @@ struct NativeCheck {
                     fail("\(world.name) trial \(trial) \(native.name): \(error)")
                     return n
                 }
-                guard ported.call(native.run!) else {
+                guard native.run!(ported) else {
                     fail("\(world.name) trial \(trial) \(native.name): declined")
                     return n
                 }
@@ -390,7 +392,9 @@ struct NativeCheck {
             var mem = start.apple.cpu.mem
             let interior = rng.chance(3)
             let room = interior ? all[Int(rng.byte(all.count))].interiorRoom : rng.byte(0x40)
-            mem.withRAM(v) { m in
+            // The robots' state by the names the engines share, each engine at its own places.
+            func set<Map: EngineSymbols>(_ map: Map) {
+              mem.withRAM(map) { m in
                 m.currentRoom = room
                 for robot in all {
                     let body = robot.body, state = robot.state
@@ -407,20 +411,22 @@ struct NativeCheck {
                     m.objColour[robot.antennaObject] = rng.byte(8)
                     m.objColour[robot.signalObject] = rng.chance(2) ? 5 : rng.byte(8)
                 }
-                let counters: [ByteSymbol] = [\.scanPosition, \.sparkToggle, \.rainbowColour, \.rainbowStep, \.rainbowBit]
+                let counters: [KeyPath<Map, Byte>] = [\.scanPosition, \.sparkToggle, \.rainbowColour, \.rainbowStep, \.rainbowBit]
                 for counter in counters {
                     m[counter] = rng.chance(4) ? rng.byte() : rng.byte(14)
                 }
-                if v.engine == .levels { m.pulsePhase = rng.byte(4) }
-                m.randomLow = rng.byte()
-                m.randomHigh = rng.byte()
+              }
             }
+            set(v.symbols)
+            if let levels = v.symbols as? LevelsSymbols { mem[levels.pulsePhase.address] = rng.byte(4) }
+            mem[\.randomLow] = rng.byte()
+            mem[\.randomHigh] = rng.byte()
             let original = Machine(memory: mem, bank1: start.bank1, variant: v)
             original.nativesEnabled = false
             let ported = Machine(memory: mem, bank1: start.bank1, variant: v)
             for tick in 0 ..< 4 {
                 for native in robots {
-                    let entry = GameSymbols.map[keyPath: native.routine].entry(v)!
+                    let entry = native.entry
                     original.apple.cpu.sp = 0xF0
                     do {
                         try original.apple.cpu.call(entry)
@@ -428,7 +434,7 @@ struct NativeCheck {
                         fail("\(world.name) trial \(trial): \(error)")
                         return n
                     }
-                    ported.call(native.run!)
+                    _ = native.run!(ported)
                     n += 1
                     // The stack below the caller ($01F0 down) only holds dead return addresses.
                     if let d = firstDifference(ported.apple.cpu.mem, original.apple.cpu.mem, ignoring: 0x0100 ... 0x01F0) {
@@ -449,10 +455,10 @@ struct NativeCheck {
     /// clicks the native reports must be the original's.
     static func checkSoundCalls(_ world: World, _ screen: GameScreen, _ check: CodeCheck,
                                 _ rng: inout SplitMix, trials: Int = 120) -> Int {
-        guard let native = check.natives.first(where: { $0.routine == \.playSounds }),
+        guard let native = check.natives.first(where: { $0.replaces(\.playSounds) }),
               let start = try? screen.render(room: 0).machine else { return 0 }
         let v = check.variant
-        let entry = GameSymbols.map.playSounds.entry(v)!
+        let entry = native.entry
         let known = GameSounds.pitches.map(\.parameters)
         let kinds: [Sound.Kind] = [.tone, .noise, .noiseWrapping]
         let counters: [ByteSymbol] = [\.tonePeriod, \.noiseLow, \.noiseHigh, \.soundCountLow, \.soundCountHigh,
@@ -460,7 +466,7 @@ struct NativeCheck {
         var n = 0, played = 0, clickCount = 0
         for trial in 0 ..< trials {
             var mem = start.apple.cpu.mem
-            mem.withRAM(v) { m in
+            mem.withRAM(GameSymbols.common) { m in
                 let queued = Int(rng.byte(9))
                 m.soundQueue = UInt8(8 - queued)
                 for slot in 8 - queued ..< 8 {
@@ -472,7 +478,7 @@ struct NativeCheck {
                     m.soundLengths[slot] = p.length
                     m.soundSweeps[slot] = p.sweep
                     m.soundPitches[slot] = p.pitch
-                    let rooms = [0xFF, m.objRoom[0], rng.byte(0x40)]
+                    let rooms: [UInt8] = [0xFF, m.objRoom[0], rng.byte(0x40)]
                     m.soundRooms[slot] = rooms[Int(rng.byte(3))]
                 }
                 m.soundOn = rng.chance(4) ? 0 : 1
@@ -492,7 +498,7 @@ struct NativeCheck {
                 fail("\(world.name) sound trial \(trial): \(error)")
                 return n
             }
-            ported.call(native.run!)
+            _ = native.run!(ported)
             let sounds = ported.takeSounds()
             n += 1
             played += sounds.count

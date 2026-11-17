@@ -12,7 +12,7 @@ import MOS6502
 /// protection's two nibble checks, which pass as on an original disk, and the
 /// disk swaps: where the loader waits for a disk (AWAIT_SIDE), the drive takes
 /// it.  One skips: Robotropolis' intro, unless switched off
-/// (`Machine.switchedOff`, `skipIntro`): then it plays as on the Apple.
+/// (`Apple2Machine.switchedOff`, `skipIntro`): then it plays as on the Apple.
 /// And the menu program's drawing runs as Swift (`menuNatives`, MenuDrawing).
 /// `GameLoop` follows the loader into the world it starts.
 /// Docs/Loader.md.

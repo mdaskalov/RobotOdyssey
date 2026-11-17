@@ -10,6 +10,9 @@ The app passes both checks as an original disk does (see
 [In the app](#in-the-app)). Until 2026‑11‑01 the flag kept its value from
 the disk, $00, and the pen did nothing in *Play*.
 
+This describes v1.0 and v1.1. v2.0 checks a different sector, and only in
+the menu (see [Version 2.0](#version-20)).
+
 ## On the disk
 
 Track 1, physical sector 1 (DOS order T01,S07; loader page 31, the one page
@@ -122,6 +125,77 @@ Passport   … E7 E7 CF F3 FC EE E7 FC EE E7 FC EE EE FC 97 …
 The 4am disks are byte for byte Ro1v11 apart from those 12 bytes and the two
 `CLC`s (and an unused page 545 on side A), so they hold the original v1.1
 code.
+
+## Version 2.0
+
+The woz-a-day `.woz` images of v2.0 (sides A, B and C) are the original
+disks, bitstream included. The protection works as in v1.1, with three
+differences: the E7 sector is somewhere else, there is no boot check, and
+saving doesn't check again. The addresses below are v2.0's (side A, read
+from memory after booting to the menu). The v1.1 addresses elsewhere in
+this document don't apply.
+
+**On the disk.** Track 7, physical sector 7, on all three sides. Its data
+field is `D5 AA AD`, 246 × `96`, 96 × `E7`, `96` (checksum), `FF FF EB`. The
+address field ends 26 nibbles before the `D5`. The first E7s have extra 0
+bits after them. Their lengths in bits are
+`9 9 8 8 10 8 9 10 8 9 10 8 9 9`, then 8 for the rest:
+
+```
+111001110 111001110 11100111 11100111 1110011100 ...
+E7 0      E7 0      E7       E7       E7 00
+```
+
+When the shift register restarts 3‑7 bits after the third E7 (where the
+check's `$C08D` puts it), it reads `FC E7 FC EE E7 FC EE E7 FC EE EE FC`:
+an `EE`, then the signature.
+
+**The check** (MENU_COPY_CHECK, $6205‑$629D, result in the carry):
+
+```
+$6205   slot × 16 → X ($03F3); motor on ($C089), read mode ($C08E)
+$6215   seek track 7 (LDA #$07 / ASL / ASL $565A / JSR $5422)
+$6223   ($13) → signature $629E;  $09 = 10 tries
+$622F     $08 = 128 address fields
+$6233     DEC $08 / BEQ next try
+$6237     JSR $5698 (read address field) / BCS next try
+$623C     LDA $566E / CMP #$07 / BNE        sector 7
+$6243     wait for D5 (at most 256), then E7 (at most 256), E7, E7
+$6271     LDA $C08D,X / BIT $2D             the bit slip
+$6276     wait for EE (at most 16 nibbles)
+$6284     8 nibbles = ($13),Y, Y = 7 … 0
+$6292     SEC → $629A
+$6295   next try: DEC $09 / BNE $622F
+$6299   CLC
+$629A   LDA $C088,X (motor off) / RTS
+```
+
+Signature at $629E: `FC EE EE FC E7 EE FC E7`, the same as v1.1. It is
+called from $600B and $6020 (`JSR $6205 / ROR $02CE`), so bit 7 of
+MENU_CHECK_RESULT ($02CE) is the result.
+
+**No boot check.** Booting to the menu touches `$C08D` once, in the menu
+check. The loader never reads $03FE, and after booting it stays $00.
+
+**The flag** (COPY_PROTECTION_OK, $9C4E, as in v1.1):
+
+| Code | What |
+|---|---|
+| $4557 | `LDA $02CE / STA $9C4E` |
+| $45AF | `LDA $02CE / STA $9C4E` |
+| $436F | `SEC / ROR $9C4E`: back to the world after saving; the flag is set, no check (v1.1: `ASL $03FE / ROR $9C4E`) |
+
+So the menu check alone decides. Which of $4557/$45AF starts a world and
+which restores a saved game wasn't traced. Neither were the worlds' flag
+tests in v2.0, which are presumably as in v1.1.
+
+**In emulators.** The `.woz` passes only if the emulator clears the shift
+register on `$C08D` in read mode, then starts the next nibble at the next 1
+bit under the head (AppleWin's `LoadWriteProtect`). An emulator that turns
+the track's bits into nibbles once reads only E7s. The check then fails all
+10 tries, the flag is $00, and the pen solders nothing. Mariani passes.
+Apple2Kit passed only after it got bit slips (2026‑11‑17). Since then the
+check passes on the first try.
 
 ## In the app
 

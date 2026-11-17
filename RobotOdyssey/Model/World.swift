@@ -1,3 +1,4 @@
+import Apple2Kit
 import Foundation
 import MOS6502
 
@@ -147,8 +148,8 @@ nonisolated struct World: Identifiable {
 
     /// The wire tables (WIRE_TO, ...): the levels keep them in the world
     /// image, Robot Anatomy/Toolkit and the lab in the world's code.
-    private func wireTable(_ t: KeyPath<GameSymbols, Table>) -> Int {
-        GameSymbols.map[keyPath: t].address(engine)!
+    private func wireTable(_ t: KeyPath<any EngineSymbols, Table>) -> Int {
+        engine.symbols[keyPath: t].address
     }
 
     func wire(_ o: Int) -> Wire? {

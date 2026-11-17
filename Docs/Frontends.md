@@ -68,10 +68,12 @@ it, what it reproduces in its help), under *Engine* with *All* over them
 
 * **Any mix is valid.** A native leaves memory (and registers where callers
   use them) as the original does, so the 6502 code and the native can
-  replace each other at any call, in any combination. The switches only
-  filter what `Machine.install` put in (`Machine.switchedOff`; the traps
-  stay, a switched‑off entry runs its 6502 code), and they count from the
-  next instruction: a native runs whole within one, so there is no half
+  replace each other at any call, in any combination. Each native is one of
+  Apple2Kit's hooks on the machine (`Machine.install`), by its name; the
+  switches are the kit's (`Apple2Machine.switchedOff`): a native switched
+  off stays put in, but the CPU no longer stops at its entry and the 6502
+  code runs (since 2026‑11‑14; before, the trap stayed and the native was
+  only skipped), and they count from the next instruction: a native runs whole within one, so there is no half
   state to wait for. `native_check` runs a third loop with the natives
   switched at random in the middle of every tick against the original.
 * **`uses`:** a switch turns off the entry, not the routines a native
@@ -147,18 +149,18 @@ screen with its layers (`Machine.shownFrame`).
   its body. They draw on the page as
   ever – the game's memory stays the original's, natives and their
   switches interchangeable at any call – and nothing they write goes to
-  layer 2. As 6502 code the machine follows them (`Machine.followDrawing`,
-  traps that look and change nothing): at the entry the item from the
+  layer 2. As 6502 code the machine follows them (observers, Apple2Kit's hooks
+  that look and change nothing: `Machine.followLayers`): at the entry the item from the
   parameters, then nothing to layer 2 until the routine returns (where the
   JSR on the stack goes back to, the stack pointer 2 higher; big text's
   letters are DRAW_SPRITE's inside DRAW_TEXT's, a short line's plots
   HORIZONTAL_LINE's, part of its item). The Swift versions, which the robot
-  drawing natives call, do the same themselves (`RAM.drawingOnLayer`), with
+  drawing natives call, do the same themselves (`Engine.drawingOnLayer`), with
   the 6502 code's calls (VERTICAL_LINE plots inline, HORIZONTAL_LINE calls
   PLOT), so natives and 6502 code make the same layers.
 * **Layer 2** follows everything else written to a page: the 6502 code's
   writes (the CPU's `watchedPages`/`onWrite`, $2000‑$5FFF) and the natives'
-  (`RAM`). Only the bits a write changed go there (the user's choice,
+  (Apple2Kit's `RAM` tells the same `onWrite`). Only the bits a write changed go there (the user's choice,
   2026‑11‑05, to see it): the 6502 code that draws after a text or sprite
   reads the page with their pixels in it and writes it back with its own;
   the bits it didn't change stay as layer 2 had them. Its blind spot: a bit
@@ -245,7 +247,7 @@ screen with its layers (`Machine.shownFrame`).
   Swift, marked with a layers symbol, and *All* switches them too (the
   user, 2026‑11‑05: "all doesn't toggle all"). Their
   switches are kept in `nativesOff` with the other natives'
-  (`Machine.switchedOff`; `PageLayers.routines` the entries switched on): off, the
+  (`Apple2Machine.switchedOff`, the observers of their drawings by their names): off, the
   routine's drawing stays the Apple's pixels, in layer 2 and in its place
   among layer 3's drawings – for the sprites, plots and lines the same
   pixels as on. From the next page drawn. The thumbnails and the map show
