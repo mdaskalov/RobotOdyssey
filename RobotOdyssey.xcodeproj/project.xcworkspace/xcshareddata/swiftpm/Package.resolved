@@ -6,8 +6,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/mdaskalov/Apple2Kit.git",
       "state" : {
-        "revision" : "da2190236d661f7f6f2624b04aa1842ccaff8f45",
-        "version" : "1.8.0"
+        "revision" : "b3d5099a52e6fa4d7cf29a65a36410969915fe5b",
+        "version" : "1.9.0"
       }
     },
     {

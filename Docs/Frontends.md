@@ -37,10 +37,9 @@ one). Thumbnails
 doesn't show at that size, and separated pixels made small turn into
 stripes.
 
-The toolbar's display button, next to Smooth, Tile Grid and Empty Rooms
-(`Screen.Style`, kept as `displayMode`; each press the next mode, its
-icon the mode's: paintpalette, paintpalette.fill, circle.lefthalf.filled),
-has three colourings: *Color* (above; a gap in a colour – an unlit pixel between
+View ▸ Display on the Mac, next to View ▸ Game's Tile Grid, Smooth
+Movement and Empty Rooms (the menu over the game on iOS and tvOS;
+`Screen.Style`, kept as `displayMode`), has three colourings: *Color* (above; a gap in a colour – an unlit pixel between
 two lit ones – in a dark shade of it, `gapShade` 0.4: the user, 2026‑11‑05,
 "replacing gaps with color which is not quite black looks better"),
 *Color Filled* (the renderer as committed in dc0a06a: gaps filled in the

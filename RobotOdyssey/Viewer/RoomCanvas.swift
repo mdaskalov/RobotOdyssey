@@ -18,9 +18,36 @@ struct RoomCanvas: View {
     }
     #endif
 
+    /// On the Mac the room is `zoom` times 280x192 points, or, with Fit or
+    /// when the space is too small for the zoom, as large as the space allows.
     var body: some View {
-        let contents = model.contents(world)
+        #if os(macOS)
         GeometryReader { geo in
+            let size = canvasSize(in: geo.size)
+            canvas
+                .frame(width: size.width, height: size.height)
+                .frame(width: geo.size.width, height: geo.size.height)
+        }
+        #else
+        canvas
+            .aspectRatio(560.0 / 384.0, contentMode: .fit)
+            .frame(maxWidth: 1120)
+        #endif
+    }
+
+    #if os(macOS)
+    private func canvasSize(in space: CGSize) -> CGSize {
+        if model.zoom > 0 && model.zoomFits(space) {
+            return CGSize(width: 280 * CGFloat(model.zoom), height: 192 * CGFloat(model.zoom))
+        }
+        let fit = min(space.width / 560, space.height / 384)
+        return CGSize(width: 560 * fit, height: 384 * fit)
+    }
+    #endif
+
+    private var canvas: some View {
+        let contents = model.contents(world)
+        return GeometryReader { geo in
             let k = geo.size.width / 560          // view points per image pixel
             ZStack(alignment: .topLeading) {
                 if let img = model.image(world: world, room: model.selectedRoom) {
@@ -70,8 +97,6 @@ struct RoomCanvas: View {
             #endif
         }
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { model.canvasFrame = $0 }
-        .aspectRatio(560.0 / 384.0, contentMode: .fit)
-        .frame(maxWidth: 1120)
         .onAppear { model.canvasAppeared() }
         .onDisappear { model.canvasDisappeared() }
     }

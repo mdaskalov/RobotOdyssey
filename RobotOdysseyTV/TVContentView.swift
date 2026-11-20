@@ -277,6 +277,12 @@ struct TVMenu: View {
                     Toggle(isOn: Binding { !model.sound } set: { model.sound = !$0 }) {
                         Label("Mute", systemImage: "speaker.slash")
                     }
+                    Picker(selection: $model.volume) {
+                        ForEach([0.25, 0.5, 0.75, 1.0], id: \.self) { Text("\(Int($0 * 100))%").tag($0) }
+                    } label: {
+                        Label("Volume", systemImage: "speaker.wave.2")
+                    }
+                    .disabled(!model.sound)
                 }
                 Section("Controls") {
                     Text("Siri Remote: arrows walk · select takes or drops · play/pause the next tool "

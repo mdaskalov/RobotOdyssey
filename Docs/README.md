@@ -85,7 +85,7 @@ faithful Swift version.
 * **Sound** (Sound.md): the native PLAY_SOUNDS runs the tone and noise loops
   as the original, reports every speaker click to the cycle and takes the
   sound's cycles (the game waits while a sound plays, as on the Apple); the
-  viewer makes the speaker's sound from the clicks (*Sound* in the toolbar),
+  viewer makes the speaker's sound from the clicks (Machine ▸ *Sound*),
   streamed to the cycle as the machine runs, so the 6502 code's own clicks
   (the loader's tunes, the intro, PLAY_SOUNDS switched off) keep their time
   (since 2026‑11‑03; before, the loader's were played a tune at a time once
@@ -260,8 +260,8 @@ version keeps one side A and one side B: the first one loaded wins, later
 sides of the same version are ignored (listed under *Notes*). Without disks
 the window shows the game's title screen (`Data/ro_title.py`); the app icon is
 robot 2, Scanner, the blue one, as the engine draws it (`Data/ro_icon.py`). Pick a world in the sidebar and a room
-in the *World* panel below the canvas (`WorldPanel`, shown or hidden from the
-toolbar). Its sections fold like the *Current Room* panel's, their headers stay on top
+in the *World* panel below the canvas (`WorldPanel`, shown or hidden from View
+or the toolbar). Its sections fold like the *Current Room* panel's, their headers stay on top
 as the panel scrolls: *Rooms* – *Grid* shows all 64 rooms (room *n* at column
 *n*%8, row *n*/8), *Map* shows the rooms as they connect (`WorldMap`),
 zoomable, with each room's number on it; *Wall types* – the tile patterns of
@@ -334,7 +334,7 @@ Apple. *Smooth* (on by default) fills the frames between two pages: what
 moved (the objects in the room, wire ends; a step's worth, as the player
 walks) is put back part of the way and the draw phase draws the room from
 where it drew the page (`GameLoop.inBetween`), so the page before turns into
-the new one over the tick. The toolbar has *Pause/Run* (also the space bar), *Step*
+the new one over the tick. The toolbar and the Machine menu have *Pause/Run* (also the space bar), *Step*
 (one tick, when paused) and *Restart*; the *Current Room* panel's *Game* section shows
 the tick and ticks/s, how the room is drawn and, folded, the native routines
 in use with their entry points (and any routine the loader found modified,
@@ -383,6 +383,21 @@ switch), and the status shows the last one. Code rooms, and rooms the
 world's code fails to draw, are drawn by `RoomRenderer` (tiles, texts,
 objects, wires).
 
+The Mac app has one window (`RobotOdyssey.swift`, closing it quits) and the
+menus of Apple2Emu (`GameCommands`): File – Open Disk Images… (⌘O), Close
+All Disks; View – Display, Game ▸ Tile Grid, Smooth Movement, Empty Rooms,
+Zoom ▸ Fit, 1×–5× (1×–5× is 280x192 points times that; Fit as large as the space allows, its width or its height; choosing 1×–5× sizes the
+window so the room fills its space exactly, the panels shown keeping their
+size, or, when the screen has no room for that, fills the screen and
+switches to Fit; resizing the window by hand, or a panel leaving the room
+less space than the zoom needs, switches to Fit too:
+`WindowSizer`), then the panels Levels, World, Current Room (⌘1–3); Machine – Play (⇧⌘P),
+Pause/Run (⌘P), Step Tick (⌘T), Restart World (⌘R), Sound ▸ Enable Sound
+and Volume (a slider, `VolumeMenuItem`, as Apple2Emu's; the volume kept, half
+by default as Apple2Kit's), and giving the game the mouse (as ⌘ alone does).
+The toolbar keeps the disks, Play, Pause, Step, Restart and the panels. It starts in Play without the panels
+(they are not kept between launches).
+
 In Debug builds `-openDisks <path>…` opens disks at launch (needs
 `ENABLE_APP_SANDBOX=NO`).
 
@@ -420,6 +435,27 @@ once, the key of the tool in hand does nothing) – and pauses in the loader,
 Menu the menu. A game controller's shoulders take the tools (left C, right
 S, a trigger R), its ☰ the menu; the presses the system makes of its other
 buttons (select, arrows, B as Menu) are left out, the joystick has them.
+
+## The iPhone and iPad app
+
+A third target, `RobotOdysseyTouch` (bundle id `com.innersoft.RobotOdysseyTouch`,
+iPhone and iPad), built as the Apple TV app: the `RobotOdyssey/` folder without
+the Mac's panels and menus (the same membership exceptions, `GameCommands`
+too), plus `RobotOdysseyTouch/`: the game full screen from launch
+(`TouchGameView`), the world played last, the status bar and home indicator
+hidden. Buttons at the top right: the menu (`TouchMenu`, over the game at the
+side, the game paused under it – the TV menu's entries, the display, Touch
+Mouse, Open Disk Images…), the next tool, and the on‑screen keyboard (a
+hidden text field whose typing goes to the game, Return included; the game moves up and scales to fit the space above it).
+
+Touch: *Touch Mouse* (on by default, kept) makes the screen the Apple's
+mouse, as the Mac's taken mouse: a drag moves the player
+(`ViewerModel.dragMouse`, the card put in at the first drag), a tap is the
+button (`clickMouse`; before the card is in, the first tap is space). Off, a
+swipe types one I J K M, a tap space. In the loader a swipe is an arrow key
+and a tap Return; inspecting, a swipe goes to the room next door and a tap
+back to the game. A hardware keyboard and a game controller work as on the
+Mac.
 
 Not there yet: a tvOS app icon and top shelf image (the asset catalog has
 the Mac's only), opening other disk images (only those in the bundle), and

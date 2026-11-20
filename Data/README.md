@@ -23,6 +23,7 @@ python3 ro_chips.py "$A" "$B"        # disassemble the chips (also: STATE.yaml o
 ./ro_dump.sh DIR "$A" "$B"            # every world's memory as its main loop starts, to disassemble
 python3 ro_title.py "$A" Extracted/v1.1 [--verify]   # title screens -> title_N.png/.bin
 python3 ro_icon.py "$STATE" ../RobotOdyssey/Assets.xcassets/AppIcon.appiconset   # app icon
+python3 ro_tv_icon.py "$STATE" "$A" "../RobotOdysseyTV/Assets.xcassets/App Icon & Top Shelf Image.brandassets"   # tvOS icon + Top Shelf
 python3 ro_shuffle.py "$A" "$B" ../Docs/crystal_spots.png   # Level 1: the black crystal's six spots
 ```
 
@@ -54,6 +55,7 @@ python3 ro_shuffle.py "$A" "$B" ../Docs/crystal_spots.png   # Level 1: the black
 | `aws_state.py` | extract main/aux RAM from a Mariani/AppleWin `.yaml` save state |
 | `ro_title.py` | unpack the title pictures like the menu ($0A71) and write the three title screens; `--verify` compares with the original unpacker and wipe on the emulator (format: `Docs/DiskLayout.md`, *Title pictures*) |
 | `ro_icon.py` | the app icon: robot 2, Scanner (the blue one), drawn by the engine ($9D18, $D2BC) from the save state, 20× on a dark background, all macOS sizes |
+| `ro_tv_icon.py` | the tvOS brand assets: the app icon's robot on two parallax layers (Front: the pixel art; Back: background and glow), 400x240 @1x/@2x and App Store 1280x768; Top Shelf and Top Shelf Wide: the title screen (screen 2) 6× at @2x |
 | `ro_shuffle.py` | Level 1's shuffled black crystal (L1_SHUFFLE_OBJECTS, Docs/Engine.md): its six maze spots drawn like the engine, the crystal in white, in one PNG (`Docs/crystal_spots.png`) |
 
 ## Extracted/v1.1

@@ -61,20 +61,50 @@ final class ViewerModel {
     }
     var showEmptyRooms = false
     var showGrid = false
-    /// The panels: the worlds on the left, the world's rooms, sprites, sounds…
-    /// below the canvas, the current room on the right.
-    var showLevels = UserDefaults.standard.object(forKey: "showLevels") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showLevels, forKey: "showLevels") }
+    /// The room's size (View ▸ Zoom): 1…5 times the Apple's 280x192 in
+    /// points; 0 (Fit) as large as the canvas's space allows (`RoomCanvas`).
+    var zoom = UserDefaults.standard.integer(forKey: "zoom") {
+        didSet { UserDefaults.standard.set(zoom, forKey: "zoom") }
     }
-    var showWorld = UserDefaults.standard.object(forKey: "showWorld") as? Bool ?? true {
-        didSet { UserDefaults.standard.set(showWorld, forKey: "showWorld") }
+    /// Counts the zooms chosen from the menu (`chooseZoom`), the same one
+    /// again too: on the Mac the window is sized to it (`WindowSizer`).
+    private(set) var zoomChosen = 0
+    /// The space the canvas has in the window (the Mac's `WorldView`), for
+    /// the window's size at a zoom.  Too small for the zoom (a panel shown,
+    /// the window made smaller) the zoom becomes Fit.
+    @ObservationIgnored var canvasSpace = CGSize.zero {
+        didSet { checkZoom() }
     }
-    var showCurrentRoom = UserDefaults.standard.object(forKey: "showCurrentRoom") as? Bool ?? true {
-        didSet {
-            UserDefaults.standard.set(showCurrentRoom, forKey: "showCurrentRoom")
-            showLive()
-        }
+    /// The window is being sized for the zoom (`WindowSizer`): its sizes on
+    /// the way leave the zoom as it is.
+    @ObservationIgnored var sizingWindow = false
+
+    /// The room at `zoom` fits in `space` (Fit always does).
+    func zoomFits(_ space: CGSize) -> Bool {
+        zoom == 0 || (280 * CGFloat(zoom) <= space.width + 0.5 && 192 * CGFloat(zoom) <= space.height + 0.5)
     }
+
+    /// The zoom Fit if the canvas's space has no room for it.
+    func checkZoom() {
+        guard !sizingWindow, canvasSpace.width > 0, canvasSpace.height > 0, !zoomFits(canvasSpace) else { return }
+        zoom = 0
+    }
+
+    /// View ▸ Zoom: `zoom` set, the window sized to it.
+    func chooseZoom(_ zoom: Int) {
+        self.zoom = zoom
+        zoomChosen += 1
+    }
+    /// The panels (the Mac's View menu): the worlds on the left, the world's
+    /// rooms, sprites, sounds… below the canvas, the current room on the
+    /// right.  The app starts with none of them, the game alone.
+    var showLevels = false
+    var showWorld = false
+    var showCurrentRoom = false {
+        didSet { showLive() }
+    }
+    /// The disk images' file dialog is open (File ▸ Open Disk Images…, the toolbar).
+    var choosingDisks = false
     /// Object coordinates under the pointer on the canvas (x 0-139, y 0-191
     /// from the bottom), for the current room's read-out.
     var pointer: RoomPoint?
@@ -115,6 +145,23 @@ final class ViewerModel {
             UserDefaults.standard.set(sound, forKey: "sound")
             if !sound { soundPlayer.stop() }
         }
+    }
+    /// The speaker's loudness, 0 (silent) to 1 (the full swing of its
+    /// clicks), kept; by default half of it, as Apple2Kit's (the full swing is harsh).
+    var volume = UserDefaults.standard.object(forKey: "volume") as? Double ?? Apple2.defaultVolume {
+        didSet {
+            UserDefaults.standard.set(volume, forKey: "volume")
+            applyVolume()
+        }
+    }
+
+    init() {
+        applyVolume()
+    }
+
+    private func applyVolume() {
+        soundPlayer.volume = Float(volume)
+        soundPreview.volume = Float(volume)
     }
     /// The native routines switched off, by name, and the loader's intro
     /// skip (`Apple2Machine.switchedOff`): the original 6502 code runs there,
@@ -810,6 +857,25 @@ final class ViewerModel {
         mouseRest.x -= units.x
         mouseRest.y -= units.y
         running.loop.apple.moveMouse(dx: Int(units.x) * AppleMouse.countsPerUnit, dy: Int(units.y) * AppleMouse.countsPerUnit)
+    }
+
+    /// A finger dragged on the screen (iOS) by (dx, dy) points: the mouse
+    /// becomes the game's at the first drag (`takeMouse`), and moves the
+    /// player as the Mac's mouse does.
+    func dragMouse(by dx: CGFloat, _ dy: CGFloat) {
+        if !mouseTaken { takeMouse() }
+        moveMouse(by: dx, dy)
+    }
+
+    /// A tap on the screen (iOS) while the game has the mouse: its button
+    /// pressed and let go – the card keeps the press till the game reads it.
+    /// False if the game hasn't the mouse (the card, put in now, starts
+    /// afresh and would lose the press).
+    func clickMouse() -> Bool {
+        guard mouseTaken, let running = loop else { return false }
+        running.loop.apple.mouseButton(down: true)
+        running.loop.apple.mouseButton(down: false)
+        return true
     }
 
     /// The middle of the player on the canvas, in the window (as `canvasFrame`), if the canvas shows it.

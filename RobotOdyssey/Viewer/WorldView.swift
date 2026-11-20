@@ -60,8 +60,8 @@ struct WorldView: View {
                     .task(id: model.session) {
                         await model.runGame()
                     }
-                    .padding()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { model.canvasSpace = $0 }
                 if model.showWorld {
                     VStack(spacing: 0) {
                         ResizeHandle(size: $worldHeight, range: 100 ... maxWorld, panel: .bottom)
