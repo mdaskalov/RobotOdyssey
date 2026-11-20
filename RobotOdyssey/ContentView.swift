@@ -3,11 +3,13 @@ import SwiftUI
 
 /// The window: the worlds on the left, the selected world's room with the
 /// world below it (`WorldView`), the current room on the right; each panel
-/// shown or hidden from the toolbar.
+/// shown or hidden from the View menu or the toolbar.  The display and the
+/// game view are in the View menu (`GameCommands`).  It starts playing.
 struct ContentView: View {
-    @State private var model = ViewerModel()
-    @State private var importing = false
+    @Bindable var model: ViewerModel
     @AppStorage("levelsWidth") private var levelsWidth = 230.0
+    /// View ▸ Zoom sizes the window.
+    @State private var sizer = WindowSizer()
 
     var body: some View {
         HStack(spacing: 0) {
@@ -55,9 +57,11 @@ struct ContentView: View {
             }
             .inspectorColumnWidth(min: 260, ideal: 320, max: 480)
         }
+        .background(WindowReader { sizer.attach($0, model: model) })
+        .onChange(of: model.zoomChosen) { sizer.choose(model) }
         .navigationTitle(model.selectedWorld?.name ?? "Robot Odyssey")
         .toolbar { toolbar }
-        .fileImporter(isPresented: $importing, allowedContentTypes: ViewerModel.diskTypes,
+        .fileImporter(isPresented: $model.choosingDisks, allowedContentTypes: ViewerModel.diskTypes,
                       allowsMultipleSelection: true) { model.open($0) }
         .dropDestination(for: URL.self) { urls, _ in
             model.open(urls: urls)
@@ -69,18 +73,20 @@ struct ContentView: View {
             let args = ProcessInfo.processInfo.arguments
             if let i = args.firstIndex(of: "-openDisks") {
                 model.openAtLaunch(args[(i + 1)...].prefix { !$0.hasPrefix("-") }.map { URL(fileURLWithPath: $0) })
+                model.playing = true
                 return
             }
             #endif
             model.openAtLaunch()
+            model.playing = true
         }
     }
 
-    /// From left to right: the disks, the game, the display options, the panels.
+    /// From left to right: the disks, the game, the panels (the sound: Machine ▸ Sound).
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItem {
-            Button("Open Disk Images…", systemImage: "opticaldiscdrive") { importing = true }
+            Button("Open Disk Images…", systemImage: "opticaldiscdrive") { model.choosingDisks = true }
         }
         ToolbarSpacer(.fixed)
         ToolbarItemGroup {
@@ -99,20 +105,6 @@ struct ContentView: View {
                     .help("Start the selected world again from its start-up state")
             }
             .disabled(model.selectedWorld == nil)
-            Toggle("Mute", systemImage: "speaker.slash", isOn: Binding { !model.sound } set: { model.sound = !$0 })
-                .help("Mute the game's sounds (in the game, Ctrl-S turns them off and on)")
-        }
-        ToolbarSpacer(.fixed)
-        ToolbarItemGroup {
-            Button(model.mode.rawValue, systemImage: model.mode.systemImage) { model.mode = model.mode.next }
-                .help(model.mode.help + " – click for \(model.mode.next.rawValue)")
-            Toggle("Smooth", systemImage: "figure.walk.motion", isOn: $model.smooth)
-                .help("Smooth: between two ticks, what moves glides to where the next tick has it, "
-                      + "drawn by the game's own code (off: only the ticks' pages, as on the Apple II)")
-            Toggle("Tile Grid", systemImage: "grid", isOn: $model.showGrid)
-                .help("The tile grid over the room: 20 columns, 12 rows")
-            Toggle("Empty Rooms", systemImage: "square.dashed", isOn: $model.showEmptyRooms)
-                .help("Show the rooms the world doesn't use in the world panel's rooms (blank otherwise)")
         }
         ToolbarSpacer(.fixed)
         ToolbarItemGroup {
@@ -140,7 +132,7 @@ struct ContentView: View {
             Text("Open the Robot Odyssey I disk images (side A and side B, v1.0 or v1.1), "
                  + "or a folder containing them. Storage disks with saved games can be added too.")
         } actions: {
-            Button("Open Disk Images…") { importing = true }
+            Button("Open Disk Images…") { model.choosingDisks = true }
         }
     }
 }
@@ -205,30 +197,6 @@ struct ResizeHandle: View {
     }
 }
 
-/// The toolbar's display button: one press a mode, in turn.
-private extension Screen.Style {
-    var systemImage: String {
-        switch self {
-        case .filled: "paintpalette.fill"
-        case .color: "paintpalette"
-        case .monochrome: "circle.lefthalf.filled"
-        }
-    }
-
-    var help: String {
-        switch self {
-        case .color: "Color: each pixel in its colour, white where two touch, the gaps in a colour in a dark shade of it"
-        case .filled: "Color Filled: the gaps in a colour filled (as before the half-pixel shift)"
-        case .monochrome: "Mono: as on a green monochrome monitor"
-        }
-    }
-
-    var next: Screen.Style {
-        let all = Screen.Style.allCases
-        return all[(all.firstIndex(of: self)! + 1) % all.count]
-    }
-}
-
 #Preview {
-    ContentView()
+    ContentView(model: ViewerModel())
 }
