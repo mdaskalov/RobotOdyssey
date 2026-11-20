@@ -200,7 +200,7 @@ nonisolated extension Loader {
 /// hook runs.  The hooks sit at their addresses in the worlds too, where
 /// other code is: the bytes last checked and the answer are kept, so a
 /// world's code is hashed once, not at every pass.
-private nonisolated final class Fingerprint {
+nonisolated final class Fingerprint {
     private let code: Code
     private var last: (bytes: [UInt8], matches: Bool)?
 

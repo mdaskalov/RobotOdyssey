@@ -246,6 +246,10 @@ struct CurrentRoomPanel: View {
             nativeSwitch(Loader.skipIntro, String(format: "$%04X", LoaderSymbols.address(\.playIntro)))
                 .help("Steps over Robotropolis' intro, as a key press ends it. Off: the intro plays, pictures and tunes "
                       + "(about 25 s), when Robotropolis is chosen in the menu")
+            nativeSwitch(Loader.charOutName, String(format: "$%04X", Loader.charOutEntry), onLayer3: true)
+                .help("The loader's texts (its messages, prompts and directories) on the native layer, drawn by the Mac "
+                      + "in SF Mono Medium; the loader draws them into its page as ever. Off: the Apple's pixels. "
+                      + "From the next letter")
             ForEach(Loader.menuNatives, id: \.name) { native in
                 nativeSwitch(native.name, String(format: "$%04X", native.entry))
                     .help("The menu's and the intro's drawing in Swift, at once: the intro's tunes don't wait for "

@@ -78,12 +78,23 @@ nonisolated final class GameLoop {
     /// world's first tick.
     var mouse = false
     /// The machine keeps the canvas's layers of the pages while a world runs
-    /// (`Machine.layers`, `PageLayers`), from the next world's start on (on
-    /// unless a check compares memory without them).  They change nothing in
-    /// memory; the viewer shows layer 1 or layers 2 and 3.
+    /// (`Machine.layers`, `PageLayers`), from the next world's start on, and
+    /// while the loader runs, its texts on layer 3 (`Machine.keepLoaderLayers`)
+    /// (on unless a check compares memory without them).  They change nothing
+    /// in memory; the viewer shows layer 1 or layers 2 and 3.
     var keepsLayers = true {
-        didSet { if keepsLayers != oldValue { machine.layers = keepsLayers && phase != nil ? PageLayers() : nil } }
+        didSet {
+            guard keepsLayers != oldValue else { return }
+            if loaderRuns {
+                machine.keepLoaderLayers(keepsLayers)
+            } else {
+                machine.layers = keepsLayers && phase != nil ? PageLayers() : nil
+            }
+        }
     }
+    /// The loader runs: from a world's exit until it starts the next world
+    /// (whose start-up code runs without layers, until its main loop).
+    private var loaderRuns = false
 
     /// A room drawn on a copy, and the draw state it started from and left:
     /// what its draw phase wrote besides the page (`drawStateRanges`), as
@@ -442,8 +453,9 @@ nonisolated final class GameLoop {
         shownDrawStart = nil
         previousShown = nil
         lastInBetween = nil
-        // The loader's code lies where the engine's routines were.
-        machine.layers = nil
+        // The loader's code lies where the engine's routines were: its own layers.
+        loaderRuns = true
+        machine.keepLoaderLayers(keepsLayers)
     }
 
     /// The loader jumps to WORLD_START: the world it loaded starts, its
@@ -452,6 +464,8 @@ nonisolated final class GameLoop {
     /// main loop isn't found runs on that way.
     private func startWorld() {
         startingWorld = false
+        loaderRuns = false
+        machine.layers = nil
         guard let drive = machine.drive else { return }
         let mem = machine.apple.cpu.mem
         let world = Loader.world(in: mem, disks: drive.program)

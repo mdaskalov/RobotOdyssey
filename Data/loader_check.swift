@@ -28,6 +28,12 @@
 //            its return on a copy: memory, banks, PC and SP the same;
 //   walls:  the easter egg: Ctrl-A Ctrl-L T in the menu, Robotropolis,
 //            then Ctrl-E must turn WALLS_ON off and on;
+//   texts:   Level 1, Esc S, the save's prompts (a name typed with a
+//            backspace): CHAR_OUT's letters on layer 3 (`Loader.charOutDrawing`),
+//            on every screen each letter's cell on the page must hold its
+//            glyph, layers 2 and 3 as pixels the page but for the letters'
+//            cells (blank there), every glyph on the page a letter on layer 3;
+//            with CHAR_OUT switched off none;
 //   save:    Level 1, Esc S: the game saved on a new storage disk (letter A,
 //            a name), back in Level 1; the slot read back (savedGames) must
 //            hold the world as it was;
@@ -176,6 +182,7 @@ struct LoaderCheck {
         _ = scenario { try checkGameSounds(world("level1"), set) }
         _ = scenario { try checkMenuNatives(world("level1"), set) }
         _ = scenario { try checkWallsKey(world("level1"), set) }
+        _ = scenario { try checkTexts(world("level1"), set) }
         if let storage {
             _ = scenario { try checkRestore(world("level1"), set, storage) }
             _ = scenario { try checkNewStorage(world("level1"), set, storage) }
@@ -365,6 +372,70 @@ struct LoaderCheck {
             return !(118 ..< 118 + 107).contains(p) && blank[o ..< o + 256] != disk.data[o ..< o + 256]
         }
         if !pages.isEmpty { fail("pages \(pages) differ from a blank storage disk's") }
+    }
+
+    /// The loader's texts on layer 3 along the save's prompts, and none with CHAR_OUT switched off.
+    static func checkTexts(_ level1: World, _ set: DiskSet) throws {
+        print("texts: \(level1.name), Esc S, CHAR_OUT's letters on layer 3")
+        for off in [false, true] {
+            let session = try Session(level1, disks: set, storage: nil)
+            if off { session.loop.apple.switchedOff = [Loader.charOutName] }
+            try session.run(2)
+            var screens: [(String, Int)] = []
+            func look(_ name: String) {
+                let letters = loaderTexts(session, name, off: off)
+                screens.append((name, letters))
+            }
+            _ = try session.type([esc, keys("S")[0]], limit: 10) { session.loop.exit != nil }
+            _ = try session.type([], limit: 3) { false }
+            look("prompt")
+            _ = try session.type([ret], limit: 5) { false }
+            look("directory")
+            _ = try session.type([keys("A")[0]], limit: 3) { false }
+            look("name")
+            _ = try session.type(keys("LOADEX") + [0x88] + keys("R"), limit: 2) { false }
+            look("typed")
+            print("  CHAR_OUT \(off ? "off" : "on"):", screens.map { "\($0.0) \($0.1)" }.joined(separator: ", "), "letters")
+            if !off && screens.contains(where: { $0.1 == 0 }) { fail("a screen without letters on layer 3") }
+        }
+    }
+
+    /// Checks the loader's screen against its layers; returns the letters on layer 3.
+    static func loaderTexts(_ session: Session, _ name: String, off: Bool) -> Int {
+        let frame = session.loop.shownFrame()
+        let page = frame.page.bytes, pixels = LayerPixels(frame).screen.bytes
+        let mem = session.loop.memory
+        let font = LoaderSymbols.address(\.charFont)
+        func glyph(_ code: UInt8) -> [UInt8] { Array(mem[font + 8 * Int(code - 0xA0) ..< font + 8 * Int(code - 0xA0) + 8]) }
+        func cell(_ bytes: [UInt8], column: Int, top: Int) -> [UInt8] { (0 ..< 8).map { bytes[(top + $0) * 40 + column] } }
+        var inLetters = Set<Int>()                  // screen byte indices
+        var letters = 0
+        for case .text(let text) in frame.items {
+            for l in text.letters {
+                letters += 1
+                let column = l.x / 7, top = 191 - l.y - 7
+                if cell(page, column: column, top: top) != glyph(l.code) {
+                    fail("\(name): \(DrawnText.character(l.code)) at column \(column), line \(top): its cell isn't its glyph")
+                }
+                if cell(pixels, column: column, top: top).contains(where: { $0 != 0 }) {
+                    fail("\(name): \(DrawnText.character(l.code)) at column \(column), line \(top): not blank on layer 2")
+                }
+                for i in 0 ..< 8 { inLetters.insert((top + i) * 40 + column) }
+            }
+        }
+        let differ = (0 ..< page.count).filter { !inLetters.contains($0) && page[$0] != pixels[$0] }
+        if !differ.isEmpty { fail("\(name): layers 2 and 3 differ from the page outside the letters at \(differ.count) bytes") }
+        // Every glyph on CHAR_OUT's grid (rows of 8 lines) is a letter on layer 3.
+        for row in 0 ..< 24 {
+            for column in 0 ..< 40 where !inLetters.contains(row * 8 * 40 + column) {
+                let c = cell(page, column: column, top: row * 8)
+                if let code = (0xA1 ... 0xFF).first(where: { glyph(UInt8($0)) == c }), !off {
+                    fail("\(name): \(DrawnText.character(UInt8(code))) at column \(column), row \(row) left as the Apple's pixels")
+                }
+            }
+        }
+        if off && letters > 0 { fail("\(name): \(letters) letters on layer 3 with CHAR_OUT switched off") }
+        return letters
     }
 
     static func checkMenuEscape(_ level1: World, _ set: DiskSet) throws {

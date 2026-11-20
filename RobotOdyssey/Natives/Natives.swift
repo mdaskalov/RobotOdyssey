@@ -112,6 +112,8 @@ nonisolated struct Native {
         let draws: (CPU6502) -> Bool
         /// What it draws; nil: nothing (off the screen).
         let item: (CPU6502) -> LayerItem?
+        /// The page it draws on, 0 or 1; nil: the engine's (LINE_HIGH_TABLE's).
+        var page: ((CPU6502) -> Int)? = nil
     }
 
     /// Every native routine of an engine in a version: those in Swift, then

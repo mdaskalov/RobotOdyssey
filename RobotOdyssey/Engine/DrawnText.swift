@@ -3,8 +3,10 @@ import Foundation
 /// A text DRAW_TEXT ($A2EA) drew: its letters where the routine puts them,
 /// read from its parameters where it starts (CURRENT_TEXT_POINTER, _STYLE,
 /// _COLOUR, _X, _Y), laid out as the 6502 code lays them out, the letters it
-/// leaves out left out.  A drawing on layer 3 (`PageLayers`): the canvas
-/// draws them in a modern font over the page drawn without them.
+/// leaves out left out; or a letter the loader's CHAR_OUT drew
+/// (`Loader.charOutLetter`), in a cell of the same size.  A drawing on
+/// layer 3 (`PageLayers`): the canvas draws them in a modern font over the
+/// page drawn without them.
 nonisolated struct DrawnText: Equatable {
     /// Style 2 is big text (DRAW_BIG_TEXT): the letters doubled in both
     /// directions and drawn in colour as sprites; every other style normal
@@ -29,6 +31,14 @@ nonisolated struct DrawnText: Equatable {
     var cellWidth: Int { big ? 14 : 7 }
     var capHeight: Int { big ? 14 : 7 }
     var descent: Int { big ? 2 : 1 }
+
+    /// Normal text of `letters` (the loader's CHAR_OUT draws one at a time).
+    init(letters: [Letter]) {
+        big = false
+        patternEven = 0
+        patternOdd = 0
+        self.letters = letters
+    }
 
     /// The text DRAW_TEXT is about to draw, in `mem` where it starts.
     init(_ mem: [UInt8]) {

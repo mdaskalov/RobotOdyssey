@@ -70,10 +70,13 @@ nonisolated final class Machine {
         get { pageLayers }
         set {
             pageLayers = newValue
+            followsLoader = false
             followLayers()
         }
     }
     private var pageLayers: PageLayers?
+    /// The layers follow the loader's drawing (`keepLoaderLayers`), not the engine's.
+    private var followsLoader = false
     /// The drawings on layer 3 the 6502 code is in (DRAW_TEXT, DRAW_SPRITE):
     /// where each returns to, with the stack pointer it returns with.
     private var layerReturns: [(address: UInt16, sp: UInt8)] = []
@@ -122,6 +125,7 @@ nonisolated final class Machine {
         m.drive = drive
         m.nativesEnabled = nativesEnabled
         m.pageLayers = layers?.copy()
+        m.followsLoader = followsLoader
         m.apple.cpu.watchedPages = apple.cpu.watchedPages                 // the layers' (`followLayers`)
         m.layerReturns = layerReturns
         m.returnHooks = returnHooks
@@ -243,6 +247,16 @@ nonisolated final class Machine {
                          start: HiresScreen(layers.pages[p].start, base: 0), items: layers.pages[p].drawn)
     }
 
+    /// Keeps the canvas's layers of the pages while the loader runs (`keep`;
+    /// else none), following the loader's drawing: its texts (CHAR_OUT) on
+    /// layer 3, owning their cells (`PageLayers.textsOwnCells`), page 1's
+    /// emptied where CLEAR_SCREEN clears it (`Loader.charOutDrawing`).
+    func keepLoaderLayers(_ keep: Bool) {
+        pageLayers = keep ? PageLayers(textsOwnCells: true) : nil
+        followsLoader = keep
+        followLayers()
+    }
+
     /// The page the engine draws on (LINE_HIGH_TABLE's), 0 or 1.
     private var drawnPage: Int {
         PageLayers.page(lineHigh: apple.cpu.mem[apple.cpu.mem[\.lineHighTable]])
@@ -253,7 +267,9 @@ nonisolated final class Machine {
 
     /// The layers came or went: the pages' writes followed, and observers
     /// where a page's drawing starts (DRAW_ROOM_TILES) and where the natives
-    /// that draw on layer 3 start, by their names, while they are kept.
+    /// that draw on layer 3 start, by their names, while they are kept.  The
+    /// loader's (`keepLoaderLayers`): where CLEAR_SCREEN clears page 1 and
+    /// where CHAR_OUT starts, by its name.
     private func followLayers() {
         for page in 0x20 ..< 0x60 { apple.cpu.watchedPages[page] = layers != nil }
         for hook in layerHooks + returnHooks.values { apple.removeHook(hook) }
@@ -261,8 +277,19 @@ nonisolated final class Machine {
         returnHooks = [:]
         layerReturns = []
         guard layers != nil else { return }
+        if followsLoader {
+            layerHooks.append(apple.addObserver(at: Loader.clearScreenEntry) { apple in
+                (apple.host as? Machine)?.pageDrawingStarts(page: 0)
+            })
+            let drawing = Loader.charOutDrawing()
+            layerHooks.append(apple.addObserver(at: Loader.charOutEntry, name: Loader.charOutName) { apple in
+                (apple.host as? Machine)?.drawingStarts(drawing)
+            })
+            return
+        }
         layerHooks.append(apple.addObserver(at: Machine.drawRoomTiles) { apple in
-            (apple.host as? Machine)?.pageDrawingStarts()
+            guard let m = apple.host as? Machine else { return }
+            m.pageDrawingStarts(page: m.drawnPage)
         })
         for (native, entry, _) in installed {
             guard let drawing = native.drawing else { continue }
@@ -272,12 +299,12 @@ nonisolated final class Machine {
         }
     }
 
-    /// DRAW_ROOM_TILES: a page's drawing starts, its layer 3 empty.  The
-    /// engine's routines, at the same place in every world; the layers are
-    /// kept only while a world runs.
-    private func pageDrawingStarts() {
+    /// DRAW_ROOM_TILES (the loader's CLEAR_SCREEN): `page`'s drawing starts,
+    /// its layer 3 empty.  The engine's routines, at the same place in every
+    /// world; the engine's layers are kept only while a world runs.
+    private func pageDrawingStarts(page: Int) {
         guard let layers else { return }
-        layers.clear(page: drawnPage)
+        layers.clear(page: page)
         layerReturns = []
     }
 
@@ -296,7 +323,7 @@ nonisolated final class Machine {
             }
         }
         layerReturns.append((back, apple.cpu.sp &+ 2))
-        let page = drawnPage
+        let page = drawing.page?(apple.cpu) ?? drawnPage
         apple.cpu.mem.withUnsafeBufferPointer { layers.begin(item, page: page, memory: $0.baseAddress!) }
     }
 
@@ -305,7 +332,8 @@ nonisolated final class Machine {
     private func drawingReturns() {
         guard let r = layerReturns.last, r.address == apple.cpu.pc, r.sp == apple.cpu.sp else { return }
         layerReturns.removeLast()
-        layers?.end()
+        guard let layers else { return }
+        apple.cpu.mem.withUnsafeBufferPointer { layers.end(memory: $0.baseAddress!) }
     }
 
     /// The page the engine is drawing on, read through its line tables

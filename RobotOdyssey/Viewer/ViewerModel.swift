@@ -181,8 +181,11 @@ final class ViewerModel {
     /// going on (`followLoader`).
     private(set) var session = 0
     @ObservationIgnored private var followingLoader = false
-    /// The loader's screen while it runs (menu, saving...), in place of the room.
-    private(set) var loaderImage: CGImage?
+    /// The loader's screen while it runs (menu, saving...), in place of the
+    /// room: the image (layers 2 and 3 as the Apple's pixels, `LayerPixels`)
+    /// and layer 3 over it (its texts, CHAR_OUT's letters), as `liveFrame`.
+    private(set) var loaderFrame: (image: CGImage, items: [LayerItem], afterTexts: [UInt8])?
+    var loaderImage: CGImage? { loaderFrame?.image }
     /// The disk in the drive (`DiskDrive`).
     private(set) var driveDisk: DiskDrive.Disk?
 
@@ -424,7 +427,6 @@ final class ViewerModel {
     // MARK: images
 
     func image(world: World, room: Int) -> CGImage? {
-        if let loaderImage { return loaderImage }
         if let live = liveImage(world: world, room: room) { return live }
         let key = "\(world.id)#\(room)#\(mode.rawValue)"
         if let cached = roomImage, cached.key == key { return cached.image }
@@ -433,8 +435,10 @@ final class ViewerModel {
         return image
     }
 
-    /// The room as the running loop shows it, if it is the one on screen.
+    /// The room as the running loop shows it, if it is the one on screen;
+    /// the loader's screen while it runs.
     func liveImage(world: World, room: Int) -> CGImage? {
+        if let loaderImage { return loaderImage }
         guard let live = liveFrame, live.world == world.id, live.room == room else { return nil }
         return live.image
     }
@@ -443,6 +447,7 @@ final class ViewerModel {
     /// items, and by dot how many texts came before what was drawn there
     /// (`LayerPixels.afterTexts`).
     func liveItems(world: World, room: Int) -> (items: [LayerItem], afterTexts: [UInt8]) {
+        if let loader = loaderFrame { return (loader.items, loader.afterTexts) }
         guard let live = liveFrame, live.world == world.id, live.room == room else { return ([], []) }
         return (live.items, live.afterTexts)
     }
@@ -587,7 +592,7 @@ final class ViewerModel {
         clockCycle = nil
         releaseMouse()
         liveFrame = nil
-        loaderImage = nil
+        loaderFrame = nil
         worldsLoaded = 0
         liveSource = nil
         liveContents = nil
@@ -935,16 +940,19 @@ final class ViewerModel {
         if loopStatus != status { loopStatus = status }
         if driveDisk != loop.drive?.inserted { driveDisk = loop.drive?.inserted }
         if loop.inLoader {
-            // The loader's screen (and a world's start-up) in place of the room.
+            // The loader's screen (and a world's start-up) in place of the room, with its layers.
             if liveFrame != nil { liveFrame = nil }
-            let screen = loop.screen()
+            let frame = loop.shownFrame()
             let key = "loader#\(mode.rawValue)"
-            guard liveSource?.key != key || liveSource?.bytes != screen.bytes else { return }
-            liveSource = (key, screen.bytes, [])
-            loaderImage = Screen.image(screen, style: mode)
+            guard liveSource?.key != key || liveSource?.bytes != frame.apple.bytes || liveSource?.items != frame.items else { return }
+            liveSource = (key, frame.apple.bytes, frame.items)
+            let pixels = LayerPixels(frame)
+            if let image = Screen.image(pixels.screen, style: mode) {
+                loaderFrame = (image, frame.items, pixels.afterTexts)
+            }
             return
         }
-        if loaderImage != nil { loaderImage = nil }
+        if loaderFrame != nil { loaderFrame = nil }
         if playing, let shown = loop.shownRoom, shown != selectedRoom {
             selectedRoom = shown                    // shows it
             return

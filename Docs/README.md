@@ -68,7 +68,8 @@ faithful Swift version.
   next instruction on (Frontends.md). The loader's intro skip (PLAY_INTRO)
   has one too: off, Robotropolis' intro plays as on the Apple. The menu's
   drawing (DRAW_PICTURE, XOR_BLOCK) runs as natives too, so the intro's
-  tunes don't wait for its pictures (Loader.md).
+  tunes don't wait for its pictures (Loader.md), and the loader's texts
+  (CHAR_OUT) are on the native layer (since 2026‑11‑20).
 * **The native layer** (since 2026‑11‑05, Frontends.md): each page in three
   layers – the page as the game drew it, the page without what the texts,
   sprites, plots and lines drew (DRAW_TEXT, DRAW_BIG_TEXT, DRAW_SPRITE, PLOT,
@@ -121,7 +122,8 @@ faithful Swift version.
   menu, save, restore (equal to `WorldBuilder`'s saved game after a tick),
   a new storage disk, the intro played (its tunes streamed as the viewer
   does them), the game's sounds played as the viewer does (no pause, no
-  click), the menu's drawing natives call by call; v1.0 and v1.1.
+  click), the menu's drawing natives call by call, the loader's texts on
+  the native layer; v1.0 and v1.1.
 * **Next:** porting the tick's engine routines one by one (grabbing, linked
   objects, robots, wires, gates, chips), each checked tick by tick against
   the original.

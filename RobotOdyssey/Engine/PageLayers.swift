@@ -28,6 +28,14 @@ import Foundation
 /// from the page there), and follows it from there on.  The page as it was
 /// there is kept too (`Page.start`): the canvas draws layer 3's drawings and
 /// the writes between them on it again, in order (`LayerPixels`).
+///
+/// The loader's texts own their cells (`textsOwnCells`): CHAR_OUT writes a
+/// letter's whole cell (7 × 8), where the game's DRAW_TEXT ORs its letters
+/// into the page.  Such a letter clears its cell on layer 2 (the page
+/// without it), and as soon as anything writes into its cell (a letter or
+/// a space over it, the input's cursor, a clear, a picture) it is gone from
+/// layer 3, its cell back on layer 2 as drawn: the Apple's pixels, as on
+/// the Apple, until they are written over too.
 nonisolated final class PageLayers {
     /// One page's layers 2 and 3.
     struct Page {
@@ -40,6 +48,10 @@ nonisolated final class PageLayers {
         var items: [LayerItem] = []
         /// What was written to the page since the last drawing on layer 3.
         var writes = PageWrites()
+        /// With `textsOwnCells`: the bytes of the letters' cells on layer 3,
+        /// by offset in the page: the letter's cell (`cellKey`) and the byte
+        /// as its routine drew it.
+        var letterCells: [Int: (cell: Int, byte: UInt8)] = [:]
 
         /// Layer 3 as drawn so far: `items` and the writes after the last.
         var drawn: [LayerItem] { writes.isEmpty ? items : items + [.writes(writes)] }
@@ -55,13 +67,22 @@ nonisolated final class PageLayers {
     /// inside HORIZONTAL_LINE's): what they write stays out of layer 2, and
     /// only the outermost is an item.
     private(set) var drawing = 0
+    /// A normal text's letters own their cells (the loader's), not only
+    /// their pixels (the game's).
+    let textsOwnCells: Bool
+    /// With `textsOwnCells`: the text drawing now, its page and the cells of
+    /// its letters by offset, kept as drawn where it ends.
+    private var drawingCells: (page: Int, cells: [Int: Int])?
 
-    init() {}
+    init(textsOwnCells: Bool = false) {
+        self.textsOwnCells = textsOwnCells
+    }
 
     func copy() -> PageLayers {
-        let c = PageLayers()
+        let c = PageLayers(textsOwnCells: textsOwnCells)
         c.pages = pages
         c.drawing = drawing
+        c.drawingCells = drawingCells
         return c
     }
 
@@ -78,6 +99,7 @@ nonisolated final class PageLayers {
         let p = address >= 0x4000 ? 1 : 0
         guard !pages[p].items.isEmpty else { return }
         let i = address & (PageLayers.pageSize - 1)
+        if textsOwnCells, let hit = pages[p].letterCells[i] { giveBack(cell: hit.cell, page: p) }
         pages[p].apple[i] = pages[p].apple[i] & ~changed | new & changed
         pages[p].writes.add(i, changed: changed, value: new)
     }
@@ -92,6 +114,7 @@ nonisolated final class PageLayers {
             pages[page].apple = Array(UnsafeBufferPointer(start: memory + base, count: PageLayers.pageSize))
             pages[page].start = pages[page].apple
         }
+        if textsOwnCells, case .text(let text) = item, !text.big { own(text, page: page) }
         if !pages[page].writes.isEmpty {
             pages[page].items.append(.writes(pages[page].writes))
             pages[page].writes = PageWrites()
@@ -99,17 +122,79 @@ nonisolated final class PageLayers {
         pages[page].items.append(item)
     }
 
-    /// The drawing `begin` started returns.
-    func end() {
-        if drawing > 0 { drawing -= 1 }
+    /// The drawing `begin` started returns (`memory`: the 64K as they are,
+    /// needed where a text that owns its cells ends).
+    func end(memory: UnsafePointer<UInt8>? = nil) {
+        guard drawing > 0 else { return }
+        drawing -= 1
+        guard drawing == 0, let (page, cells) = drawingCells else { return }
+        drawingCells = nil
+        let base = 0x2000 + page * PageLayers.pageSize
+        for (offset, cell) in cells {
+            pages[page].letterCells[offset] = (cell, memory.map { $0[base + offset] } ?? 0)
+        }
     }
 
-    /// `page`'s drawing starts again (DRAW_ROOM_TILES): its layer 3 empty.
-    /// No drawing on layer 3 goes on across it.
+    /// `page`'s drawing starts again (DRAW_ROOM_TILES; the loader's
+    /// CLEAR_SCREEN): its layer 3 empty.  No drawing on layer 3 goes on across it.
     func clear(page: Int) {
         pages[page].items = []
         pages[page].writes = PageWrites()
+        pages[page].letterCells = [:]
         drawing = 0
+        drawingCells = nil
+    }
+
+    // MARK: texts that own their cells
+
+    /// A letter's cell as a key: its lower left corner (`DrawnText.Letter`).
+    private static func cellKey(x: Int, y: Int) -> Int { y << 16 | x }
+
+    /// The offsets in a page of the bytes of the cell `key`: a byte column
+    /// on 8 lines, its top line first.  None off the screen.
+    private static func offsets(cell key: Int) -> [Int] {
+        let x = key & 0xFFFF, y = key >> 16
+        let column = x / 7, top = HiresScreen.height - 1 - y - 7
+        guard column < HiresScreen.bytesPerLine, top >= 0, y >= 0 else { return [] }
+        return (0 ..< 8).map { HiresScreen.lineOffset[top + $0] + column }
+    }
+
+    /// `text` is drawn on `page`, over its letters' cells: the letters there
+    /// before are gone from layer 3, and the cells are cleared on layer 2.
+    private func own(_ text: DrawnText, page: Int) {
+        var cells: [Int: Int] = [:]
+        for letter in text.letters {
+            let key = PageLayers.cellKey(x: letter.x, y: letter.y)
+            removeLetters(cell: key, page: page)
+            for offset in PageLayers.offsets(cell: key) {
+                pages[page].apple[offset] = 0
+                pages[page].writes.add(offset, changed: 0xFF, value: 0)
+                cells[offset] = key
+            }
+        }
+        drawingCells = (page, cells)
+    }
+
+    /// Something writes into the cell `key` of a letter on layer 3: the
+    /// letter is gone, the cell back on layer 2 as the letter drew it.
+    private func giveBack(cell key: Int, page: Int) {
+        removeLetters(cell: key, page: page)
+        for offset in PageLayers.offsets(cell: key) {
+            guard let drawn = pages[page].letterCells.removeValue(forKey: offset) else { continue }
+            pages[page].apple[offset] = drawn.byte
+            pages[page].writes.add(offset, changed: 0xFF, value: drawn.byte)
+        }
+    }
+
+    /// Takes the letters in the cell `key` off layer 3 (a text left without
+    /// letters with them).
+    private func removeLetters(cell key: Int, page: Int) {
+        let x = key & 0xFFFF, y = key >> 16
+        pages[page].items = pages[page].items.compactMap { item in
+            guard case .text(let text) = item, !text.big, text.letters.contains(where: { $0.x == x && $0.y == y }) else { return item }
+            let rest = text.letters.filter { $0.x != x || $0.y != y }
+            return rest.isEmpty ? nil : .text(DrawnText(letters: rest))
+        }
     }
 }
 

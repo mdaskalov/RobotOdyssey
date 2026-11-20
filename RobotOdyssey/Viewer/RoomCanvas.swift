@@ -56,14 +56,13 @@ struct RoomCanvas: View {
                         .resizable()
                         .frame(width: geo.size.width, height: geo.size.height)
                 }
-                if !model.inLoader {
-                    let layer = model.liveItems(world: world, room: model.selectedRoom)
-                    if !layer.items.isEmpty {
-                        NativeLayer(items: layer.items, pixels: model.liveImage(world: world, room: model.selectedRoom),
-                                    afterTexts: layer.afterTexts, mono: model.mode == .monochrome)
-                            .equatable()
-                            .frame(width: geo.size.width, height: geo.size.height)
-                    }
+                // The room's layer 3, or the loader's (its texts).
+                let layer = model.liveItems(world: world, room: model.selectedRoom)
+                if !layer.items.isEmpty {
+                    NativeLayer(items: layer.items, pixels: model.liveImage(world: world, room: model.selectedRoom),
+                                afterTexts: layer.afterTexts, mono: model.mode == .monochrome)
+                        .equatable()
+                        .frame(width: geo.size.width, height: geo.size.height)
                 }
                 if model.showGrid && !model.inLoader { TileGrid(k: k) }
                 if !model.inLoader, let s = model.selection.flatMap(contents.sprite) {

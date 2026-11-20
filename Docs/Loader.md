@@ -70,6 +70,36 @@ its tunes no longer wait for the pictures (Sound.md). The wipe (op 01, 1.2 s
 at the intro's start, its iris of circles) stays the original's: its time
 is the effect.
 
+### The loader's texts on the native layer
+
+The loader's messages, prompts and directories are CHAR_OUT's ($4F06, boot
+stage 2): one letter a call, from its own 7 × 8 font (CHAR_FONT, $5100,
+capitals on lines 0‑6, descenders on line 7: the game's cell) at the cursor
+(CH, CV at $24/$25) in the text window ($20‑$23), on page 1 (page 2 with
+CHAR_PAGE's bit 6). Unlike DRAW_TEXT, which ORs its letters into the page,
+CHAR_OUT writes the whole cell: the glyph EOR CHAR_INVERSE, or a solid block
+for the name input's cursor (CHAR_BLOCK); controls clear, move back, beep.
+
+While the loader runs (from a world's exit until it starts the next world)
+the machine keeps the pages' layers for it (`Machine.keepLoaderLayers`,
+Frontends.md "The native layer"): CHAR_OUT is followed as 6502 code like the
+engine's DRAW_TEXT (`Loader.charOutDrawing`, Natives/LoaderText.swift):
+where it starts, the letter it is about to draw ($A1‑$FF, normal, not a
+block) goes on layer 3, placed where CHAR_PRINT places it
+(`Loader.charOutLetter`), and the canvas draws it in SF Mono Medium. Spaces,
+inverse letters, the cursor and the controls stay the Apple's pixels. The
+letters own their cells (`PageLayers.textsOwnCells`): a letter clears its
+cell on layer 2, and anything written into its cell later (a letter or a
+space over it, the cursor, backspace's clear, a picture) takes it off layer
+3, the cell back to the Apple's pixels as drawn. CLEAR_SCREEN ($4824)
+empties page 1's layer 3. CHAR_OUT has a switch under *Loader*, marked as
+drawing on the native layer; off, its letters are the Apple's pixels from
+the next one on. Followed only where its code is the loader's (fingerprint
+$4F06‑$4F08, $4F0C‑$50DF, the same in every v1.0 and v1.1 dump; v2.0's
+differs). `loader_check`'s *texts* checks the save's prompts: each letter's
+cell holds its glyph, the canvas's pixels are the page but for the letters'
+cells, no glyph is left as the Apple's pixels, none with the switch off.
+
 The disks are what `DiskDrive` has: the program disk's two sides of the
 world's version and one storage disk. The program disk is write‑protected,
 as the originals are. Sectors are by track and the loader's sector number,

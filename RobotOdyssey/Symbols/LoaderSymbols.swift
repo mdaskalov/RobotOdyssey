@@ -22,6 +22,17 @@ nonisolated final class LoaderSymbols: SharedSymbolMap {
     let wantedSide = Byte(0x0E)
     /// The letter chosen in a directory, from 0 (A).
     let chosenSlot = Byte(0x0F)
+    /// The text window CHAR_OUT keeps to, as the monitor's (WNDLFT, WNDWDTH,
+    /// WNDTOP, WNDBTM): its left column, its width, its top row and the row
+    /// below its last.
+    let windowLeft = Byte(0x20)
+    let windowWidth = Byte(0x21)
+    let windowTop = Byte(0x22)
+    let windowBottom = Byte(0x23)
+    /// Where CHAR_OUT prints next (the monitor's CH, CV): the column in the
+    /// window, and the row.
+    let cursorColumn = Byte(0x24)
+    let cursorRow = Byte(0x25)
 
     // The menu interpreter's zero page (MENU_BYTECODE), named for DRAW_PICTURE;
     // the other handlers use the same bytes for their own.
@@ -330,8 +341,29 @@ nonisolated final class LoaderSymbols: SharedSymbolMap {
     /// Sets up CHAR_OUT.
     let charInit = Routine(0x4F03)
     /// Prints character A (Apple code) on hi-res page 1 at CH/CV ($24/$25)
-    /// in the window ($20-$23); $87 beeps, $88 back, $8D new line...
-    let charOut = Routine(0x4F06)
+    /// in the window ($20-$23): a letter ($A0-$FF) overwrites its whole cell
+    /// (7 × 8, the glyph from CHAR_FONT, EOR CHAR_INVERSE), then CH moves on,
+    /// wrapping to the next row and from the last to the window's top (no
+    /// scrolling).  Controls ($80-$9B): $81 CHAR_INIT, $85 clear to the
+    /// window's end, $87 beep, $88 back, $89 inverse on/off, $8A down, $8C
+    /// clear to the line's end, $8D new line, $8E block on/off, $90 page 1/2,
+    /// $95 forward, $9A clear the window.  `JMP CHAR_PRINT` (X and Y kept).
+    /// Its letters are drawn on the native layer (`Loader.charOut`).
+    let charOut = Routine(0x4F06, code: 0x4F06 ..< 0x4F09, 0x4F0C ..< 0x50E0, md5: "0309499ad8dea2749b46af239f1aad4b")
+    /// CHAR_OUT's modes, set by its controls ($4F20-$4F22 copied in by
+    /// CHAR_INIT): the line high byte of row 0 ($20; EOR $60, $40: page 2),
+    /// the mask its glyphs and clears are EORed with ($00; $7F inverse), bit
+    /// 7 set: letters drawn as a solid block (the input's cursor).
+    let charPage = Byte(0x4F09)
+    let charInverse = Byte(0x4F0A)
+    let charBlock = Byte(0x4F0B)
+    let charPrint = Routine(0x4F0C)
+    /// The address of each text row's top line (0-23) on page 1, low and high bytes.
+    let charRowLow = Table(0x50B0)
+    let charRowHigh = Table(0x50C8)
+    /// The glyphs of $A0-$FF, 8 bytes each from the top line: capitals on
+    /// lines 0-6, the descenders on line 7.
+    let charFont = Table(0x5100)
     /// Written to a new storage disk's track 0 sector 0: a boot sector that
     /// asks for the program disk; side number 2 at $54FB (`DiskDrive`).
     let storageBoot = Table(0x5400)
